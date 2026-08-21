@@ -1,0 +1,110 @@
+{
+  "skill_name": "coverity-defect-detectability",
+  "evals": [
+    {
+      "id": 0,
+      "eval_name": "interprocedural-uninit",
+      "prompt": "I was given the C file at C:\\Data\\CoveritySkills\\coverity-defect-detectability-workspace\\test-inputs\\uninit\\main.c by a customer whose static analysis tool (Klocwork) misses a bug in it. There is supposedly a read of a possibly-uninitialized variable 'value' at the line 'if (value == 1)' in main(). Can Coverity find this defect? We have Coverity installed at C:\\Coverity\\cov-analysis-win64-2026.6.0. If it doesn't find it out of the box, I need to know exactly what configuration makes it find it.",
+      "expected_output": "Verdict: DETECTED with configuration. Checker UNINIT. Minimal trigger is --checker-option UNINIT:enable_write_context:true at default aggressiveness (also fires at --aggressiveness-level medium/high). Report should include the reproduce commands and the FP tradeoff.",
+      "files": [
+        "test-inputs/uninit/main.c"
+      ],
+      "assertions": [
+        "Verdict states the defect IS detectable by Coverity, but only with non-default configuration",
+        "Identifies UNINIT as the checker that reports the defect",
+        "Identifies the specific minimal checker option UNINIT:enable_write_context (not merely 'use aggressiveness medium/high')",
+        "Provides a complete, correct reproduce command sequence (capture plus cov-analyze with the triggering configuration)",
+        "Actually ran Coverity: an intermediate directory with analysis output exists in the run's work directory",
+        "Mentions the false-positive tradeoff of the enabling configuration"
+      ]
+    },
+    {
+      "id": 1,
+      "eval_name": "default-detected-leak",
+      "prompt": "Code review flagged that sum_from_file in C:\\Data\\CoveritySkills\\coverity-defect-detectability-workspace\\test-inputs\\leak\\reader.c leaks the 'buf' allocation when fopen fails. Would Coverity catch this leak? Coverity 2026.6.0 is installed at C:\\Coverity\\cov-analysis-win64-2026.6.0.",
+      "expected_output": "Verdict: DETECTED by default. Checker RESOURCE_LEAK at the 'return -1' line. Capture requires handling system headers (cov-build with gcc, or correct hand-declarations) because bare cov-emit cannot resolve #include <stdlib.h>.",
+      "files": [
+        "test-inputs/leak/reader.c"
+      ],
+      "assertions": [
+        "Verdict states Coverity detects the leak with default analysis settings (no special options required)",
+        "Identifies RESOURCE_LEAK as the checker",
+        "Locates the defect on the early-return path when fopen fails (the 'return -1' line)",
+        "Overcame the system-header capture problem (bare cov-emit cannot resolve #include <stdlib.h>) and got a clean capture",
+        "Actually ran Coverity: an intermediate directory with analysis output exists in the run's work directory"
+      ]
+    },
+    {
+      "id": 2,
+      "eval_name": "undetectable-logic-error",
+      "prompt": "Our pricing spec says orders of 100 units or more get the bulk discount, but unit_price_cents in C:\\Data\\CoveritySkills\\coverity-defect-detectability-workspace\\test-inputs\\logic\\discount.c uses '>' instead of '>=', so an order of exactly 100 units is charged full price. This made it to production. Could Coverity have detected this defect? Our install is at C:\\Coverity\\cov-analysis-win64-2026.6.0.",
+      "expected_output": "Verdict: NOT DETECTED, reached honestly after actually running the escalation ladder (not just asserted). Explanation that this is a specification-level logic error with no code-level anomaly for any checker to flag; no false claim that some option would find it.",
+      "files": [
+        "test-inputs/logic/discount.c"
+      ],
+      "assertions": [
+        "Verdict states the defect is NOT detectable by Coverity",
+        "Conclusion was reached empirically: an intermediate directory with analysis output exists in the run's work directory",
+        "Report documents that escalated configurations were tried (aggressiveness levels and/or --all), not only the default run",
+        "Explains WHY it is undetectable (specification-level logic error, no code-level anomaly) and does not falsely claim some option would find it"
+      ]
+    },
+    {
+      "id": 3,
+      "eval_name": "rfp-kitchen-sink",
+      "prompt": "Our RFP response needs to demonstrate Coverity's coverage of a sample the customer provided: C:\\Data\\CoveritySkills\\coverity-defect-detectability-workspace\\test-inputs\\rfi\\insecure.c. The customer planted 5 issues and will score tools on how many they find: (1) use of gets(), (2) strcpy of a 16-byte buffer into an 8-byte buffer, (3) format string vulnerability at printf(buf), (4) command injection at system(cmd) where cmd comes from argv[1], (5) the malloc'd pointer p is never freed. Which of these can Coverity report, and exactly what analysis configuration does each one need? A default run gave us zero defects, which looks terrible for the RFP. Coverity is installed at C:\\Coverity\\cov-analysis-win64-2026.6.0.",
+      "expected_output": "All five issues detectable, none at pure defaults. Per-defect configs: gets -> DC.STREAM_BUFFER via --security or high aggressiveness; strcpy -> STRING_OVERFLOW via --enable STRING_OVERFLOW (also DC.STRING_BUFFER); printf(buf) -> FORMAT_STRING_INJECTION via --enable + --distrust-filesystem (stdin taint); system(argv[1]) -> OS_CMD_INJECTION via --enable + --distrust-command-line; leak -> RESOURCE_LEAK via RESOURCE_LEAK:allow_main:true (suppressed in main by default). A single command like cov-analyze --security --aggressiveness-level high (or --all high) reports all of them at once.",
+      "files": [
+        "test-inputs/rfi/insecure.c"
+      ],
+      "assertions": [
+        "Confirms empirically that a default cov-analyze run reports zero defects on this file",
+        "All five planted issues are individually addressed with a checker name and a configuration that reports them",
+        "Leak: identifies RESOURCE_LEAK:allow_main:true (or medium+ aggressiveness) and explains the deliberate leak-in-main suppression",
+        "strcpy overflow: identifies STRING_OVERFLOW as a default-disabled checker needing --enable STRING_OVERFLOW (or --security/--all)",
+        "Command injection: identifies that OS_CMD_INJECTION needs BOTH checker enablement AND a distrusted source (--distrust-command-line, --distrust-all, or high aggressiveness)",
+        "Format string: identifies FORMAT_STRING_INJECTION with an appropriate distrust source (filesystem/all or high aggressiveness)",
+        "gets(): reports a working configuration (--security, high aggressiveness, or equivalent DC/SECURE_CODING enablement)",
+        "Provides at least one single combined command line that reports all five issues at once (useful for the RFP demo)",
+        "Actually ran Coverity: intermediate directory with analysis output exists in the run's work directory"
+      ]
+    },
+    {
+      "id": 4,
+      "eval_name": "rfp-cmd-injection",
+      "prompt": "A colleague ran Coverity with default settings on C:\\Data\\CoveritySkills\\coverity-defect-detectability-workspace\\test-inputs\\rfi\\insecure.c and got zero defects. He's now claiming in an internal thread that Coverity fundamentally cannot detect the command injection at the system(cmd) call (cmd comes from argv[1] via snprintf). That can't be right, can it? What exactly do we need to turn on for Coverity to flag that command injection? Install is at C:\\Coverity\\cov-analysis-win64-2026.6.0.",
+      "expected_output": "Detectable. OS_CMD_INJECTION at the system() call line. Minimal config: --enable OS_CMD_INJECTION --distrust-command-line (enabling the checker alone is NOT enough - argv is trusted by default; high aggressiveness also flips trust). Report should demonstrate the two-ingredient requirement and verify the report lands on the system() line.",
+      "files": [
+        "test-inputs/rfi/insecure.c"
+      ],
+      "assertions": [
+        "Verdict clearly refutes the colleague's claim: Coverity CAN detect this command injection",
+        "Identifies OS_CMD_INJECTION as the checker and verifies the report is at the system(cmd) call site",
+        "Identifies that detection requires BOTH enabling the checker AND distrusting the command-line source (--distrust-command-line or equivalent) - not just --enable",
+        "Provides an exact reproduce command line the colleague can run",
+        "Actually ran Coverity: intermediate directory with analysis output exists in the run's work directory"
+      ]
+    },
+    {
+      "id": 5,
+      "eval_name": "csharp-mixed-plants",
+      "prompt": "We're evaluating Coverity on a C# security sample the customer supplied: C:\\Data\\CoveritySkills\\coverity-defect-detectability-workspace\\test-inputs\\csharp\\InsecureService.cs (a .csproj sits next to it; it targets net8.0 and references System.Data.SqlClient). The customer says they planted these issues and will score how many Coverity reports: SQL injection, hardcoded database credentials, a certificate-validation bypass, command injection via Process.Start, a sensitive-data leak from logging query results, and use of MD5 on a password. For each, tell us whether Coverity reports it and with what configuration. Coverity is installed at C:\\Coverity\\cov-analysis-win64-2026.6.0.",
+      "expected_output": "Captures C# correctly (cov-configure --cs, cov-build around a real rebuild with UseSharedCompilation=false; buildless avoided). Scorecard: SQLI (webapp-security+distrust), HARDCODED_CREDENTIALS (webapp-security; also SIGMA.hardcoded_secret at default), BAD_CERT_VERIFICATION (webapp-security), OS_CMD_INJECTION (webapp-security+distrust). Crucially, the TWO botched plants are handled honestly: (a) the 'sensitive data leak' from logging usernames is NOT a sensitive-data-exposure finding and nothing fires at default; LOG_INJECTION (a different class) fires only under audit checkers. (b) MD5-on-a-password: the string hashed is a literal so there's no sensitive data flow, but weak_hash/RISKY_CRYPTO fire on the MD5 algorithm itself - 'passes' for a reason the author didn't intend. Tone is gentle and educational, not mocking the sample author.",
+      "files": [
+        "test-inputs/csharp/InsecureService.cs",
+        "test-inputs/csharp/InsecureService.csproj"
+      ],
+      "assertions": [
+        "Captured C# correctly: ran cov-configure --cs and cov-build around a real rebuild (or equivalent), confirming a non-empty emit rather than a silent zero-capture; an intermediate directory with analysis output exists",
+        "SQL injection: reports SQLI and identifies it needs --webapp-security plus a distrusted source",
+        "Hardcoded credentials: reports HARDCODED_CREDENTIALS and/or SIGMA.hardcoded_secret with the configuration for each",
+        "Certificate-validation bypass: reports BAD_CERT_VERIFICATION under --webapp-security",
+        "Command injection: reports OS_CMD_INJECTION and identifies the two-switch (checker + distrusted source) requirement",
+        "Botched plant #1 (logging usernames): recognizes it is NOT a sensitive-data-leak finding; notes nothing fires at default and that LOG_INJECTION (a different vulnerability class) appears only under audit checkers",
+        "Botched plant #2 (MD5 of a literal): recognizes there is no sensitive-data flow, but that weak_hash/RISKY_CRYPTO fire on the MD5 algorithm itself - the test passes for a reason other than what was intended",
+        "Distinguishes 'a checker fired on this line' from 'the author's intended defect is real and detected' rather than collapsing both to a found/not-found tally",
+        "Tone toward the sample and its author is gentle and educational, not mocking"
+      ]
+    }
+  ]
+}

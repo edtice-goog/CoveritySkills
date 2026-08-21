@@ -1,0 +1,5 @@
+# Eval workspace: run outputs, Coverity intermediate directories (large), feedback
+coverity-defect-detectability-workspace/
+# Coverity intermediate dirs anywhere
+idir*/
+*.o
