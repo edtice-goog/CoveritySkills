@@ -16,6 +16,8 @@ Subcommands, in the order the procedure uses them:
   extract    pull the (translate, emit) pairs out of an idir
   probe      re-run recorded inputs under a given install, capture its output
   delta      normalize and diff recorded vs generated
+  replay     re-run recorded invocations against real sources, new install
+  reconcile  compare the replayed idir against the original inventory
 
 Always run `probe` against the ORIGINAL version first. That control is what
 separates the version's contribution from your environment's. See
@@ -34,9 +36,16 @@ import sys
 # --------------------------------------------------------------------------
 # normalization
 #
-# Every entry masked here was observed to vary between two runs of the SAME
-# version. Do not extend this set to make a delta disappear; find out why the
-# new element varies first.
+# Two kinds of handling, and the difference matters:
+#   MASK      -- environment noise, dropped or replaced by a placeholder.
+#                Every masked entry was observed to vary between two runs of
+#                the SAME version.
+#   TRANSFORM -- version-owned artifacts (user_nodefs.h, the compat headers)
+#                that legitimately live under whichever install/idir is
+#                running. The token is KEPT and only its path is rewritten, so
+#                a genuine presence asymmetry still surfaces as a diff.
+# Do not extend either set to make a delta disappear; find out why the new
+# element varies first.
 # --------------------------------------------------------------------------
 
 CFG_INSTANCE_RE = re.compile(r"^.*/emit/[^/]+/config/[0-9a-f]{32}/(.*)$")
@@ -57,7 +66,7 @@ def _slash(tok):
 
 
 def normalize(tokens, source_name=None):
-    """Mask environment-dependent tokens. Returns a new list."""
+    """Mask environment noise and transform version-owned paths."""
     out = []
     i = 0
     n = len(tokens)
@@ -85,8 +94,13 @@ def normalize(tokens, source_name=None):
             i += 1
             continue
 
-        # --preinclude <...>/user_nodefs.h : present iff the config dir has one
+        # Version-owned include: user_nodefs.h belongs to whichever product
+        # version is running, so its path is TRANSFORMED, not dropped. Keeping
+        # the token means a genuine presence asymmetry still shows as a diff,
+        # while a mere difference in install root does not.
         if t == "--preinclude" and i + 1 < n and _slash(tokens[i + 1]).endswith("user_nodefs.h"):
+            out.append("--preinclude")
+            out.append("<USER_NODEFS>")
             i += 2
             continue
 
@@ -316,14 +330,16 @@ def cmd_probe(a):
                 print("ERROR: cov-configure rc=%d" % rc, file=sys.stderr)
                 return 2
             print("created template config (%s) at %s" % (a.auto_config, cfg))
-        # rule 1 / control fidelity: warn about user_nodefs.h asymmetry
-        inst_cfg = os.path.join(os.path.dirname(a.bin.rstrip("/\\")), "config", "user_nodefs.h")
-        if os.path.isfile(inst_cfg) and not os.path.isfile(
-                os.path.join(os.path.dirname(cfg), "user_nodefs.h")):
-            print("WARNING: this install ships config/user_nodefs.h but the probe config")
-            print("         directory has none. If the original build used the install's")
-            print("         own config dir, expect a spurious --preinclude difference.")
-            print("         See references/transformation-probe.md.")
+        # The version-owned includes must come from the SAME product version
+        # as cov-emit. cov-configure does not create user_nodefs.h in a fresh
+        # --config directory, so seed it from the install being probed;
+        # otherwise the generated emit line silently loses its --preinclude.
+        inst_root = os.path.dirname(a.bin.rstrip("/\\"))
+        src_nodefs = os.path.join(inst_root, "config", "user_nodefs.h")
+        dst_nodefs = os.path.join(os.path.dirname(cfg), "user_nodefs.h")
+        if os.path.isfile(src_nodefs) and not os.path.isfile(dst_nodefs):
+            shutil.copyfile(src_nodefs, dst_nodefs)
+            print("seeded user_nodefs.h from %s" % src_nodefs)
 
     results = []
     for i in idxs:
@@ -451,6 +467,129 @@ def cmd_delta(a):
     return 0 if not any_diff else 1
 
 
+
+# --------------------------------------------------------------------------
+# replay
+# --------------------------------------------------------------------------
+
+def licence_check(bin_dir):
+    """Replay needs no licence; cov-analyze does. Warn BEFORE the replay."""
+    import glob as g
+    found = []
+    for pat in ("license*.dat", "license*.json", "license.config"):
+        found.extend(g.glob(os.path.join(bin_dir, pat)))
+    if not found:
+        print("WARNING: no licence file in %s" % bin_dir)
+        print("         Replay will still succeed -- cov-emit does not check --")
+        print("         but cov-analyze will fail at the last step (rc 47).")
+        return False
+    for f in found:
+        try:
+            txt = open(f, encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        dates = sorted(set(re.findall(r"20\d{2}-\d{2}-\d{2}", txt)))
+        if dates:
+            print("licence %s (latest date in file: %s)" % (os.path.basename(f), dates[-1]))
+            return True
+    print("licence %s found" % os.path.basename(found[0]))
+    return True
+
+
+def cmd_replay(a):
+    meta = json.load(open(a.pairs, encoding="utf-8"))
+    pairs = meta["pairs"]
+    if a.limit:
+        pairs = pairs[:a.limit]
+    exe = tool(a.bin, "cov-translate")
+    licence_check(a.bin)
+
+    if os.path.exists(a.dir) and os.listdir(a.dir):
+        print("ERROR: %s is not empty. Rule 8 -- replay into a FRESH idir." % a.dir,
+              file=sys.stderr)
+        return 2
+
+    results = []
+    for i, p in enumerate(pairs):
+        cwd = p["translate_cwd"]
+        if not cwd or not os.path.isdir(cwd):
+            print("[%3d] CWD MISSING %s" % (i, cwd))
+            results.append({"i": i, "primary": p["primary"], "rc": None,
+                            "error": "cwd missing"})
+            continue
+        argv = ([exe, "--dir", a.dir, "--config", a.config]
+                + list(p["translate_argv"][1:]) + a.extra)
+        rc, out = run(argv, cwd=cwd)
+        emitted = "Emit for file" in out or "complete." in out
+        results.append({"i": i, "primary": p["primary"], "rc": rc,
+                        "emitted": emitted,
+                        "tail": out.strip().splitlines()[-3:] if rc else None})
+        print("[%3d] rc=%d %-36s %s" % (i, rc, os.path.basename(p["primary"] or "?"),
+                                        "emitted" if emitted else "NO EMIT"))
+        sys.stdout.flush()
+
+    ok = sum(1 for r in results if r.get("rc") == 0)
+    em = sum(1 for r in results if r.get("emitted"))
+    json.dump({"bin": a.bin, "dir": a.dir, "attempted": len(results),
+               "rc0": ok, "emitted": em, "results": results},
+              open(a.out, "w", encoding="utf-8"), indent=1)
+    print("\nattempted %d | rc=0 %d | emitted %d" % (len(results), ok, em))
+    if em != len(results):
+        print("SHORTFALL: %d of %d did not emit. Reconcile before believing any"
+              % (len(results) - em, len(results)))
+        print("           downstream comparison -- a short replay looks like an improvement.")
+    return 0
+
+
+def cmd_reconcile(a):
+    """Compare a replayed idir's inventory against the original pairs."""
+    meta = json.load(open(a.pairs, encoding="utf-8"))
+    expected = {p["primary"]: p for p in meta["pairs"] if p.get("primary")}
+    exe = tool(a.bin, "cov-manage-emit")
+    rc, out = run([exe, "--dir", a.dir, "list-json"])
+    if rc != 0:
+        sys.stderr.write(out)
+        return 2
+    got = {t["primaryFilename"]: t for t in json.loads(out)}
+
+    missing = sorted(set(expected) - set(got))
+    extra = sorted(set(got) - set(expected))
+    noast = sorted(k for k, v in got.items() if not v.get("hasASTs"))
+    failed = sorted(k for k, v in got.items() if v.get("isFailure"))
+    lowfid = sorted(k for k, v in got.items()
+                    if (v.get("astFidelityPercent") or 100) < 100)
+
+    print("RECONCILIATION")
+    print("  original TUs : %d" % len(expected))
+    print("  replayed TUs : %d" % len(got))
+    print("  missing      : %d" % len(missing))
+    for m in missing[:20]:
+        print("     - %s" % m)
+    print("  unexpected   : %d" % len(extra))
+    for m in extra[:20]:
+        print("     + %s" % m)
+    print("  without ASTs : %d" % len(noast))
+    print("  isFailure    : %d" % len(failed))
+    print("  fidelity<100 : %d" % len(lowfid))
+
+    grade = "CONSISTENT"
+    if missing or noast or failed:
+        grade = "SHORTFALL"
+    elif extra or lowfid:
+        grade = "REVIEW"
+    print("\n  GRADE: %s  (original %d / replayed %d / analyzable %d)"
+          % (grade, len(expected), len(got), len(got) - len(noast)))
+    if grade == "SHORTFALL":
+        print("\n  A short replay silently shrinks the analyzed set. Do NOT report a")
+        print("  finding delta from this idir -- the denominator moved.")
+    if a.json_out:
+        json.dump({"grade": grade, "original": len(expected), "replayed": len(got),
+                   "missing": missing, "extra": extra, "without_asts": noast,
+                   "failures": failed}, open(a.json_out, "w", encoding="utf-8"), indent=1)
+        print("\n  wrote %s" % a.json_out)
+    return 0 if grade == "CONSISTENT" else 1
+
+
 # --------------------------------------------------------------------------
 
 def main():
@@ -489,6 +628,24 @@ def main():
     p.add_argument("--context", type=int, default=2)
     p.add_argument("--json-out")
     p.set_defaults(fn=cmd_delta)
+
+    p = sub.add_parser("replay", help="re-run recorded invocations under a new install")
+    p.add_argument("--pairs", required=True)
+    p.add_argument("--bin", required=True, help="bin/ of the NEW install")
+    p.add_argument("--dir", required=True, help="fresh idir to emit into (rule 8)")
+    p.add_argument("--config", required=True)
+    p.add_argument("--out", required=True)
+    p.add_argument("--limit", type=int, default=0)
+    p.add_argument("--extra", nargs="*", default=[],
+                   help="extra compiler args, e.g. pinning a language level back")
+    p.set_defaults(fn=cmd_replay)
+
+    p = sub.add_parser("reconcile", help="compare a replayed idir against the original")
+    p.add_argument("--pairs", required=True)
+    p.add_argument("--bin", required=True, help="bin/ of the install that wrote the replay")
+    p.add_argument("--dir", required=True, help="the replayed idir")
+    p.add_argument("--json-out")
+    p.set_defaults(fn=cmd_reconcile)
 
     a = ap.parse_args()
     if not getattr(a, "fn", None):

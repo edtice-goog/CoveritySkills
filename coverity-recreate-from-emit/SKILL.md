@@ -12,20 +12,55 @@ description: >
   by a new analyzer and rebuilding is not an option. The central technique is
   a probe that *measures* how a given Coverity version turns a compiler
   command line into a cov-emit command line, so replay rests on evidence
-  rather than on the assumption that the translation is unchanged. Requires
-  local Coverity installations -- both the version that wrote the idir and the
-  version you want to analyze with.
+  rather than on the assumption that the translation is unchanged.
+
+  ALSO covers the second use of a foreign intermediate directory: reusing one
+  for speed. Use it when someone wants to avoid re-capturing a slow build --
+  copying an idir from CI, a release job, or another checkout and bringing it
+  up to date with a working tree by re-emitting only the changed translation
+  units; when asked how to make Coverity analysis fast enough for active
+  development or an inner loop; or when an idir is being reused and someone
+  needs to know whether that is safe. That path deliberately violates the
+  fresh-intermediate-directory rule and carries two applicability gates (the
+  build system must track header dependencies, and the idir must come with a
+  known git commit or tag), so it also answers "can I reuse this idir?" with
+  a measured no.
+
+  Requires local Coverity installations -- for the recreate path, both the
+  version that wrote the idir and the version you want to analyze with.
 ---
 
 # Recreate from emit
 
-`coverity-build-fidelity` assumes you can run the build. Often you cannot. When
-the build is unavailable, **the intermediate directory is the surviving record
-of it** -- and it is a better record than it first appears.
+Working from an intermediate directory you did not capture, instead of
+capturing a fresh one. **The idir is a far better record of its build than it
+first appears** -- it carries the original compiler command lines, the
+resolved compiler model, and the full include closure of every translation
+unit.
 
-The deliverable is an idir that a *newer* analyzer will accept, plus evidence
-that it corresponds to the same code as the original, plus an honest grade when
-it does not.
+Two situations, sharing that machinery:
+
+| | Situation | Procedure |
+|---|---|---|
+| **A** | The build **cannot be run** -- toolchain gone, CI retired, old commit no longer builds -- and a newer analyzer refuses the old emit | *Recreate*, below |
+| **B** | The build **can** be run but is **too slow** to repeat; you want a reference idir brought up to date with a working tree | *Reuse*, see `references/idir-reuse.md` |
+
+A is about recovering analyzability across a version gap. B is about speed
+during active development, and **deliberately violates rule 8** -- read its
+two applicability gates before starting, because knowing when it does not
+apply is most of that procedure.
+
+Both deliver the same thing: an idir a chosen analyzer will accept, evidence
+that it corresponds to the code you think it does, and an honest grade when it
+does not.
+
+---
+
+# A. Recreate: the build cannot be run
+
+`coverity-build-fidelity` assumes you can run the build. Often you cannot. When
+the build is unavailable, the intermediate directory is the surviving record
+of it.
 
 ## The constraint
 
@@ -81,16 +116,32 @@ You have a recorded (input, output) pair from the old version. Feed the same
 input to the new version and see what output it produces. The difference is the
 transformation delta -- **measured, not assumed.**
 
-Do not skip this because the transformation "is obviously identity". On the
-first pair this procedure was ever run against, it was not:
+Do not skip this because the transformation "is obviously identity". Measured
+across two version pairs from the *same* starting version:
 
 ```
---c11   ->   --c17
+2024.12.1 -> 2025.9.0     IDENTITY      (61 tokens, no difference at all)
+2024.12.1 -> 2025.12.2    --c11 -> --c17
 ```
 
-One token in sixty. The default C language level moved, which changes parsing
-and predefined macros. That is precisely the kind of drift that otherwise gets
-misattributed to "the analyzer got better".
+One token in sixty, and only on one of the two pairs -- yet it changes what the
+front end accepts and predefines, before any checker runs.
+
+Asking the compiler settles what it means: gcc 13.3.0, given these flags,
+reports `__STDC_VERSION__ 201710L`. **C17 is gcc's real default here, so
+2024.12.1's `--c11` was wrong.** Coverity models each compiler's behaviour by
+hand, that modelling is human work, and this was a defect in it. The newer
+version is not drifting; it is correcting.
+
+Two lessons, and the second is the one people miss:
+
+- **Differences are version-pair-specific and cannot be predicted from version
+  numbers.** Probe the pair you actually have; it costs seconds.
+- **A difference is not automatically drift to be neutralized.** It may be the
+  new version getting the compiler right. A model fix changes findings for the
+  same reason a new checker does, and belongs in the same bucket. Step 6 has
+  the test that tells a correction from a change -- and why pinning a
+  correction back is the wrong move.
 
 `references/transformation-probe.md` has the method in full.
 `references/invocation-anatomy.md` maps what the invocation record contains.
@@ -103,6 +154,22 @@ Read `coverity/RULES.md`. Pin **two** installs and record both: the one whose
 format matches the idir (the *old* side) and the one you want to analyze with
 (the *new* side). Rule 3 says pin one; this skill is the exception that
 requires exactly two, which is why they must be named explicitly in the report.
+
+**Check the new side's licence now, before anything else.** Replay does not
+need one -- `cov-translate` and `cov-emit` will happily emit all 90 TUs under
+an install whose licence is missing or expired. Only `cov-analyze` checks, so
+without this pre-flight you discover the problem *after* the replay, at the
+last step:
+
+```bash
+ls <new-install>/bin/license.dat <new-install>/bin/license*.json 2>/dev/null
+grep -oE '20[0-9]{2}-[0-9]{2}-[0-9]{2}' <new-install>/bin/license.dat | sort -u | tail -1
+```
+
+Measured failure modes: `[FATAL] No license files ... found` (rc 47) when
+absent, `[FATAL] License authorization failure: License has expired.` (rc 2)
+when stale. Installs frequently share one licence file, so check the *file*,
+not the install.
 
 ### Step 1. Identify the idir, and find an install that can read it
 
@@ -165,11 +232,14 @@ Expected result: `IDENTITY`.
 a passing control is uninterpretable -- you cannot separate the version's
 contribution from your own environment's. Common causes, all fixable:
 
-- the config directory differs from the one the original build used. In
-  particular `user_nodefs.h` ships inside an install's own `config/` but is
-  **not** created by `cov-configure --config <newdir>`, and its presence adds a
-  `--preinclude` to the emit line. It is user-modifiable content and a real
-  semantic input -- carry it over.
+- the config directory lacks the version-owned includes. `user_nodefs.h`
+  ships inside an install's own `config/` but is **not** created by
+  `cov-configure --config <newdir>`, and its absence silently drops a
+  `--preinclude` from the generated line. Seed it from the install being
+  probed -- *that* install, not the old one: the pre-includes and nodefs are
+  always pulled from the same product version as `cov-emit`, which is why the
+  normalization path-transforms them rather than dropping them. `emit_probe.py
+  probe` seeds it automatically and says so.
 - the compiler on this machine differs from the one captured (compare
   `--comp_ver` in the recorded line).
 - the compiler is gone entirely -- see *Degraded path* below.
@@ -196,24 +266,83 @@ Per differing token, decide and record:
 |---|---|---|
 | environment | path, temp dir, config hash, source name | normalized away already |
 | cosmetic | reordering, equivalent spelling | note, proceed |
-| semantic | changes what the front end accepts or predefines | decide explicitly |
+| semantic | changes what the front end accepts or predefines | classify further, below |
 
-`--c11 -> --c17` is semantic. There are two defensible responses, and they
-answer different questions:
+For a semantic difference, the question is **not** "which version do I want?"
+It is **which version models the compiler correctly?** Coverity has to
+reproduce, by hand, what each compiler does with each flag. That modelling is
+human work and it can simply be wrong. So a semantic delta is one of two
+things:
 
-- **Accept it** -- you want the new analyzer's current behaviour, drift included.
-- **Pin it back** -- append the old flag to hold the language level constant, so
-  the only variable is the analyzer's checkers.
+- **CORRECTION** -- the new version models the compiler more faithfully than
+  the old one did. The old behaviour was a defect.
+- **CHANGE** -- both versions are defensible; a default genuinely moved.
 
-For downstream issue-transition inference, pinning is usually right: it keeps
-`(C1,A2)` differing from `(C1,A1)` in *one* input. Say which you chose. An
-unstated choice here silently redefines what the comparison measures.
+**The tie-breaker is the compiler, not either Coverity version.** Ask it
+directly:
+
+```bash
+echo | gcc -dM -E -x c - | grep __STDC_VERSION__     # with the build's own flags
+```
+
+Worked case. On the recorded proftpd argument set, which passes no `-std=`,
+the probe reported `--c11` -> `--c17`. Asking gcc 13.3.0 what it actually does
+with those flags: `__STDC_VERSION__ 201710L` -- C17. So **2024.12.1's `--c11`
+was wrong** and 2025.12.2's `--c17` is a bug fix in Coverity's model of gcc.
+
+That decides the response:
+
+- **A CORRECTION is accepted, never pinned.** Pinning `--c11` back would
+  reproduce a known-wrong parse of the code -- preserving a defect in the tool
+  and calling it a control. It also means the *old* run was the anomaly, so
+  differences it explains are properly attributed to the analyzer, in exactly
+  the same bucket as a newly added checker. Treat a model fix and a new checker
+  as the same kind of event.
+- **A CHANGE is a real decision.** Accept it if you want current behaviour;
+  pin it if you need the front end held constant while only checkers vary. Say
+  which you chose -- an unstated choice silently redefines what a downstream
+  comparison measures. `emit_probe.py replay --extra <flag>` applies a pin.
+
+**Where this class of bug hides.** A wrong default only surfaces when the build
+does *not* pass the flag explicitly. Most builds do pass `-std=`, which is why
+such a mistake can survive for releases and affect only the minority of
+projects that rely on the compiler's default -- proftpd being one. When you
+choose which argument sets to probe (Step 5), deliberately include the ones
+that pass the fewest explicit flags. That is where model errors live.
 
 ### Step 7. Replay, then reconcile
 
 Replay the recorded translate invocations under the new install into a **fresh**
 idir (rule 8), from the recorded working directory, against the original
-sources.
+sources. Replay is **non-mutating**: without `--run-compile`, `cov-translate`
+writes nothing into the working directory, so it is safe to run in place
+against the original tree -- which is worth doing, because it preserves the
+recorded paths exactly and makes reconciliation a straight set comparison.
+
+The analysis afterwards **need not run on the same platform as the replay**.
+Emit compatibility is by format, not OS, so a WSL-emitted idir can be analyzed
+by a Windows install of a version speaking that format. That is often what
+makes the run possible at all when licences differ between platforms.
+
+```bash
+python3 tools/emit_probe.py replay --pairs pairs.json --bin <new-bin> \
+        --dir <fresh-idir> --config <cfg>/coverity_config.xml --out replay.json
+```
+
+`replay` re-checks the licence before starting, refuses a non-empty idir
+(rule 8), and reports a `SHORTFALL` line if any TU failed to emit. Pass
+`--extra` to pin a flag identified in Step 6 as a genuine *change* — not a
+correction. (`--extra --c11` on the worked example would be the wrong call:
+Step 6 shows that one is a fix.)
+
+Then reconcile — under an install that can read the *replayed* idir:
+
+```bash
+python3 tools/emit_probe.py reconcile --pairs pairs.json --bin <new-bin> --dir <fresh-idir>
+```
+
+It grades `CONSISTENT` / `REVIEW` / `SHORTFALL` and prints the verdict triple,
+naming every TU that did not come back.
 
 Then reconcile against the Step 2 inventory. This is not optional:
 
@@ -225,6 +354,27 @@ Then reconcile against the Step 2 inventory. This is not optional:
 counts drop, nothing errors. Same shape as the vacuous-capture trap, and it
 needs the same treatment -- verify the denominator, and never report a delta
 without it.
+
+#### What is expected to break replay
+
+*Reasoned from mechanism, not yet measured -- Step 7 is unexercised (see
+`CALIBRATION.md`). Treat these as the first places to look, not as a known
+failure list.*
+
+- **Generated headers that no longer exist.** `config.h`, `version.h`,
+  `buildstamp.h` and friends are build products. The recorded `input-files`
+  closure names them, which is the fastest way to find out whether you have
+  them before the replay tells you the hard way.
+- **Absolute paths that have moved.** `--sys_include` points at a sysroot that
+  may be gone or upgraded; `--pre_preinclude` points inside the old idir, so
+  keep the idir rather than extracting only the JSON.
+- **Compiler wrappers.** `ccache`, `distcc`, and bespoke shell scripts appear
+  in the recorded translate argv as what the build actually invoked, and must
+  be configured or bypassed on the replay side (rule 5).
+- **`-include` of build-time files**, and response files, which may have been
+  temporary.
+- **A sysroot that upgraded underneath you.** Same `--sys_include` path, newer
+  headers. This one is silent and would be attributed to the analyzer.
 
 ### Step 8. Report
 
@@ -261,6 +411,41 @@ this path as unverified. Do not let it pass for the probed path.
   that you did.
 - **Two installs in play means two chances to quote the wrong one.** Name both
   in every artifact.
+
+---
+
+# B. Reuse: the build is too slow to repeat
+
+Full procedure in **`references/idir-reuse.md`**. The shape of it:
+
+**Two gates first -- both pass/fail, both before any work.**
+
+1. **The build system must track header dependencies.** The procedure hands
+   "what does this change affect?" to the build system; one that cannot answer
+   returns *nothing* and looks successful. Probe it: touch a header the idir
+   says is widely included, capture the incremental build, and compare.
+   Measured -- CMake+make recompiled exactly the right 3 of 4; proftpd's
+   hand-written make recompiled **0 of 71**.
+2. **The reference idir must come with a git commit or tag**, or you cannot
+   compute a correct delta. Insist on it, then verify the claim with
+   `primaryFileSizeInBytes` against `git show <tag>:<path>` -- `primaryFileHash`
+   cannot do this.
+
+**Then route on one question**: is every changed file the primary source of
+exactly one TU in the idir? If yes, re-emit those TUs directly. If anything
+else changed -- a header, a new file, a deletion, a rename -- touch the changed
+files, capture an incremental build into a separate idir, and transplant.
+Never compute the affected set yourself.
+
+**And in both cases, delete the stale TU before adding the fresh one.**
+Measured: transplanting without deleting reported an array overrun *the
+developer had already fixed*, from a stale TU, against the reference tree's
+path -- 1 defect where the correct answer was 0.
+
+Do not use this path for release gates or compliance evidence. It buys
+iteration speed by spending rule 8's safety margin.
+
+---
 
 ## Related
 

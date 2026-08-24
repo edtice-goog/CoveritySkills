@@ -173,18 +173,27 @@ directories, but **no `user_nodefs.h`**. No file, no `--preinclude`.
 So the control **passes**: same-version regeneration is exact, once the config
 layout is accounted for.
 
+**The fix was not to mask the token.** The pre-includes and nodefs are pulled
+from the same product version as `cov-emit` -- each run supplies its own from
+the install it is using -- so the right handling is a **path transform** that
+keeps `--preinclude` and rewrites only its root. Masking it made the control
+pass for the wrong reason and would have hidden a genuine presence asymmetry.
+With the transform, and `user_nodefs.h` seeded from the install being probed,
+the control is `IDENTITY` at **61 tokens including the `--preinclude`** rather
+than 59 with it dropped.
+
 Corroborating detail: `--coverity_config_md5` came out
 `b577f776b05173caa21361c7ea6c1f1d` in both the May 2025 production build and
 the August 2026 regeneration -- identical config identity across fifteen
 months and two different config directories.
 
 This residual earned `user_nodefs.h` its own note in
-`transformation-probe.md`. It is user-modifiable content that feeds the front
-end, so it is both a probe artifact *and* a real replay input.
+`transformation-probe.md`, and it is the reason the normalization set
+distinguishes MASK from TRANSFORM at all.
 
 ## Step 5 -- the cross-version delta
 
-Same recorded input, newer install. Both lines 60 tokens after normalization.
+Same recorded input, newer install. Equal token counts after normalization.
 
 ```
 --- 2024.12.1
@@ -205,8 +214,8 @@ whole type model (`--type_sizes`, `--type_alignments`, `--size_t_type`,
 Note the line contains `--c11` twice in the original; only the one in the
 trailing `--gcc --c11 --gnu_version` group changed.
 
-**One token in sixty, and it is semantic.** The default C language level moved
-from C11 to C17. That changes what the front end accepts and what it
+**One token, and it is semantic.** The C language level the front end is told
+to use moved from C11 to C17. That changes what the front end accepts and what it
 predefines, before any checker runs -- so "same code, newer analyzer" would
 have been false in a way nothing would have reported.
 
@@ -214,9 +223,31 @@ This is the result that justifies the whole procedure. The transformation was
 *almost* identity, which is precisely the condition under which people stop
 checking. The first pair ever put through this probe was not identity.
 
-For feeding `coverity-issue-transition-inference`, the right response here is
-to pin the language level back to `--c11`, so that `(C1,A2)` differs from
-`(C1,A1)` in the analyzer only.
+### Which version was right
+
+The delta says the versions disagree; it does not say who is correct. The
+compiler does. proftpd's recorded command line passes no `-std=`, so:
+
+```
+$ echo | gcc -dM -E -x c - | grep __STDC_VERSION__
+#define __STDC_VERSION__ 201710L        # C17
+$ echo | gcc -std=c11 -dM -E -x c - | grep __STDC_VERSION__
+#define __STDC_VERSION__ 201112L
+```
+
+gcc 13.3.0's real default is **C17**. So `--c11` was a **defect in Coverity's
+model of gcc**, and `--c17` is the fix. Coverity has to reproduce each
+compiler's flag handling by hand; that is human work and it can be wrong.
+
+This inverts the obvious response. Pinning `--c11` back to "hold the front end
+constant" would reproduce a known-wrong parse and dress it up as a control. The
+correct handling is to **accept the correction** and treat the findings it
+moves exactly as you would treat findings from a newly added checker -- an
+analyzer improvement, not code change and not drift.
+
+It also explains why a bug like this can live for releases: it only bites
+builds that omit `-std=`, and most builds pass it. proftpd is in the minority
+that does not, which is the only reason this probe caught it.
 
 ## What this session revised
 
@@ -240,13 +271,89 @@ include closure. The revision gate has to be built from those plus VCS
 identity. The construction of `primaryFileHash` remains unknown and is in
 `CALIBRATION.md`.
 
+## Steps 6-8: the replay
+
+Run against `idir1.3.9`, whose sources were still present in WSL at 1.3.9.
+
+**The source-identity gate first.** With `primaryFileHash` ruled out, the gate
+is `primaryFileSizeInBytes` against disk: **all 90 primaries present, all
+byte-exact**, fifteen months after capture. That is what licensed the replay.
+
+**Choosing the new side.** The first attempt used 2025.12.2 and failed at the
+last step -- `[FATAL] No license files ... found`, rc 47 -- *after* a
+successful 90/90 replay. The second attempt used 2025.9.0, whose Linux licence
+had expired (rc 2). Both replays were completely healthy; only analysis
+refused. This produced the Step 0 licence pre-flight, and the note that replay
+needs no licence at all.
+
+The run completed by emitting under linux64 2025.9.0 in WSL and analyzing with
+**win64 2025.9.0** -- the same emit format (350), a different operating system.
+That is the format-not-platform finding paying for itself.
+
+**The probe, before replaying.** 2024.12.1 -> 2025.9.0 came back `IDENTITY` at
+61 tokens across three pairs. So on this pair there was no drift to accept or
+pin, and the analyzer became the only variable -- unlike the 2025.12.2 pair
+measured earlier. Same starting version, different answer.
+
+**The replay.** All 90 recorded `cov-translate` invocations re-run from their
+recorded working directories against the real sources: **90/90 rc=0, 90/90
+emitted, 114s.** The first TU costs ~24s (the build-time template probe fires),
+the rest ~1s each.
+
+Run in place in the original tree, which is safe: verified separately that
+`cov-translate` without `--run-compile` writes nothing to the working
+directory. Running in place keeps the recorded paths, which makes
+reconciliation a straight set comparison instead of a prefix-mapping exercise.
+
+**Reconciliation.**
+
+```
+original 90 / replayed 90
+missing 0 | extra 0 | size mismatches 0
+TUs without ASTs 0 | isFailure 0 | astFidelityPercent 100 throughout
+```
+
+Graded `CONSISTENT`.
+
+**Analysis.** `cov-analyze --dir <replayed>` under win64 2025.9.0, rc=0. Files
+analyzed 149, functions 2086, classes 159 -- identical to the archived
+2024.12.1 analysis of the same code. `Total LoC input` moved 98481 -> 98488,
+a 7-line difference with files and functions equal; unexplained, and on the
+queue.
+
+The defect count moved as well. Attributing that movement is
+`coverity-issue-transition-inference`'s job, not this skill's; what this
+session establishes is that the artifact it needs can be produced from an
+archived idir without rebuilding.
+
+## What the dogfooding changed
+
+Running the procedure as written found four things the first draft got wrong
+or missed:
+
+1. **The tool had no `replay` step.** The procedure described Steps 7-8 and the
+   tool stopped at `delta`.
+2. **The version-owned includes were masked, not transformed.** Dropping the
+   `--preinclude user_nodefs.h` token hid a real presence asymmetry. They are
+   pulled from the same product version as `cov-emit`, so the correct handling
+   is a path transform -- keep the token, rewrite the root. This also removed
+   the need to copy files between config directories.
+3. **No licence pre-flight.** Two full replays completed before the missing and
+   expired licences surfaced, both at the last step.
+4. **The `--c11 -> --c17` delta was over-generalized.** It is specific to the
+   2025.12.2 pair; 2024.12.1 -> 2025.9.0 is identity. Drift cannot be predicted
+   from version numbers, which strengthens rather than weakens the case for
+   probing.
+
 ## Not done in this session
 
-- No replay was executed end to end; the probe and the control were the
-  session's scope. Steps 7-8 of the procedure are unexercised.
-- Only a C argument set was probed. The `g++` arm is a separate template
-  config and may drift differently -- `--c11`/`--c17` is a C-mode flag.
-- Only one version pair was measured. Whether deltas grow with distance is
-  unmeasured.
-- The degraded path (replaying a recorded `cov-emit` argv directly under a
-  newer `cov-emit`) was not tested at all.
+- **The degraded path** -- replaying a recorded `cov-emit` argv directly when
+  the compiler is gone -- remains untested. Every measurement here had gcc
+  13.3.0 still installed and matching `--comp_ver`.
+- **Only C.** The `g++` arm is a separate template config and may drift
+  differently; `--c11`/`--c17` is a C-mode flag.
+- **Only clean outcomes.** Every reconciliation was perfect, so the shortfall
+  path has never fired. The claim that an incomplete replay is silent is still
+  reasoned from the vacuous-capture measurement in `coverity`, not measured
+  here.
+- **Two version pairs**, from one starting version, on one project.
