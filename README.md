@@ -326,6 +326,99 @@ toolchain. Capture coverage — this skill's required second arm — now lives i
 the `coverity` umbrella skill as the three-method capture-fidelity check;
 Step 6 requires it and keeps only a minimum inline fallback.
 
+## coverity-recreate-from-emit
+
+Gets an old intermediate directory analyzable by a **newer** analyzer when the
+original build can no longer be run — the toolchain is gone, the dependencies
+have vanished, the CI job was retired, or the old commit no longer builds.
+Where `coverity-build-fidelity` assumes you can run the build, this skill
+assumes you cannot, and treats the idir as the surviving record of it.
+
+The blocking fact is that a newer analyzer simply refuses an older emit —
+*"Expected version number is 355, but this directory has version 343"*, exit
+code 2. Unusually for this problem domain, that failure is **loud**: it
+refuses, says why, and produces no partial result.
+
+### The central technique
+
+Capture is two stages: `cov-translate` turns a compiler command line into a
+`cov-emit` command line, and `cov-emit` does the parsing. **The idir records
+both sides, explicitly linked** — `translation-units[i]` carries both a
+`cov-translate-invocation-id` and a `cov-emit-invocation-id`.
+
+So you have a recorded (input, output) pair from the old version. Feed the same
+input to the new version, diff the outputs, and the residual is the
+transformation delta — **measured, not assumed**. `cov-translate --dryrun`
+prints the generated line without running it, and an `empty.c` stands in for
+the source, so the probe needs neither the original code nor an emit.
+
+The skill deliberately ships **no version compatibility table**. Formats change
+nearly every release; a table is a maintenance liability that goes stale and
+invites lookup instead of measurement. It ships the procedure to re-measure in
+seconds against whatever pair you actually have.
+
+### What the skill knows that saves time
+
+- **Run the control first.** Probe with the version that *wrote* the idir; it
+  must reproduce the recorded line. A cross-version delta measured without a
+  passing control is uninterpretable — you cannot separate the version's
+  contribution from your own environment's. Same move as the native control
+  pair in `coverity-build-fidelity`
+- **The compatibility key is the emit format — not the product version, and
+  not the platform.** Measured: win64 **2024.12.0** fully read an idir written
+  by linux64 **2024.12.1**, all 90 TUs. You do not need the build machine, or
+  even its OS
+- **`<idir>/emit/version` names its own creator**, so identification is free
+- **The original compiler need not exist.** The recorded `cov-emit` line
+  already carries the *result* of the build-time probe — `--comp_ver`,
+  `--gnu_version`, `--type_sizes`, every `--sys_include`, every `-D`. That is
+  rule 1's mechanism leaving a record on disk. The compat headers live *inside*
+  the old idir, so they travel with it
+- **The transformation is almost identity — which is exactly when people stop
+  checking.** The first pair ever put through this probe came back
+  `--c11 -> --c17`: one token in sixty, and semantic. The default C language
+  level moved, changing what the front end accepts and predefines before any
+  checker runs. That drift would otherwise be booked as "the analyzer got
+  better"
+- **`user_nodefs.h` is a trap and a real input.** An install ships one in its
+  own `config/`; a directory made by `cov-configure --config <newdir>` does
+  not, and its presence adds a `--preinclude`. It is where user-defined nodefs
+  and models live, so it must be carried into a replay — and it explains a
+  control residual that otherwise looks like a version difference
+- **A faithful replay of a vacuous capture is a vacuous capture.** Verify the
+  *old* capture before reproducing it, because an incomplete replay looks
+  exactly like an improvement: findings disappear, counts drop, nothing errors
+- **`primaryFileHash` cannot prove you have the right source.** Measured, and
+  it corrected the design: the same file — identical path, size, and mtime —
+  carries different hashes in two idirs, and no construction over its bytes
+  reproduces either. `primaryFileSizeInBytes` *does* match disk exactly, and
+  `input-files` gives the full include closure (222 entries for one C file)
+- The invocation dump embeds **full build environments including `PATH`** —
+  check before forwarding a `pairs.json` anywhere
+
+### Layout
+
+```
+coverity-recreate-from-emit/
+├── SKILL.md                          # procedure (identify → verify old capture →
+│                                     #   extract → control → probe → classify →
+│                                     #   replay → reconcile → report)
+├── CALIBRATION.md                    # measured vs reasoned, and the queue
+├── references/
+│   ├── transformation-probe.md       # the method, the normalization set, why the control
+│   ├── invocation-anatomy.md         # what list-capture-invocations contains
+│   └── worked-example-proftpd.md     # the calibration session, with the numbers
+└── tools/
+    └── emit_probe.py                 # pure stdlib; identify / extract / probe / delta
+```
+
+Status: **the transformation probe is validated end to end** — control
+`IDENTITY` against the original version, and a reproducible one-token semantic
+delta across versions, consistent over five translation units from four source
+directories. **Replay itself (Steps 7–8) is not yet exercised**, and the
+degraded path for when the compiler is gone is untested. `CALIBRATION.md` says
+so plainly and keeps both at the top of the queue.
+
 ## coverity-demo-data
 
 Builds multi-version Coverity Connect demo datasets whose snapshot and
@@ -387,7 +480,9 @@ coverity-demo-data/
 │   └── worked-example-proftpd.md     # the calibration session, with the numbers
 └── tools/
     ├── capture.sh                    # fixed-path serial capture, verified
-    └── phase2.py                     # merge-key set algebra + stability guard
+    ├── phase2.py                     # merge-key set algebra + stability guard
+    └── audit_bundle.py               # FP-audit bundles: trace + real source,
+                                      #   read from git at the tag
 ```
 
 Status: mechanics validated end-to-end on proftpd (three releases, 2022-2025)

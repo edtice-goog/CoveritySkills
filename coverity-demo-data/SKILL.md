@@ -146,24 +146,17 @@ See `references/corpus.md` for choosing a corpus and preparing a build tree.
 defect population over time by merge key: introduced, persisting, fixed, and
 how long each surviving defect has been present.
 
-**Rule 27 applies, with one narrow exemption.** Rule 27 warns against
-comparing raw merge keys between two local result sets, because analyzer
-version changes can move a key and Connect's antecedent-merge-key handling is
-what lines the old and new identities up. Phase 2 does exactly that raw
-comparison -- legitimately, because **every version in a demo corpus is
-analyzed with a single pinned analyzer version**, so there is no analyzer-driven
-key movement for antecedents to repair. The variable is the source, not the
-analyzer.
+**Rule 27 does not bear on this work.** Rule 27 warns against comparing raw
+merge keys between local result sets, because a key can move across analyzer
+versions and Connect's antecedent merge keys are what line the old and new
+identities up. That is generally true and irrelevant here: a demo corpus is
+analyzed with a **single pinned analyzer version**, so no key moves and no
+antecedent is ever created. The variable is the source, not the analyzer.
 
-Hold to that condition. If a corpus is ever analyzed with mixed analyzer
-versions, Phase 2's arithmetic becomes exactly the mistake rule 27 describes,
-and the fix is to pin one version and re-analyze -- not to reconcile keys by
-hand.
-
-Measured support: a three-version proftpd corpus under one pinned analyzer
-predicted 113 CIDs and one new defect, and Connect matched exactly. That is a
-calibration point for rule 27's open question about how often keys genuinely
-move; under a fixed analyzer, in this corpus, the answer was never.
+Pinning the analyzer is therefore not a convenience, it is the precondition
+that makes Phase 2's arithmetic valid. Analyze a corpus with mixed analyzer
+versions and the comparison becomes exactly the mistake rule 27 describes; the
+fix is to pin one version and re-analyze, never to reconcile keys by hand.
 
 **Verify merge-key overlap before proceeding.** Adjacent releases of a mature
 project share nearly all their defects; the tool aborts on zero overlap between
@@ -222,6 +215,24 @@ cheap -- a story surfaces few defects -- and it is where the risk actually
 lives: the single new defect at the tip is simultaneously the most likely to be
 featured and the least likely to be caught by a per-checker sample of a checker
 that fired fifty times.
+
+`tools/audit_bundle.py` builds both selections into self-contained markdown --
+checker, full event trace, and the real source around every event, with event
+lines marked -- so a reviewer reaches a verdict without access to the build
+machine:
+
+```
+audit_bundle.py --issues <version>.json --git-repo <repo> --tag <tag>     --strip-prefix <build-root> --per-checker 2     --merge-key <story-surfaced key> --out audit/<tag>
+```
+
+**Source is read from git at the tag, never from the working tree.** The corpus
+is built by checking many tags out of one fixed directory, so the working tree
+holds whatever version was built last -- the wrong source for every defect but
+one, and wrong in a way that reads as entirely plausible.
+
+Each bundle carries a **legibility line** (event count, files touched,
+interprocedural, whether the evidence is statistical) because those are the
+signals that decide whether a true positive belongs on screen.
 
 Audit against the real source and the full event trace, not the defect title.
 Report a verdict per defect: real, real-but-arguable, or false positive.

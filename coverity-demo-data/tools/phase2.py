@@ -14,12 +14,12 @@ what Connect will show *provided* two conditions hold:
   1. every version was built at the same path, and
   2. every version was analyzed with the SAME pinned analyzer version.
 
-The second condition is what makes this raw merge-key comparison legitimate
-despite rule 27, which warns against comparing keys between local result sets:
-key movement across analyzer versions is repaired by Connect's antecedent
-merge keys, which a local comparison cannot see. Hold the analyzer fixed and
-there is no movement to repair. Vary it and this arithmetic silently becomes
-the mistake rule 27 describes.
+The second condition is a precondition, not a nicety. Rule 27 warns against
+comparing raw merge keys between local result sets because keys can move across
+analyzer versions, with Connect's antecedent merge keys doing the reconciling.
+Pinned to one analyzer, no key moves and no antecedent is created, so that
+concern -- true in general -- simply does not arise here. Vary the analyzer and
+this arithmetic silently becomes the mistake rule 27 describes.
 """
 import argparse
 import collections
