@@ -194,9 +194,27 @@ set, measured against a live instance.
 
 **Verify before continuing to the next version.** After each commit, confirm
 the snapshot landed on the intended date and that previously-seen defects kept
-their original first-detected date. Verification queries are in
-`references/backdating.md`. Detecting drift after one commit costs one restore;
-detecting it after twenty costs the afternoon.
+their original first-detected date. Detecting drift after one commit costs one
+restore; detecting it after twenty costs the afternoon.
+
+`tools/commit_sweep.py` drives the whole phase and enforces this. It sorts by
+date regardless of input order, refuses to start if any idir is missing, and
+after every commit checks one invariant:
+
+> the first-detected counts for all **earlier** dates must be unchanged
+
+If committing version N alters how many CIDs are dated to version N-3, defects
+are not merging as Phase 2 predicted -- typically a build path that varied
+between versions, or a mixed analyzer version -- and every further commit
+compounds it. The sweep stops there rather than finishing.
+
+```
+commit_sweep.py --idirs-root idirs --tags tag-dates.txt --url <url>     --auth-key-file <key> --stream <name> --strip-path <build-root>     --cov-bin <analysis>/bin --platform-bin <connect>/bin [--dry-run]
+```
+
+Always `--dry-run` first: it prints the resolved order and dates, and commits
+nothing. Verification queries for doing this by hand are in
+`references/backdating.md`.
 
 ## Step 4: Audit for false positives before the demo is presented
 

@@ -481,8 +481,10 @@ coverity-demo-data/
 └── tools/
     ├── capture.sh                    # fixed-path serial capture, verified
     ├── phase2.py                     # merge-key set algebra + stability guard
-    └── audit_bundle.py               # FP-audit bundles: trace + real source,
-                                      #   read from git at the tag
+    ├── audit_bundle.py               # FP-audit bundles: trace + real source,
+    │                                 #   read from git at the tag
+    └── commit_sweep.py               # oldest-first backdated commits, halting
+                                      #   the moment earlier dates shift
 ```
 
 Status: mechanics validated end-to-end on proftpd (three releases, 2022-2025)
