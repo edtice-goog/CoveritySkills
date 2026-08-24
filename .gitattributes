@@ -1,0 +1,9 @@
+# Shell scripts are executed under WSL/Linux even when checked out on Windows.
+# With core.autocrlf=true git would rewrite them to CRLF in the working tree,
+# and bash fails on the trailing CR ("set: pipefail: invalid option name", or a
+# syntax error at whatever line it reaches first). Pin them to LF regardless of
+# the user's autocrlf setting.
+*.sh text eol=lf
+
+# Same reasoning for tool scripts invoked with a shebang.
+*.py text eol=lf
