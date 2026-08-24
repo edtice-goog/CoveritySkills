@@ -110,11 +110,15 @@ matches the intended target.
 Two rules govern this phase, and violating either corrupts the dataset in ways
 that look plausible.
 
-**Build every version at the same absolute path.** The source path is part of
-the defect merge key. Per-version directories -- worktrees, versioned unpack
-dirs -- mean nothing merges: every defect appears newly introduced in every
-snapshot, every first-detected date equals its own snapshot date, and
-backdating buys nothing. Check out each tag *in place* in one fixed tree.
+**Check out every version in place, in one tree.** Not for merge-key reasons:
+merge keys are computed from properties of the parsed code and are
+**path-independent** by design, which is what lets defects track across
+different workspace checkouts. Measured -- the same defect built in two
+differently-named directories carries an identical merge key.
+
+The reason is contamination. Check out each tag *in place* and `git clean -xdf`
+between versions, so generated files left by the previous version do not end up
+captured and attributed to a code delta.
 
 **Build serially, and verify the build actually succeeded.** Rules 9, 10 and
 11 apply in full: `cov-build` exits **0 even when the underlying build fails**,

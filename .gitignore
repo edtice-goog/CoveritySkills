@@ -9,3 +9,6 @@ __pycache__/
 
 # Demo-data workspace: build trees, idirs, DB backups (large)
 coverity-demo-data-workspace/
+
+# Issue-transition workspace: build trees, idirs, snapshots (large)
+coverity-issue-transition-inference-workspace/

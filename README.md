@@ -328,6 +328,22 @@ Step 6 requires it and keeps only a minimum inline fallback.
 
 ## coverity-recreate-from-emit
 
+Works from an intermediate directory you did not capture, instead of capturing
+a fresh one. The idir turns out to be a far better record of its build than it
+looks: it carries the original compiler command lines, the fully resolved
+compiler model, and the complete include closure of every translation unit.
+
+Two situations use that:
+
+- **A — the build cannot be run.** Toolchain gone, CI job retired, old commit
+  no longer builds, and the newer analyzer refuses the old emit.
+- **B — the build can be run but is too slow.** Copy a reference idir from CI
+  or another checkout and bring it up to date with a working tree by
+  re-emitting only what changed. This one **deliberately violates rule 8**, and
+  most of the procedure is knowing when it does not apply.
+
+### A. Recreate
+
 Gets an old intermediate directory analyzable by a **newer** analyzer when the
 original build can no longer be run — the toolchain is gone, the dependencies
 have vanished, the CI job was retired, or the old commit no longer builds.
@@ -376,10 +392,17 @@ seconds against whatever pair you actually have.
   the old idir, so they travel with it
 - **The transformation is almost identity — which is exactly when people stop
   checking.** The first pair ever put through this probe came back
-  `--c11 -> --c17`: one token in sixty, and semantic. The default C language
-  level moved, changing what the front end accepts and predefines before any
-  checker runs. That drift would otherwise be booked as "the analyzer got
-  better"
+  `--c11 -> --c17`: one token in sixty, and semantic
+- **…and a difference is not automatically drift.** Coverity models each
+  compiler's flag handling by hand, and that modelling can be wrong. Asked
+  directly, gcc 13.3.0 reports `__STDC_VERSION__ 201710L` for the recorded
+  flags — C17 is its real default, so the *old* `--c11` was the defect and the
+  new version is correcting it. So a semantic delta is adjudicated **against
+  the compiler**, not between the two Coverity versions: a correction is
+  accepted, never pinned, because pinning it reproduces a known-wrong parse and
+  calls it a control. Errors of this kind hide on every build that passes
+  `-std=` explicitly, so probe the argument sets with the *fewest* explicit
+  flags
 - **`user_nodefs.h` is a trap and a real input.** An install ships one in its
   own `config/`; a directory made by `cov-configure --config <newdir>` does
   not, and its presence adds a `--preinclude`. It is where user-defined nodefs
@@ -396,6 +419,47 @@ seconds against whatever pair you actually have.
 - The invocation dump embeds **full build environments including `PATH`** —
   check before forwarding a `pairs.json` anywhere
 
+### B. Reuse for speed
+
+The payoff scales with build-plus-analyze time — noise on a small project, the
+difference between a feedback loop and a nightly job on one that takes hours.
+It is a developer-iteration tool, not release evidence.
+
+**Two gates, both pass/fail, both before any work:**
+
+- **The build system must track header dependencies.** The procedure hands
+  "what does this change affect?" to the build system, and one that cannot
+  answer returns *nothing* while looking successful. The probe is measured in
+  both directions: CMake+make recompiled exactly the right **3 of 4** TUs after
+  a header touch; proftpd's hand-written recursive make recompiled **0 of 71**.
+  Computing the affected set yourself is a fool's errand — in C++ headers carry
+  code — so the include closure is used *once*, to grade the build system, and
+  never to select what to re-emit.
+- **The reference idir must come with a git commit or tag**, or the delta is
+  guesswork. Insist on it and then verify the claim — `primaryFileHash` can't,
+  but `primaryFileSizeInBytes` matches disk exactly, so `git show <tag>:<path>`
+  settles it.
+
+**Then one routing question:** is every changed file the primary source of
+exactly one TU? If yes, delete those TUs and re-emit them directly — no build
+recording needed. If anything else changed (header, new file, deletion,
+rename), touch the changed files, capture an incremental build into a separate
+idir, and transplant.
+
+**And always delete the stale TU before adding the fresh one.** This is the
+failure the whole procedure exists to prevent, and it is measured: with a
+reference containing an array overrun that the working copy *fixes*,
+transplanting without deleting still reported the defect — 1 where the correct
+answer was 0, pointing at a path in a tree the developer isn't editing. Two
+TUs at different absolute paths are different primary source files, so
+`--one-tu-per-psf` never deduplicates them; an earlier run analyzed **7 TUs in
+a 4-TU project** the same way.
+
+Verified against full-recapture oracles on both paths: the fast path reproduced
+a clean capture exactly (105 defect sites, 155 records, zero differences either
+way, planted canary present), and the transplant path matched its oracle file
+for file and defect for defect.
+
 ### Layout
 
 ```
@@ -407,17 +471,40 @@ coverity-recreate-from-emit/
 ├── references/
 │   ├── transformation-probe.md       # the method, the normalization set, why the control
 │   ├── invocation-anatomy.md         # what list-capture-invocations contains
+│   ├── idir-reuse.md                 # part B: gates, routing, stale-TU rule
 │   └── worked-example-proftpd.md     # the calibration session, with the numbers
 └── tools/
-    └── emit_probe.py                 # pure stdlib; identify / extract / probe / delta
+    └── emit_probe.py                 # pure stdlib; identify / extract / probe /
+                                      #   delta / replay / reconcile
 ```
 
-Status: **the transformation probe is validated end to end** — control
-`IDENTITY` against the original version, and a reproducible one-token semantic
-delta across versions, consistent over five translation units from four source
-directories. **Replay itself (Steps 7–8) is not yet exercised**, and the
-degraded path for when the compiler is gone is untested. `CALIBRATION.md` says
-so plainly and keeps both at the top of the queue.
+Status (A): **validated end to end** — probe, control, replay, reconciliation
+and analysis, against a real archived idir written fifteen months earlier by a
+version that the current analyzer refuses. All 90 translation units replayed
+(90/90 rc=0), reconciled `CONSISTENT` (0 missing, 0 size mismatches, all ASTs
+at 100% fidelity), and the result analyzed cleanly with the same file,
+function and class counts as the original run.
+
+Dogfooding the procedure changed it in four places: the tool had no replay
+step; the version-owned includes were being masked when they should be path
+-transformed; there was no licence pre-flight (two full replays finished
+before a missing and an expired licence surfaced, both at the last step); and
+the `--c11 → --c17` delta turned out both to be specific to one version pair
+(2024.12.1 → 2025.9.0 is identity) and to be a **bug fix in Coverity's model of
+gcc** rather than drift — which reversed the skill's advice from "pin it back"
+to "accept it, and treat it like a new checker". Differences cannot be
+predicted from version numbers, nor interpreted without asking the compiler.
+
+Still unmeasured for A: the degraded path for when the compiler is gone,
+anything other than C, and every *failure* mode — each reconciliation so far
+has been perfect, so the shortfall path has never fired.
+
+Status (B): both paths validated against oracles, and both gate outcomes
+measured. **But no timing has been taken** — the entire premise is speed, and
+every calibration subject was small enough that the difference was noise. Also
+untested: a genuinely foreign idir (`reset-host-name` was a no-op every time),
+the git-tag verification, iteration across several rounds including a reverted
+file, and deletions or renames. `CALIBRATION.md` keeps both queues.
 
 ## coverity-demo-data
 
@@ -442,9 +529,10 @@ recoverable only by restoring the database.
 - Exactly what it sets (`snapshot.date_created` date-portion-only,
   `snapshot.backdated`, per-CID `date_originated`) and what it silently does
   not (`code_version_date`, and all triage history, ownership and comments)
-- **Every version must be built at the same absolute path** -- the source path
-  is part of the merge key, so per-version build directories mean nothing
-  merges and backdating buys nothing
+- **Merge keys are path-independent** -- measured: the same defect built in two
+  differently-named directories carries an identical merge key. Versions are
+  checked out in place in one tree to keep stale generated files out of the
+  capture, not to make CIDs merge
 - **`cov-build` exits 0 when the build fails** and reports "100%" of the units
   it *attempted*. A racing parallel build silently narrows capture and
   manufactures phantom fix-and-regression events. Measured on proftpd: 77
@@ -490,3 +578,72 @@ coverity-demo-data/
 Status: mechanics validated end-to-end on proftpd (three releases, 2022-2025)
 against a live Connect. Scaling to the full ~20-release chain and a real demo
 script is the next step.
+
+## coverity-issue-transition-inference
+
+Answers the question a team asks the morning after a Coverity upgrade:
+**did I write this bug, or did the tool change?** — and its neglected mirror,
+*did I actually fix this, or did the tool stop reporting it?*
+
+A finding delta after an upgrade confounds two causes at once, so it cannot be
+attributed from the two snapshots a user has. The skill produces the cell they
+don't have — **the old code analyzed by the new analyzer** — which splits one
+confounded delta into two clean ones. Same shape as `coverity-build-fidelity`:
+no attribution without a control.
+
+The production procedure is anchored to the user's own reality: reproduce their
+last automated result with the old analyzer *first*. A delta measured against a
+result you could not reproduce is uninterpretable.
+
+### What the skill knows that saves time
+
+- **The user's question is binary.** Whether a version-attributable finding came
+  from a newly-default checker, a smarter checker, or a front-end change is a
+  tool-vendor distinction — real, but it doesn't change what anyone does next.
+  It is a sub-field, never the headline
+- **Configuration masquerades as capability, at scale.** Measured across one
+  upgrade: 54 findings new on *identical code*, **50 of them one checker**
+  moving Optional → Default. 93% of an apparent improvement was a default flip,
+  predictable from the installation's own docs before any analysis ran
+- **…and a real bug can hide inside that wave.** The 51st `NULL_FIELD` was a
+  genuine new defect in a function added that release. Filtering by checker —
+  the obvious heuristic when 50/51 are noise — discards it. **Only the control
+  run finds it**: the old analyzer never reports it at all, so the cheaper
+  `(C2,A1)` diagonal cannot see it
+- **Merge keys are path-independent** — measured, and it corrected a claim in
+  `coverity-demo-data`. A field reproduction does not have to rebuild at the CI
+  path, which makes the anchor step far more practical than it first appears
+- **The anchor reproduces exactly.** An independent rebuild gave an identical
+  merge-key *set*, not merely an identical count
+- **Capture is licence-free by design; analysis is not.** That is what makes
+  capture-on-an-ephemeral-agent / analyze-on-a-licensed-host supported. Point
+  `cov-analyze` at a licence with `--security-file`; licence files are
+  cross-platform, and `cov-format-errors` needs it too
+- **Never diff raw merge keys between local result sets** (rule 27) — that path
+  cannot see antecedent keys and manufactures the false transitions this skill
+  exists to prevent. Let Connect line them up
+- A four-cell factorial that makes the labels **falsifiable**: with the code
+  proven constant, no finding can require *both* the new code and the new
+  analyzer, so a diagonal-only pattern is a control failure, not a finding
+
+### Layout
+
+```
+coverity-issue-transition-inference/
+├── SKILL.md                          # anchor → rebuild → analyze → attribute
+│                                     #   → annotate → report
+├── CALIBRATION.md                    # measured vs reasoned, and the queue
+├── references/
+│   └── worked-example-proftpd.md     # the 2x2 calibration, with the numbers
+└── tools/
+    ├── transition.py                 # CID-by-cell matrix from Connect + labels
+    └── checker_defaults.py           # enablement diff between two installs
+```
+
+Status: validated on a full 2×2 factorial — proftpd v1.3.8/v1.3.9 × Coverity
+2024.12.1/2025.12.2, 117 CIDs labelled, build fidelity `K` empty and capture
+equivalence established per cell. **Rule 27 remains unexercised**: raw merge
+keys and Connect CIDs agreed exactly (59/59), so the antecedent path never
+fired — the exception rate is measured at 0 of 59 for this version pair, which
+is not evidence that the mechanism works. A wider version jump and a real
+customer snapshot as the anchor are the next runs.

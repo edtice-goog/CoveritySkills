@@ -6,10 +6,14 @@
 #
 # Two invariants this script exists to enforce:
 #
-#   1. FIXED BUILD PATH. The source path is part of the defect merge key, so
-#      every version must be built in the same directory, checked out in place.
-#      A per-version directory prevents CIDs from merging across snapshots and
-#      makes every defect look newly introduced in every snapshot.
+#   1. ONE TREE, CHECKED OUT IN PLACE. Each version is checked out into the
+#      same tree and `git clean -xdf`ed, so stale generated files from the
+#      previous version cannot contaminate the version deltas.
+#
+#      NOT for merge-key reasons. Merge keys are computed from properties of
+#      the parsed code and are path-independent -- measured: the same defect
+#      built in two differently-named directories carries an identical merge
+#      key. That is by design, so defects track across workspace checkouts.
 #
 #   2. VERIFIED BUILD. cov-build exits 0 even when the underlying build fails,
 #      and reports its capture percentage over units ATTEMPTED rather than
