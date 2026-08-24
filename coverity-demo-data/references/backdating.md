@@ -95,6 +95,26 @@ SELECT pathname FROM file_path ORDER BY id LIMIT 5;
 
 Expect `/src/fsio.c`, not `/home/you/build/src/fsio.c`.
 
+## Creating the project and streams
+
+`cov-manage-im --mode streams --add` does **not** accept a `project:` setting;
+passing one fails with `Invalid --set value`. Streams are created standalone
+and then attached to a project from the *project* side:
+
+```
+cov-manage-im --url <url> --auth-key-file <key>     --mode projects --add --set name:<project>
+
+cov-manage-im --url <url> --auth-key-file <key>     --mode streams  --add --set name:<stream> --set lang:cpp
+
+cov-manage-im --url <url> --auth-key-file <key>     --mode projects --update --name <project> --insert stream:<stream>
+```
+
+Verify with `--mode streams --show`, which prints the stream's primary project
+and triage store. Repeat the last two commands per branch (rule 29).
+
+Note there is no `--mode snapshots`; snapshot state is not exposed through
+`cov-manage-im`. Use the SQL above.
+
 ## Connectivity notes
 
 - Plain HTTP against the Connect port works and is simplest for a local demo
