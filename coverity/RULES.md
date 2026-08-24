@@ -583,3 +583,45 @@ Source: verified — `coverity-demo-data`. Demonstrated live: given a key whose
 `comments.host` was a stale address, the first connection attempt used that
 host, port, and ssl flag verbatim; it failed only because the address happened
 to be unreachable.
+
+### 29. One stream per branch; a stream must move forward only
+
+A Coverity stream is a timeline. Commit into it in **monotonically increasing
+code order**, from a **single branch**. Except under genuinely bizarre
+branching strategies, the correlation between streams and branches is **1:1**.
+
+Mixing branches into one stream fabricates history. Commit a maintenance
+release from an older line after a newer mainline release and the older line's
+unfixed defects reappear, so the stream shows defects fixed and then
+reintroduced — churn that exists only because two lineages were interleaved on
+one timeline. Nothing in the data marks it as an artifact; it reads as a real
+regression, and every metric built on transitions (fix rate, reintroduction
+rate, mean time to fix) inherits the error.
+
+Release-date order is **not** the same as code order. Projects routinely ship a
+backport to an old branch on the same day as, or after, a new release from the
+trunk. proftpd tags `v1.3.6e` and `v1.3.7` on 2020-07-20, and `v1.3.7f` and
+`v1.3.8` on 2022-12-04; sorting tags by date and committing them all yields
+exactly the interleaving described above.
+
+So, when building streams from release history:
+
+- **Give each branch its own stream** and commit every release into the stream
+  for its line. This is the preferred answer: nothing is discarded, and Connect
+  can then compare lines against each other, which is a far more interesting
+  thing to query than a single flattened timeline.
+- Only if one stream is genuinely required, pick one lineage and follow it
+  forward, **dropping** older-line releases that land after a newer line's
+  rather than ordering them by date.
+
+**One caveat when backdating multiple streams.** First detected
+(`merged_defect.date_originated`) is global per merge key across the whole
+instance, not per stream. So the commit *order* must be globally chronological
+across **all** streams even though each commit is destined for its own stream.
+Committing one stream to completion and then starting the next will date every
+shared defect to whichever stream went first, and no later backdate can move
+it. Interleave by date; assign by branch.
+
+Source: domain knowledge from the repository owner; the tag collisions cited
+are verified from proftpd's own history, and the global first-detected
+behaviour is measured — see `coverity-demo-data`.

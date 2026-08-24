@@ -33,19 +33,30 @@ def run(cmd, **kw):
     return subprocess.run(cmd, capture_output=True, text=True, **kw)
 
 
-def read_tags(path):
-    """'<tag> <YYYY-MM-DD>' per line -> [(tag, date)] sorted oldest first."""
+def read_tags(path, default_stream):
+    """'<tag> <YYYY-MM-DD> [stream]' per line -> [(tag, date, stream)].
+
+    Sorted globally by date, ACROSS streams. First detected is global per merge
+    key, not per stream, so committing one stream to completion before starting
+    the next would date every shared defect to whichever stream went first --
+    and no later backdate can move it. Interleave by date; assign by branch.
+    (Rule 29.)
+    """
     out = []
     for line in pathlib.Path(path).read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        tag, _, date = line.partition(" ")
-        date = date.strip()
+        parts = line.split()
+        tag, date = parts[0], parts[1] if len(parts) > 1 else ""
+        stream = parts[2] if len(parts) > 2 else default_stream
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
             sys.exit(f"[FATAL] bad date for {tag!r}: {date!r} (want YYYY-MM-DD)")
-        out.append((tag, date))
-    out.sort(key=lambda td: td[1])
+        if not stream:
+            sys.exit(f"[FATAL] no stream for {tag!r}: give a third column "
+                     f"or pass --stream")
+        out.append((tag, date, stream))
+    out.sort(key=lambda t: t[1])
     return out
 
 
@@ -109,7 +120,9 @@ def main():
     ap.add_argument("--auth-key-file", required=True,
                     help="rule 28: the target comes from --url, never from "
                          "the host recorded inside this key")
-    ap.add_argument("--stream", required=True)
+    ap.add_argument("--stream", default="",
+                    help="destination stream; overridden per-tag by an "
+                         "optional third column in --tags")
     ap.add_argument("--strip-path", default="")
     ap.add_argument("--cov-bin", required=True,
                     help="Coverity Analysis bin dir (cov-commit-defects)")
@@ -118,17 +131,19 @@ def main():
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
-    tags = read_tags(args.tags)
+    tags = read_tags(args.tags, args.stream)
     root = pathlib.Path(args.idirs_root)
 
     # Fail before touching Connect if any idir is missing or unanalyzed.
-    missing = [t for t, _ in tags if not (root / t).is_dir()]
+    missing = [t for t, _, _ in tags if not (root / t).is_dir()]
     if missing:
         sys.exit("[FATAL] no idir for: " + ", ".join(missing))
 
-    print(f"Commit plan ({len(tags)} versions, oldest first):")
-    for tag, date in tags:
-        print(f"  {date}  {tag:<10} {root / tag}")
+    streams = sorted({st for _, _, st in tags})
+    print(f"Commit plan ({len(tags)} versions, {len(streams)} stream(s), "
+          f"globally oldest first):")
+    for tag, date, st in tags:
+        print(f"  {date}  {tag:<10} -> {st}")
     if args.dry_run:
         print("\n--dry-run: nothing committed.")
         return 0
@@ -139,17 +154,17 @@ def main():
               "poor trade.", file=sys.stderr)
 
     print("\nThis phase is NOT reversible. Ensure the Step 0 backup exists.\n")
-    for tag, date in tags:
+    for tag, date, stream in tags:
         before = first_detected_counts(args.platform_bin) if args.platform_bin else {}
         cmd = [str(pathlib.Path(args.cov_bin) / "cov-commit-defects"),
                "--dir", str(root / tag), "--url", args.url,
-               "--auth-key-file", args.auth_key_file, "--stream", args.stream,
+               "--auth-key-file", args.auth_key_file, "--stream", stream,
                "--backdate", date.replace("-", ""),
                "--description", tag, "--version", tag]
         if args.strip_path:
             cmd += ["--strip-path", args.strip_path]
 
-        print(f"[{date}] committing {tag} ...", flush=True)
+        print(f"[{date}] committing {tag} -> {stream} ...", flush=True)
         r = run(cmd)
         if r.returncode != 0:
             sys.stderr.write(r.stdout[-2000:] + r.stderr[-2000:])

@@ -172,7 +172,23 @@ code reading to accept is not a demo item, however real it is.
 
 ## Step 3: Commit, oldest first
 
-One commit per selected version, in strict chronological order:
+**One stream per branch (rule 29).** A stream is a timeline and must move
+forward only. Give each release line its own stream and commit every release
+into the stream for its line -- nothing is discarded, and Connect can compare
+lines against each other, which is far more interesting to query than one
+flattened timeline. Flattening several branches into a single stream fabricates
+history: an older line's backport committed after a newer line's release makes
+already-fixed defects reappear, and nothing in the data marks that as an
+artifact.
+
+**But order commits globally, across all streams.** First detected is global per
+merge key, not per stream. Committing one stream to completion before starting
+the next dates every shared defect to whichever stream went first, and no later
+backdate can move it. **Interleave by date; assign by branch.** `commit_sweep.py`
+takes an optional third column in the tags file for the destination stream and
+sorts globally by date regardless of stream.
+
+One commit per selected version, in global chronological order:
 
 ```
 cov-commit-defects --dir <idir> --url <url> --auth-key-file <key> \

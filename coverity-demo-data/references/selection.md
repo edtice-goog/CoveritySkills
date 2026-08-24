@@ -58,6 +58,21 @@ Filter story-surfaced defects on:
 A defect that fails legibility can still live in the dataset -- it just should
 not be the one on screen.
 
+## Branches become streams, not rows in one stream
+
+Where a project maintains several release lines at once, do not flatten them.
+Each line gets its own stream (rule 29), every release is committed, and the
+commit order is globally chronological across all streams because first
+detected is global per merge key.
+
+This is usually the better demo as well as the more correct one: cross-stream
+comparison ("what did 1.3.8 fix that 1.3.7 still carries?") is a more
+interesting question than any single timeline supports.
+
+Watch for the tell that a project has concurrent lines: two releases tagged on
+the same day. proftpd tags `v1.3.6e` and `v1.3.7` on 2020-07-20, and `v1.3.7f`
+and `v1.3.8` on 2022-12-04 -- backports shipping alongside new releases.
+
 ## Selecting version count
 
 More versions is not better. Each one costs a build and adds a row the audience
