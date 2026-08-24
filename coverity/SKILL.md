@@ -76,7 +76,8 @@ evidence, in `RULES.md`:
 | 24 | `coverity capture` runs buildless capture too — always pass the build command for C/C++ |
 | 25 | On a CLI capture, read `output/cli-diagnostics.json` |
 | 26 | Triage a sample of the results before anyone trusts the run |
-| 27 | Never take the connection target from an auth key file |
+| 27 | Merge keys are stable -- but let Connect do the lining up |
+| 28 | Never take the connection target from an auth key file |
 
 Numbers are stable and citable. New rules take the next free number and are
 filed under the section they belong to; a rule that turns out to be wrong is

@@ -77,7 +77,7 @@ baseline. It is a fine starting point but predates every key you create.
 
 ## Step 0b: Auth key hygiene -- read before connecting
 
-**Rule 27.** A Coverity auth key is JSON with a free-form `comments` block
+**Rule 28.** A Coverity auth key is JSON with a free-form `comments` block
 carrying `host`, `port`, and `ssl`. **Never take the connection target from the
 key file.**
 
@@ -145,6 +145,25 @@ See `references/corpus.md` for choosing a corpus and preparing a build tree.
 `tools/phase2.py` reads analyzed idirs in chronological order and reports the
 defect population over time by merge key: introduced, persisting, fixed, and
 how long each surviving defect has been present.
+
+**Rule 27 applies, with one narrow exemption.** Rule 27 warns against
+comparing raw merge keys between two local result sets, because analyzer
+version changes can move a key and Connect's antecedent-merge-key handling is
+what lines the old and new identities up. Phase 2 does exactly that raw
+comparison -- legitimately, because **every version in a demo corpus is
+analyzed with a single pinned analyzer version**, so there is no analyzer-driven
+key movement for antecedents to repair. The variable is the source, not the
+analyzer.
+
+Hold to that condition. If a corpus is ever analyzed with mixed analyzer
+versions, Phase 2's arithmetic becomes exactly the mistake rule 27 describes,
+and the fix is to pin one version and re-analyze -- not to reconcile keys by
+hand.
+
+Measured support: a three-version proftpd corpus under one pinned analyzer
+predicted 113 CIDs and one new defect, and Connect matched exactly. That is a
+calibration point for rule 27's open question about how often keys genuinely
+move; under a fixed analyzer, in this corpus, the answer was never.
 
 **Verify merge-key overlap before proceeding.** Adjacent releases of a mature
 project share nearly all their defects; the tool aborts on zero overlap between

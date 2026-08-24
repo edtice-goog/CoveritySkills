@@ -413,9 +413,13 @@ def cmd_delta(a):
         print("pair %-3d %-38s DELTA     (%d -> %d tokens)" %
               (r["pair_index"], os.path.basename(p["primary"] or "?"), len(rec), len(new)))
         diff = []
-        for line in difflib.unified_diff(rec, new, "recorded", "generated",
-                                         lineterm="", n=a.context):
-            if line.startswith(("---", "+++", "@@")):
+        # unified_diff emits exactly two header lines first. Skip them by
+        # position, NOT by prefix: a removed "--c11" renders as "---c11" and a
+        # prefix test would silently eat it -- along with most Coverity flags.
+        dl = list(difflib.unified_diff(rec, new, "recorded", "generated",
+                                       lineterm="", n=a.context))[2:]
+        for line in dl:
+            if line.startswith("@@"):
                 continue
             print("    %s" % line)
             if line[:1] in "+-":

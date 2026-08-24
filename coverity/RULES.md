@@ -559,7 +559,7 @@ every rule added here carries a `Source:` line for it.
 
 Source: project convention.
 
-### 27. Never take the connection target from an auth key file
+### 28. Never take the connection target from an auth key file
 
 A Coverity authentication key is JSON with a free-form `comments` block
 carrying `host`, `port`, `ssl`, and `description`. Those fields are *data
