@@ -97,11 +97,9 @@ measured. Before running this skill on any other toolchain, run the
 two-native calibration first and confirm the baseline is either empty or
 fully resolved.
 
-- **MinGW/gcc on Windows** -- PE container with DWARF. `.comment`,
-  `DW_AT_producer`, and `-grecord-gcc-switches` are expected to record the
-  compiler command line, which is where `cov-build`'s interposition could
-  legitimately land in the artifact. That would be `coverity-benign`, not a
-  failure -- but it must be classified, not assumed. `busybox-w32` and
+- **MinGW/gcc on Windows** -- PE container with DWARF. The command-line
+  recording route was tested on gcc/Linux and did not fire (below), but that
+  result has not been repeated on the PE/DWARF combination. `busybox-w32` and
   `mbedtls` are the intended fixtures.
 - **Mach-O** -- `LC_UUID`, code signature blob.
 
@@ -128,10 +126,43 @@ Fields to look at *if* a compare does disagree, in rough order of likelihood:
 |---|---|---|
 | `.note.gnu.build-id` | `readelf -n` | Content hash -- differs only if content differs. A build-id change is a *symptom*, not noise. |
 | `DW_AT_comp_dir` | `readelf --debug-dump=info` | Absolute build directory. Path-sensitive, same length rule as PE. |
-| `DW_AT_producer` | same | Records the compiler command line. **The expected place for a legitimate `coverity-benign` classification** if `cov-build` alters the observed command line -- still unobserved. |
+| `DW_AT_producer` | same | Records the compiler command line. Was the predicted home for a legitimate `coverity-benign` classification -- **measured, and it does not fire**; see below. |
 | `.comment` | `readelf -p .comment` | Compiler identification string. |
 | `ar` member headers | `ar tv` | Zeroed under deterministic mode; non-zero means `U`/non-deterministic archiving. |
 
-`-frecord-gcc-switches` and `-grecord-gcc-switches` embed the command line
-explicitly; if the build uses either, treat command-line differences as
-expected and classify rather than fail.
+### `-grecord-gcc-switches`: tested, and `cov-build` does not perturb it
+
+`DW_AT_producer` was the most plausible place for a *legitimate*
+Coverity-attributable difference to appear -- if `cov-build` altered the
+command line reaching the real compiler, a build recording its own switches
+would capture that, and the correct verdict would be `coverity-benign` rather
+than a failure. It was worth testing directly rather than waiting to trip over
+it.
+
+Single-file C program, one build script used verbatim by both arms, gcc 13.3.0,
+`-g -O2 -grecord-gcc-switches`, capture 100%:
+
+```
+-gno-record-gcc-switches ->  GNU C17 13.3.0
+-grecord-gcc-switches    ->  GNU C17 13.3.0 -mtune=generic -march=x86-64 -g -O2
+                             -fasynchronous-unwind-tables -fstack-protector-strong
+                             -fstack-clash-protection -fcf-protection
+
+native vs cov-build:  hello.o IDENTICAL, hello IDENTICAL
+                      .debug_info / .debug_str / .comment all identical
+```
+
+The disabling control matters: on Debian/Ubuntu GCC the flag is **on by
+default**, so comparing "with the flag" against "without passing the flag"
+compares two identical things and proves nothing. `-gno-record-gcc-switches`
+is what demonstrates the mechanism is real and armed.
+
+**Scope limit.** `-grecord-gcc-switches` records only options *that may affect
+code generation*. A codegen-neutral argument added by `cov-build` would not
+appear here. This establishes that the codegen-relevant command line is
+untouched -- the class that governs binary fidelity -- not that argv is
+identical in every respect.
+
+Keep `coverity-benign` in the taxonomy regardless. The category is sound, other
+toolchains record more, and a category that has been probed and never fired is
+more useful than one nobody tested.
