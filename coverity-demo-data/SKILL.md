@@ -57,7 +57,20 @@ Story builders should live in Phase 2 and never touch Phase 3 mechanics.
 
 ## Step 0: Establish the reset point
 
-Phase 3 is one-shot, so a restore point is not optional.
+Phase 3 is one-shot, so a restore point is not optional. It has **two** parts,
+and a database backup alone is not a restore point:
+
+1. **A database backup** -- to roll first-detected dates back to before the
+   sweep.
+2. **Every intermediate directory, retained** -- to re-commit without
+   re-capturing.
+
+Restoring the database returns first-detected dates to unwritten, but the
+commits still have to be replayed, and replaying them needs the idirs. Discard
+the idirs after committing and a recovery that should take minutes becomes a
+full re-capture of the corpus: hours of builds to undo one wrong backdate.
+Keep them. They are cheap -- a 24-release corpus spanning a decade came in
+well under a gigabyte -- and they are the difference between a reset and a redo.
 
 ```
 cov-admin-db backup --dir <ABSOLUTE path that does NOT yet exist>
@@ -130,6 +143,11 @@ something. `tools/capture.sh` implements both rules.
 Record the compilation-unit count per version and compare across versions. A
 step change that does not correspond to real code change is a capture problem,
 not a finding.
+
+**Keep every idir after Phase 3, not just until it.** Analyzed idirs are the
+other half of the reset point (Step 0): with them in hand, recovering from a
+bad commit sweep is a restore plus a re-run of `commit_sweep.py`. Without them
+it is the whole corpus rebuilt from source.
 
 **Capture and analysis need not share an operating system.** Intermediate
 directories are platform-independent -- this is how Coverity SaaS operates. If
@@ -279,7 +297,8 @@ Deliver, alongside the populated instance:
 - Which versions were committed, with their backdate values
 - The Phase 2 population table, since it is the story's evidence
 - Audit verdicts for story-surfaced defects and the per-checker sample
-- The restore point, and the reminder that redoing Phase 3 requires it
+- The restore point -- **both** the database backup and the retained idirs --
+  and the reminder that redoing Phase 3 requires both
 
 Record the dataset's limits honestly. `--backdate` moves snapshot and
 first-detected dates; it does **not** backdate triage history, ownership, or
