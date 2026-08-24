@@ -30,7 +30,8 @@ compiler-shaped executable; regenerate rather than patch), capture (fresh
 idir; make sure the build actually builds; never quote a bare percentage;
 `--all`; what an empty vs. missing `scan-transparency/` means), analysis
 (find where the pipeline narrowed before blaming checkers; taint needs two
-switches; never let capture doubt leak into a "not found"), and reporting
+switches; never let capture doubt leak into a "not found"; triage a sample of
+the defects before anyone trusts the run), and reporting
 (verdict first; say what you did not check; distinguish measured from
 reasoned).
 

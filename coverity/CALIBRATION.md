@@ -258,6 +258,10 @@ the three methods' actual output recorded, in the style of
    project" signal on a `cov-build` idir**, and the adjudicator's
    project-directory caveat will fire on healthy captures.
 
-Until 1-8 are done, the skill's *commands and fields* are trustworthy and its
-*diagnosis table* is a well-grounded hypothesis. Say so if it matters to the
-reader.
+Until these are done, the skill's *commands and fields* are trustworthy and
+its *diagnosis table* is a well-grounded hypothesis. Say so if it matters to
+the reader.
+
+**Deliberately not queued:** why an analysis is noisy. Rule 26 has the user
+*detect* noise and re-check capture; diagnosing the rest is a methodology of
+its own, outside what this skill covers, and belongs with Coverity support.

@@ -458,7 +458,77 @@ verdict without that step is an assertion, not a result.
 
 Source: verified — `coverity-defect-detectability/references/capture.md`.
 
+### 26. Triage a sample of the results before anyone trusts the run
+
+`cov-analyze` finishing is not evidence that the analysis is sound. Before a
+report leaves your hands, hand-triage a **small stratified sample** — a few
+defects from *each* checker that fired, not the first N in the file, which
+cluster in whichever file sorts first — and classify each as true positive,
+false positive, or uncertain by reading its event trace against the source.
+
+**Why.** The defect count is exactly as flattering as the capture percentage:
+it says how many things were reported, not whether any of them are real.
+Coverity's defaults are tuned to a low false-positive rate, so an unusually
+noisy sample is a real signal — and it is worth catching before the report
+goes out rather than after someone has acted on it.
+
+**Do.** List the defects with `cov-format-errors` (`--text-output` for
+reading, `--json-output-v10` for sampling programmatically; confirm the flags
+in `doc/en/help/cov-format-errors.help.txt` per rule 4). Sample per checker,
+read the traces, record the counts.
+
+**Detecting noise is in scope; explaining it is not.** If the sample looks
+noisy, the one thing worth doing here is re-checking capture (rules 2 and 9),
+because it is cheap, common, and already owned by this skill. Past that,
+stop: attributing false positives to a root cause is a methodology of its own
+and not part of using the tool. A noisy run that survives a capture check is a
+question for Coverity support — send them the sample.
+
+**Report it as what it is.** A spot check on a handful of defects is not a
+measured false-positive rate for the run, and must never be quoted as one.
+State the sample size, which checkers it covered, and what you found —
+"triaged 12 of 340 defects across 5 checkers; 1 false positive, 1
+uncertain" — per rule 22.
+
+Source: practice, not measurement. Standard triage discipline; nothing here
+claims a measured relationship between any cause and a false-positive rate.
+
 ---
+
+### 27. Merge keys are stable — but only if you let Connect do the lining up
+
+Merge keys are **designed to be constant over time**, so a finding keeps its
+identity across analyzer versions. When a key genuinely has to change,
+Coverity creates an **antecedent merge key** so the old and new identities can
+be lined up, and **Coverity Connect's commit process applies this
+automatically**. Queries against committed snapshots through the REST API
+therefore do not show spurious new defects caused by a key change.
+
+The stumbling block is entirely self-inflicted: **comparing merge keys by hand
+between two local runs.** That path sees the raw key, not the antecedent
+relationship, so an unchanged finding looks new. Anyone diffing two analyzer
+versions' local results directly will hit it and conclude the analyzer
+invented defects.
+
+So, when comparing results across analyzer versions:
+
+- commit both runs to Connect and compare through it, or through the REST API
+  against the committed snapshots
+- do **not** treat a raw merge-key difference between two local result sets as
+  evidence that a finding is new
+
+There have been exceptions, so a small residue of genuine key movement is
+possible — but it is a rare case to investigate, not the default assumption,
+and not a reason to build a correspondence mechanism of your own.
+
+This matters most to `coverity-issue-transition-inference`, whose whole job is
+separating "the code changed" from "the analyzer improved". Getting this wrong
+would manufacture exactly the false transitions that skill exists to prevent.
+
+Source: domain knowledge from the repository owner; **not independently
+verified here.** The antecedent-merge-key mechanism, the Connect commit
+behaviour, and the REST consequence are stated rather than measured. Worth a
+calibration run before anything depends on the exception rate.
 
 ## Reporting
 

@@ -67,7 +67,15 @@ calibration** and report the weaker honest claim: "could not tie to the
 official build; established that Coverity does not perturb this build in this
 environment."
 
-## Step 0: Locate tools
+## Step 0: Read the rules, then locate tools
+
+**Read `coverity/RULES.md` first.** It is the standing list for any Coverity
+work, and several entries govern this skill directly -- rule 8 (capture into a
+fresh intermediate directory), rule 9 (make sure the build under capture
+actually builds), rule 10 (never quote a bare percentage), rule 11 (`< 100%`
+is a question, 100% of nothing is still 100%).
+
+## Step 0b: Locate tools
 
 Coverity install (ask the user; check project notes and memory first -- do not
 scan the disk). `$BIN` below means `<install>/bin`. The skill's own tools live
@@ -180,6 +188,27 @@ Both arms must invoke the **exact same inner build script**; the native arm
 runs it directly, the Coverity arm runs it under `cov-build`. If the arms run
 different command lines you are measuring the script difference, not
 Coverity's effect. See `tools/zlib_build_inner.bat` for the pattern.
+
+**Assert each arm actually ran before comparing anything.** This is rule 9
+applied to the fidelity arm rather than the capture arm: the rules are phrased
+around the intermediate directory, but an artifact *snapshot* goes stale the
+same way and is quieter about it.
+
+A snapshot is valid only if produced by a build that ran **in this arm**. If a
+build step fails -- or never executes -- and the snapshot step runs anyway, it
+captures the previous arm's outputs and the comparison reports a flawless
+`K` empty. Observed in practice: a Coverity arm whose `cov-build` path
+expanded empty never ran, the snapshot copied the previous native build's
+tree, and the result was byte-perfect agreement that meant nothing. The tell
+was an impossible coincidence -- the Coverity build's embedded timestamp
+matched the previous native build's to the second.
+
+Make it structural, not observational:
+
+- chain the snapshot to build success (`build && snapshot`), never `;`
+- assert the Coverity arm produced an emit directory before trusting it
+- prefer an artifact that carries a per-build value (a build timestamp, a
+  build id) and check that it moved between arms
 
 Hold constant: build directory, source path, environment, TZ, locale.
 Snapshot each run's artifacts elsewhere before the next build overwrites them.
