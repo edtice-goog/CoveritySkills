@@ -3,3 +3,9 @@ coverity-defect-detectability-workspace/
 # Coverity intermediate dirs anywhere
 idir*/
 *.o
+
+__pycache__/
+*.pyc
+
+# Demo-data workspace: build trees, idirs, DB backups (large)
+coverity-demo-data-workspace/
