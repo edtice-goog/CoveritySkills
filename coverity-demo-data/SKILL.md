@@ -144,6 +144,14 @@ Record the compilation-unit count per version and compare across versions. A
 step change that does not correspond to real code change is a capture problem,
 not a finding.
 
+Analysis may run alongside capture -- they are separate processes and often
+separate machines -- but gate it on the **capture step's own completion
+signal**, never on the idir directory existing. `cov-build` creates the
+directory up front, so an analyzer that scans for directories will eventually
+read a half-written emit and fail (or worse, succeed against a partial one).
+Have the capture loop record each version as it finishes and have the analysis
+loop consume that record.
+
 **Keep every idir after Phase 3, not just until it.** Analyzed idirs are the
 other half of the reset point (Step 0): with them in hand, recovering from a
 bad commit sweep is a restore plus a re-run of `commit_sweep.py`. Without them
