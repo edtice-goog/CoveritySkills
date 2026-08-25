@@ -341,8 +341,21 @@ interprocedural, whether the evidence is statistical) because those are the
 signals that decide whether a true positive belongs on screen.
 
 Audit against the real source and the full event trace, not the defect title.
-Report a verdict per defect: real, real-but-arguable, or false positive.
-**Real-but-arguable is a demo failure too** -- see the legibility rule.
+Report a verdict per defect using the vocabulary in
+`references/triage-verdicts.md`, which exists so that dismissals are precise
+and falsifiable rather than hand-waved.
+
+The category that matters most is the **global invariant**: the analyzer is
+right about the code it can see, and a fact outside that view makes the path
+impossible -- a guard elsewhere in the function, or a property of the machine
+the program runs on. It is where a reasoning model reliably beats the analysis,
+and it is also the easiest way to wave away a real defect, so every such
+dismissal must **name the invariant, locate where it is enforced, and say what
+would break it**. No location, no dismissal: report it unresolved instead.
+
+**Real-but-arguable is a demo failure too** -- see the legibility rule. So is a
+correctly-dismissed global invariant: the dataset is fine, but explaining why a
+defect is not a defect is not a story to tell on stage.
 
 **Run this phase with the strongest model available.** Measured on the proftpd
 corpus, a stratified sample of nine defects contained three false positives --

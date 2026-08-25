@@ -79,6 +79,7 @@ evidence, in `RULES.md`:
 | 27 | Merge keys are stable -- but let Connect do the lining up |
 | 28 | Never take the connection target from an auth key file |
 | 29 | One stream per branch; a stream must move forward only |
+| 30 | Name the global invariant, or do not dismiss the finding |
 
 Numbers are stable and citable. New rules take the next free number and are
 filed under the section they belong to; a rule that turns out to be wrong is

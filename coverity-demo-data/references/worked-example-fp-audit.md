@@ -12,15 +12,18 @@ wrong in context, and all three would have been embarrassing on stage.
 | 016 | OVERRUN | `src/netaddr.c:567` | true positive - stack over-read |
 | 017 | REVERSE_INULL | `modules/mod_ls.c:1610` | true positive |
 | 001 | CHECKED_RETURN | `modules/mod_core.c:4749` | true positive, low severity |
-| 004 | DEADCODE | `src/stash.c:596` | true positive, intentional code |
-| 008 | MISSING_BREAK | `src/jot.c:2099` | true positive, probably intentional |
-| 003 | COPY_PASTE_ERROR | `lib/ccan-json.c:1396` | **FALSE POSITIVE** |
-| 013 | NULL_RETURNS | `modules/mod_log.c:1324` | **FALSE POSITIVE** |
-| 023 | Y2K38_SAFETY | `utils/ftpwho.c:291` | **FALSE POSITIVE in practice** |
+| 004 | DEADCODE | `src/stash.c:596` | intentional |
+| 008 | MISSING_BREAK | `src/jot.c:2099` | intentional (probable) |
+| 003 | COPY_PASTE_ERROR | `lib/ccan-json.c:1396` | **FP - heuristic misfire** |
+| 013 | NULL_RETURNS | `modules/mod_log.c:1324` | **FP - global invariant (in-code)** |
+| 023 | Y2K38_SAFETY | `utils/ftpwho.c:291` | **FP - global invariant (environment)** |
 
 ## The false positives
 
-### 013 NULL_RETURNS - `modules/mod_log.c:1324` (definitive)
+### 013 NULL_RETURNS - `modules/mod_log.c:1324`
+
+**FP - global invariant, in-code.** Enforced at `modules/mod_log.c:1287`.
+Breaks if any new caller reaches this `else` without the prefix check.
 
 ```c
 if (strncasecmp(lf->lf_filename, "syslog:", 7) != 0) {
@@ -37,6 +40,9 @@ times`) and ignores the guarding `strncasecmp`. The path is infeasible.
 
 ### 003 COPY_PASTE_ERROR - `lib/ccan-json.c:1396`
 
+**FP - heuristic misfire.** No feasibility argument applies; the shape is
+correct as written.
+
 ```c
 for (child = head; child != NULL; last = child, child = child->next) {
     if (child->next == child) problem("child->next == child (cycle)");
@@ -49,6 +55,9 @@ the list head. Taking the remediation advice would produce `head->next == head`,
 which is strictly worse. The heuristic pattern-matched adjacent similar lines.
 
 ### 023 Y2K38_SAFETY - `utils/ftpwho.c:291`
+
+**FP - global invariant, environment.** Enforced by process lifetime; breaks
+only if `uptime_secs` is ever reassigned to hold an absolute timestamp.
 
 ```c
 upminutes = (int) uptime_secs / 60;

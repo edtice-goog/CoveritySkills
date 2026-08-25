@@ -472,6 +472,8 @@ coverity-recreate-from-emit/
 │   ├── transformation-probe.md       # the method, the normalization set, why the control
 │   ├── invocation-anatomy.md         # what list-capture-invocations contains
 │   ├── idir-reuse.md                 # part B: gates, routing, stale-TU rule
+│   ├── triage-verdicts.md            # global invariants, heuristic misfires,
+│   │                                 #   and how to make a dismissal falsifiable
 │   ├── worked-example-proftpd.md     # the calibration session, with the numbers
 │   └── worked-example-fp-audit.md    # a real triage pass: 3 of 9 sampled
 │                                     #   defects were false positives
@@ -576,6 +578,8 @@ coverity-demo-data/
 │   ├── corpus.md                     # choosing a corpus, fixed build trees,
 │   │                                 #   cross-platform capture
 │   ├── selection.md                  # story shapes and the legibility rule
+│   ├── triage-verdicts.md            # global invariants, heuristic misfires,
+│   │                                 #   and how to make a dismissal falsifiable
 │   ├── worked-example-proftpd.md     # the calibration session, with the numbers
 │   └── worked-example-fp-audit.md    # a real triage pass: 3 of 9 sampled
 │                                     #   defects were false positives

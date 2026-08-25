@@ -625,3 +625,46 @@ it. Interleave by date; assign by branch.
 Source: domain knowledge from the repository owner; the tag collisions cited
 are verified from proftpd's own history, and the global first-detected
 behaviour is measured — see `coverity-demo-data`.
+
+### 30. Name the global invariant, or do not dismiss the finding
+
+Most false positives are not analyzer mistakes. The analysis is correct about
+the code it can see, and a fact outside that view makes the reported path
+impossible — a guard elsewhere in the function, or a property of the machine
+the program runs on. Call this a **global invariant**, and distinguish two
+kinds, because they lead to different actions:
+
+- **In-code invariant** — the fact is in the source but was not connected to
+  the path. A `NULL_RETURNS` on `strchr(s, ':')` inside a branch reached only
+  when `strncasecmp(s, "syslog:", 7) == 0`: the colon is guaranteed. Actionable
+  — a model or assertion can stop it recurring.
+- **Environment invariant** — the fact is outside the program entirely. A loop
+  scanning for a free DMA channel can on paper exit with its result unassigned,
+  but a machine with no working DMA never finished POST, so the code is not
+  running. No analysis could find this; it gets triaged and stays triaged.
+
+This is where a reasoning model reliably beats the analysis, which is precisely
+why it is also the easiest way to wave away a real defect. A dismissal is only
+acceptable if it is falsifiable, so state all three:
+
+1. **the invariant**, as a concrete proposition
+2. **where it is enforced** — file and line, or the mechanism
+3. **what would break it**
+
+No location, no dismissal: report the finding as **unresolved** instead.
+`unresolved` is a legitimate outcome and far better than a confident wrong
+call. The asymmetry is deliberate — wrongly dismissing a real defect costs more
+than wrongly keeping a false one.
+
+Not every wrong finding is a global invariant. When a checker matched a *shape*
+rather than a path — a COPY_PASTE_ERROR on two deliberate, distinct adjacent
+checks — no feasibility argument applies; call it a **heuristic misfire** and
+explain the intent the shape encodes. And when the detection is accurate but
+the code is deliberate (a defensive branch after an exhaustive switch), the
+honest verdict is **intentional**, not false positive.
+
+Source: verified — `coverity-demo-data`. Measured on a stratified sample of
+nine proftpd findings: three were wrong, and every one was checker-correct.
+Full worked triage in
+`coverity-demo-data/references/worked-example-fp-audit.md`; vocabulary in
+`coverity-demo-data/references/triage-verdicts.md`.
