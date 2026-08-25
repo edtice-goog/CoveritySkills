@@ -115,17 +115,26 @@ from **17 m 34 s to 5 m 42 s -- a 3.1x capture saving**, landing at 1.2x the
 plain build instead of 3.8x. That is the entire value proposition in one row of
 someone else's CI dashboard.
 
-### The yardstick is the inner loop, not the clean build
+### Two yardsticks, because there are two cohorts
 
-Easy to measure against the wrong baseline. Beating a *clean capture* is not
-the bar. Nobody working on code runs a clean build -- they run an **incremental**
-one, and that is the cost they have already accepted.
+Report the saving against **both** denominators, and say which cohort each one
+serves. They give different verdicts, and a result that is a clear win for one
+is a clear failure for the other.
 
-The Linux kernel numbers make the point. A clean build is **4 m 34 s** and a
-full capture **17 m 34 s**; reuse brings capture to **5 m 42 s**, a 3.1x saving
-and only 1.2x the clean build. Excellent against the wrong denominator --
-and still **too slow**, because the developer's actual inner loop is an
-incremental build measured in seconds.
+| Denominator | Cohort | What "good" looks like |
+|---|---|---|
+| **Full clean capture** | CI / pull-request checks | Minutes. A PR gate that was going to spend 17 minutes and now spends 6 is a real, bankable win. |
+| **Incremental build** | Desktop, pre-commit, inner loop | Seconds. The developer already accepted the cost of their incremental build; the tool must not dwarf it. |
+
+The Linux kernel numbers show the same result passing one bar and failing the
+other. Clean build **4 m 34 s**, full capture **17 m 34 s**, reuse **5 m 42 s**
+-- a 3.1x capture saving at 1.2x the clean build.
+
+- **As a PR check**: a good outcome. It replaces a 17-minute stage with a
+  6-minute one, on a machine nobody is sitting in front of.
+- **On the desktop**: still too slow. Nobody working on code runs a clean
+  build; they run an **incremental** one measured in seconds, and 5 m 42 s
+  stands between them and a commit they already believe in.
 
 A common shape of work, though not everyone's: write code to confirm the
 strategy without worrying about edge cases; go back and clean it up; then, when
@@ -134,11 +143,15 @@ request. At *that* moment the tool is standing between the developer and a
 commit they already believe in. **Minutes is too long.** Several minutes on
 every pre-commit hook or PR check is how a tool gets disabled.
 
-So state the target properly:
+So state the desktop target properly -- it is the harder of the two, and the
+one this procedure exists for:
 
 > Bring the idir current in time proportional to **what actually changed**,
 > comparable to the incremental build the developer just ran -- not
 > proportional to the size of the project.
+
+The CI target is looser and often already met by a straightforward reuse: beat
+the full capture by enough to matter, with correctness intact.
 
 Consequences that should shape every choice in this procedure:
 
@@ -177,10 +190,10 @@ A handful of files against thousands is the case this procedure was built for.
 A delta approaching the size of the emit is a recapture wearing a disguise --
 do the clean capture instead, and get rule 8's guarantees back for free.
 
-Judge the result against the **incremental build**, not the clean one (see
-above). If bringing the idir current takes materially longer than the
-incremental build the developer just ran, the procedure has not delivered what
-it exists to deliver, however favourably it compares to a full recapture.
+Report both ratios (see above): against the full capture, which is the CI
+cohort's denominator, and against the incremental build, which is the desktop
+cohort's. A result can pass the first and fail the second, so quoting only the
+flattering one misrepresents who it will work for.
 
 There is no single threshold worth hard-coding, because the real cost driver
 is how far the *header* changes cascade, not the file count. Report the ratio,
