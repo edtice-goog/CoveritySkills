@@ -15,7 +15,7 @@ performed on copies.
 
 Full narrative in `references/worked-example-proftpd.md`.
 
-# Part A -- recreate from emit
+# Recreate -- analyzing an old emit with a new analyzer
 
 ## Verified by direct execution
 
@@ -220,14 +220,14 @@ here rather than quietly deleted:
    `cov-analyze` caches per-function results and re-does only what changed.
    Those are different claims and only the second one was made.
 2. The draft then said this "cuts against the case for idir reuse". It does the
-   opposite. Reuse (Part B) exists to avoid re-**capture**; cheap re-analysis
+   opposite. Reuse exists to avoid re-**capture**; cheap re-analysis
    does not compete with that, it means the capture saving is the *whole*
    saving rather than being diluted.
 
 The load-bearing point is about **capture, not analysis**: capture time is
 routinely the long pole, and it is worst in the naive CI pattern of a **clean
 build and full rebuild** performed solely to guarantee the idir is current.
-That is the cost Part B removes. It also follows that for a **smaller** project,
+That is the cost reuse removes. It also follows that for a **smaller** project,
 idir reuse plus judicious rebuild minimization is frequently *more than fast
 enough* on its own -- reaching for anything more elaborate is premature.
 
@@ -513,7 +513,7 @@ symbol. Good news, and measured rather than assumed.
   streams on the hosted server exceeded 10 minutes. Take the stream from
   `coverity.yaml` instead of discovering it.
 
-# Part B -- idir reuse for speed
+# Reuse -- an existing idir, brought up to date for speed
 
 Environment: the same Coverity 2025.9.0 pair (linux64 in WSL for capture,
 win64 for analysis). Two subjects, deliberately chosen to fail and pass the
@@ -592,7 +592,7 @@ applicability gate: **proftpd** (hand-written recursive make, two checkouts at
 
 ### Timing, measured on FFmpeg
 
-The premise of part B is speed, so it needed a subject where speed is visible.
+The premise of reuse is speed, so it needed a subject where speed is visible.
 **FFmpeg**, 16 cores, `cov-analysis-linux64-2025.9.0` capturing under WSL and
 `win64 2025.9.0` analyzing (the Linux licences on this machine are expired).
 Configured `--disable-x86asm --disable-doc --disable-programs`; **2053
@@ -707,7 +707,7 @@ This is also the strongest available argument for the check being mandatory
 rather than advisory: it was written to guard a hypothetical, and the first
 real project it ran against was already wrong.
 
-### Not yet calibrated -- part B queue
+### Not yet calibrated -- reuse queue
 
 1. **Gate 2 verification has not been exercised.** Insisting on a git tag and
    checking it via `primaryFileSizeInBytes` against `git show <tag>:<path>` is

@@ -43,11 +43,11 @@ Two situations, sharing that machinery:
 
 | | Situation | Procedure |
 |---|---|---|
-| **A** | The build **cannot be run** -- toolchain gone, CI retired, old commit no longer builds -- and a newer analyzer refuses the old emit | *Recreate*, below |
-| **B** | The build **can** be run but is **too slow** to repeat; you want a reference idir brought up to date with a working tree | *Reuse*, see `references/idir-reuse.md` |
+| **Recreate** | The build **cannot be run** -- toolchain gone, CI retired, old commit no longer builds -- and a newer analyzer refuses the old emit | *Recreate*, below |
+| **Reuse** | The build **can** be run but is **too slow** to repeat; you want a reference idir brought up to date with a working tree | *Reuse*, see `references/idir-reuse.md` |
 
-A is about recovering analyzability across a version gap. B is about speed
-during active development, and **deliberately violates rule 8** -- read its
+*Recreate* is about recovering analyzability across a version gap. *Reuse* is
+about speed during active development, and **deliberately violates rule 8** -- read its
 three applicability gates before starting, because knowing when it does not
 apply is most of that procedure. Gate 0 is the cheapest and rules out whole
 deployments in one command: if the reference idir was analyzed on a different
@@ -532,7 +532,7 @@ mean, and rule 8's guarantees are the user's to spend.
 
 ## Prerequisite: a properly formed coverity.yaml. No file, no skill.
 
-**This gate precedes everything, including the applicability gates in part B.**
+**This gate precedes everything, including the applicability gates for reuse.**
 
 The project must carry a Coverity configuration -- `coverity.yaml`,
 `coverity.yml`, or `coverity.json` -- and it must **name the Connect stream**.
@@ -655,7 +655,7 @@ find), and reports a median-based estimate with a recommendation.
 Measured example -- proftpd, three snapshots: capture 5m36s / 6m17s / 5m17s,
 analysis 74s / 56s / 69s, 90 TUs each. Estimate **6m 45s**, and the honest
 recommendation at that size is *do not bother* -- a fresh capture keeps rule
-8's guarantees and costs little. The apparatus in part B earns its keep when
+8's guarantees and costs little. The reuse apparatus earns its keep when
 this number runs to tens of minutes or hours.
 
 **Take the host from the user, never from the auth key.** The tool prints a

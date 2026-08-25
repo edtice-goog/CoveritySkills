@@ -196,7 +196,7 @@ def main():
         print("  capture is still cheap enough to prefer when the answer matters.")
     else:
         print("  A full run costs %s -- long enough that reuse changes how you work." % fmt(est))
-        print("  This is the case coverity-recreate-from-emit part B was built for.")
+        print("  This is the case coverity-recreate-from-emit's reuse path was built for.")
     print("\n  Ask the user which they want. Do not start anything yet.")
 
     if a.json_out:

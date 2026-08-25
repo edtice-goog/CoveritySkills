@@ -473,7 +473,7 @@ coverity-recreate-from-emit/
 ├── references/
 │   ├── transformation-probe.md       # the method, the normalization set, why the control
 │   ├── invocation-anatomy.md         # what list-capture-invocations contains
-│   ├── idir-reuse.md                 # part B: gates, routing, stale-TU rule
+│   ├── idir-reuse.md                 # reuse: gates, routing, stale-TU rule
 │   ├── triage-verdicts.md            # global invariants, heuristic misfires,
 │   │                                 #   and how to make a dismissal falsifiable
 │   ├── worked-example-proftpd.md     # the calibration session, with the numbers
