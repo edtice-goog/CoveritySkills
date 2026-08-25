@@ -77,7 +77,7 @@ evidence, in `RULES.md`:
 | 25 | On a CLI capture, read `output/cli-diagnostics.json` |
 | 26 | Triage a sample of the results before anyone trusts the run |
 | 27 | Merge keys are stable -- but let Connect do the lining up |
-| 28 | Never take the connection target from an auth key file |
+| 28 | Never take the connection target from an auth key file (a mismatch is normal) |
 | 29 | One stream per branch; a stream must move forward only |
 | 30 | Name the global invariant, or do not dismiss the finding |
 | 31 | Always `--strip-path` when committing, and confirm it took effect |
