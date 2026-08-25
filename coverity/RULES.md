@@ -698,10 +698,21 @@ on Windows, a Unix-looking absolute path is converted to a Windows path, so
 ```
 
 arrives as `C:/Program Files/Git/home/me/demo/proj`, matches nothing, and
-strips nothing. Set `MSYS_NO_PATHCONV=1` for such commands. This bites hardest
-in exactly the setup where it is most needed: building under WSL or Linux and
-committing from a Windows shell, where the build root never looks like a
-Windows path.
+strips nothing. This bites hardest in exactly the setup where stripping is most
+needed: building under WSL or Linux and committing from a Windows shell, where
+the build root never looks like a Windows path.
+
+Prefer the **targeted** exclusion over the blanket one:
+
+```
+MSYS2_ARG_CONV_EXCL='/home/' <command>    # protect only the build-root argument
+MSYS_NO_PATHCONV=1 <command>              # disables conversion for EVERY argument
+```
+
+`MSYS_NO_PATHCONV=1` also stops converting the paths that genuinely need it, so
+a command that mixes a Unix build root with `/c/...` paths for Windows tools
+will fail on the latter — the Windows tool receives `C:\c\Data\...` and
+reports the file does not exist.
 
 So verify rather than assume. After the **first** commit, check that no stored
 path still begins with the build root:
