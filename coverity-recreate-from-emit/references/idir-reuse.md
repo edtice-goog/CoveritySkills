@@ -156,14 +156,18 @@ other environment, and an entire class of problem disappears:
 - generated files under a build directory resolve too, since that path matches
   as well
 
-This costs nothing to arrange up front and is far more reliable than fixing it
-afterwards. `--strip-path` can rewrite recorded prefixes, but it is a **silent
-no-op when the prefix does not match**, so a normalization you believe happened
-may not have; if you use it, verify the result rather than assuming it.
+This costs nothing to arrange up front, and there is **no equivalent fix
+afterwards**. In particular, do **not** reach for `--strip-path`: it changes
+the paths *presented in Coverity Connect*, and has **no effect on the idir's
+contents**. The emit database still holds the original absolute paths, so
+every idir-side consumer -- the staleness check, model provenance, capture-root
+inference -- sees exactly what it saw before. `--strip-path` solves a reporting
+problem, not a portability one.
 
-Divergent paths are a nuisance, not a blocker -- the tools here infer and remap
-a capture root. But the inference is a heuristic, and heuristics are worth
-avoiding when a mount point would have done.
+Divergent paths are a nuisance rather than a blocker, because the tools here
+infer and remap a capture root. But that inference is a heuristic, and a
+heuristic is worth avoiding when a shared mount point would have made it
+unnecessary.
 
 
 ### Gate 1: the build system must track header dependencies
