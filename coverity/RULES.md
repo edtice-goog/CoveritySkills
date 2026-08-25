@@ -182,7 +182,34 @@ about an idir you did not create, prove freshness first from `build-cwd.txt`,
 This is the exact counterpart of the build-fidelity trap where a capture that
 emitted nothing yields binaries byte-identical to native.
 
-Source: verified — `coverity`, `references/idir-anatomy.md`.
+**Stale translation units are not removed, and are still counted as
+successes.** Measured on 2026.6.0 by deleting a captured source and re-running
+`coverity list` against the unchanged idir: the file kept status `Succeeded`
+with its line count, and the summary still read `SUCCEEDED: 3` /
+`FILES CAPTURED: 3`. Nothing in the counts says the source no longer exists.
+`cov-build --delete-stale-tus` deletes TUs whose sources were removed or
+renamed, and it is **off by default**.
+
+**The detector for this only works on a CLI-captured idir.** In the same
+experiment:
+
+| Capture path | Where the deleted source appeared |
+|---|---|
+| `coverity capture` | **Captured files not found on disk** — correct |
+| `cov-build` | *Captured files outside of the project directory*, and the not-found section stayed **empty** |
+
+Two `cov-build` projects behaved that way, one of them with a Makefile that
+`coverity list` did attribute as a module, so it is the capture path that
+decides, not the presence of a build-system manifest. The likely mechanism is
+that the CLI path records a project root (`coverity-cli/strip-path`) while
+`cov-build` does not, so absolute captured paths are never related to
+`--project-dir` and land in the "outside" bucket whether or not they exist.
+
+So on a `cov-build` idir, do not treat an empty *Captured files not found on
+disk* as evidence of freshness — it is empty either way. Prove freshness from
+timestamps and `build-cwd.txt`, or capture fresh.
+
+Source: verified against 2026.6.0 — `CALIBRATION.md`.
 
 ### 33. If you move an intermediate directory, preserve its timestamps
 

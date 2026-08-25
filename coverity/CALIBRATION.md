@@ -325,7 +325,8 @@ reported as evidence that nothing was ignored, duplicated, or filtered.
     its TU captured) and `<build-cwd>	ools\mycc.exe` (exists -- the real
     hole). The existence test sorted them correctly.
   - **The file is CRLF.** A shell existence loop (`while read -r line; do
-    [ -e "$line" ]`) tests a path with a trailing `` and reports *every*
+    [ -e "$line" ]`) tests a path with a trailing `
+` and reports *every*
     entry as non-existent, including the true positive -- silently converting
     a real hole into a dismissed artifact. Caught only because the shell check
     and the tool disagreed. `capture_fidelity.py` reads text-mode and strips,
@@ -337,6 +338,32 @@ reported as evidence that nothing was ignored, duplicated, or filtered.
     sufficed.
   - Adjudicated `SHORTFALL` (2/1/1/1), naming `src/unconfigured.c`, the one
     existing unconfigured compiler, and the phantom separately.
+
+- **Rule 8 -- a deleted captured source, and who notices.** Deleted one
+  captured `.c` from the project tree and re-ran `coverity list --all`
+  against the unchanged idir, on two capture paths. Sources restored
+  afterwards.
+  - **CLI-captured idir** (`coverity capture`): the file appeared under
+    *Captured files not found on disk* as `src\util.c  Succeeded  4`, and
+    *outside of the project directory* was empty. Correct behaviour.
+  - **`cov-build` idir**: *Captured files not found on disk* stayed **empty**;
+    the deleted file appeared under *Captured files outside of the project
+    directory*. Reproduced on two projects -- one without any build-system
+    manifest, one with a Makefile that `coverity list` *did* attribute as a
+    module ("Files for module: ...\Makefile"). So the discriminator is the
+    capture path, not module attribution. Likely mechanism: the CLI records a
+    project root in `coverity-cli/strip-path`, `cov-build` records none, so
+    absolute captured paths are never related to `--project-dir`.
+  - **The capture summary is blind to it either way**: `SUCCEEDED: 3`,
+    `FILES CAPTURED: 3`, with the deleted file still carrying `Succeeded` and
+    its line count. Only the section names it.
+  - Remediation found in the reference: `cov-build --delete-stale-tus`
+    deletes TUs whose sources were removed or renamed, **off by default**.
+- **`coverity list` mutates the intermediate directory.** It creates
+  `coverity-cli/` in an idir produced by `cov-build` alone. Verified by
+  checking a virgin `cov-build` idir (absent) against two on which
+  `coverity list` had been run (present). It is not a read-only query --
+  relevant to release gating, archival, and anything that hashes an idir.
 
 ## Not yet calibrated -- the priority queue
 
@@ -372,8 +399,9 @@ the three methods' actual output recorded, in the style of
    specific to `ccache` is whether the wrapper additionally appears in
    `unconfigured-compilers`.
 
-6. **Stale idir.** Re-run `coverity list` after deleting a captured generated
-   source; confirm *Captured files not found on disk* populates.
+6. ~~**Stale idir.**~~ **DONE** -- see the stale-source entry above. It
+   populates on a CLI-captured idir and does **not** on a `cov-build` one,
+   which is the opposite of the assumption this row was written under.
 7. **Denominator inflation.** A CMake project, to reproduce the zlib "97%
    with a `TryCompile` failure" result under the three-method procedure and
    confirm it grades `SURPLUS`/`CONSISTENT_WITH_EXCLUSIONS` rather than

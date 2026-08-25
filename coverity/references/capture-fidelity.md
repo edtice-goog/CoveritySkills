@@ -55,6 +55,11 @@ destroys the experiment.
 $BIN/coverity list --project-dir <src> --dir <idir> --all
 ```
 
+**This command writes to the intermediate directory.** It creates
+`coverity-cli/` in an idir that `cov-build` alone never gave one (verified:
+absent before, present after). It is not a read-only query, so do not run it
+against an artifact you are treating as immutable without taking a copy first.
+
 Walks the **project directory** and reports each file's capture status. This
 is the denominator that matters: files on disk, not records in a database. It
 works against an intermediate directory produced by plain `cov-build`, not
@@ -109,10 +114,14 @@ does not document. Each is a genuine signal:
 - **Captured files not found on disk** -- the emit database references source
   that no longer exists. Generated code cleaned up after the build, a
   *reused stale idir*, or path drift. Treat a non-empty section as a reason
-  to distrust the whole idir until explained.
+  to distrust the whole idir until explained. **But an empty section proves
+  nothing on a `cov-build` idir**: measured, a deleted captured source was
+  reported under *outside of the project directory* instead and this section
+  stayed empty, while the CLI path reported it here correctly. See rule 8.
 - **Captured files outside of the project directory** -- either
-  `--project-dir` is wrong, the build is out-of-tree, or the idir was
-  captured under a different root. Benign once explained, but it means the
+  `--project-dir` is wrong, the build is out-of-tree, the idir was captured
+  under a different root, or **the idir came from `cov-build`**, in which case
+  measured runs put every captured file here regardless. Benign once explained, but it means the
   project-directory denominator did not cover the captured set, so the
   `IGNORED` and `SUCCEEDED` counts are not comparable to the tree.
 - **Files not in any module** -- files the build system does not claim.
