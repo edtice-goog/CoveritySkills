@@ -540,8 +540,8 @@ applicability gate: **proftpd** (hand-written recursive make, two checkouts at
   --detailed` (prints the cov-emit line, the compiler line, the cov-build line
   and the **working directory** for each), and `add <int_dir>` (*"Successfully
   merged in 3 TUs"*).
-- **`delete` is real but absent from the synopsis** -- it appears only in
-  the sub-command body ("Delete all TUs that satisfy the specified translation
+- **`delete` is documented** -- in the sub-command section of the command
+  reference, though not in the synopsis's COMMANDS list ("Delete all TUs that satisfy the specified translation
   unit filter") and requires a `--tu` / `--tu-pattern` filter.
 - **The fast path reproduces a full recapture exactly.** proftpd, one changed
   primary TU (`lib/sstrncpy.c`, planted FORWARD_NULL). Reference idir copied,

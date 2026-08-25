@@ -127,10 +127,35 @@ the entire `doc/en` tree, HTML and PDF included.
 | `cov-manage-emit list-capture-diagnostics` | capture fidelity, Method A2 | Absent from `cov-manage-emit --help`, which lists `list`, `list-capture-invocations`, `list-json`, `list-json-schema-versions`. Zero hits under `doc/en`. `coverity list` calls it internally |
 | Its per-TU field names (`capture-percentage`, `had-abstract-syntax-trees`, `had-recoverable-errors`, `code-line-count`) and `list-json`'s `astFidelityPercent` / `isFailure` / `hadRecoverableErrors` | same | Zero hits under `doc/en` |
 | `cov-commit-defects --backdate` | `coverity-demo-data` | Absent from `cov-commit-defects --help`; zero hits under `doc/en`, `cov_command_ref.html` included. Appears only in `Platform/bin/schema.sql`, as the `snapshot.backdated` column |
-| `cov-manage-emit ... delete` | `coverity-recreate-from-emit` | Present in the sub-command body, absent from the synopsis (recorded in that skill's `CALIBRATION.md`) |
 
 Until these appear in the reference, treat their names and output shapes as
 version-specific and re-check them against the installation in use.
+
+### Documented substitutes exist for nearly all of it
+
+Checked against 2026.6.0. `cov-manage-emit list-diagnostics` does **not**
+exist (`Error: invalid command list-diagnostics`), but `list-json` is fully
+documented and covers most of what Method A2 currently takes from
+`list-capture-diagnostics`:
+
+| Needed | Undocumented source now used | Documented alternative |
+|---|---|---|
+| Is this TU analyzable? | `had-abstract-syntax-trees` | **`list-json` -> `hasASTs`**, documented with an example |
+| Did this TU parse completely? | `capture-percentage`, `astFidelityPercent` | `coverity list` capture status **`Incomplete`** -- categorical rather than a percentage, but it is the actionable distinction |
+| Did this TU fail? | `had-failures`, `isFailure` | `coverity list` status **`Failed`** and the `FAILED` count |
+| Recoverable errors | `had-recoverable-errors` (per TU) | `BUILD.metrics.xml` `recoverable-errors` -- build-level only; no documented per-TU equivalent |
+| Size / identity | `file-size-in-bytes`, `last-modified` | `list-json` `primaryFileSizeInBytes`, `primaryFileHash` |
+| Lines of code | `code-line-count` | `coverity list` *Code Lines* column and `LINES OF CODE` |
+
+The `list-json` documentation also states plainly: *"The output of this command
+may contain additional attributes that are not documented here. For maximum
+interoperability, please ignore any attribute that is not documented."* That
+is explicit guidance against building on `astFidelityPercent`, `isFailure`,
+and `hadRecoverableErrors`, all of which appear in real output.
+
+Only two things have no documented per-TU equivalent: a numeric parse-fidelity
+percentage, and recoverable errors per translation unit. Both have documented
+categorical or aggregate forms.
 
 ## From documentation, not yet executed
 

@@ -2,13 +2,21 @@
 
 Part of [CoveritySkills](../README.md).
 
-Builds multi-version Coverity Connect demo datasets whose snapshot and
-first-detected dates reflect real historical release dates, using the
-`cov-commit-defects --backdate` option. The output is a Connect instance
-whose defect history looks like it accumulated over a decade: issues
-outstanding since 2019, a fix rate that trends, a fresh finding at the tip.
+Populates Coverity Connect with a multi-version defect history whose snapshot
+and first-detected dates reflect a project's real release dates, using the
+`cov-commit-defects --backdate` option.
 
-Built so that story builders can focus on the narrative and not the mechanics.
+**The main use is adoption, not demos.** Point Coverity at an existing codebase
+and analyze the tip, and every finding dates from the day you installed it --
+so nothing distinguishes a defect introduced last week from one that has been
+shipping since 2019. Replaying the release history restores that provenance:
+which release a finding arrived in, how long it has been outstanding, whether
+the team's fix rate is improving. That is also what makes it useful when
+migrating from another static-analysis tool and carrying the backlog across.
+
+It builds a convincing demo or POC dataset too -- same procedure, different
+reason -- and lets whoever is presenting focus on the story rather than the
+mechanics.
 
 The whole discipline follows from one property: **first detected is global and
 write-once**. Connect sets `merged_defect.date_originated` the first time a

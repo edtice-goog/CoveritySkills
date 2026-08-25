@@ -1,13 +1,16 @@
 ---
 name: coverity-demo-data
 description: >
-  Build realistic multi-version Coverity Connect demo datasets whose snapshot
-  and first-detected dates reflect real historical release dates, using
-  cov-commit-defects --backdate. Use this skill when the user wants demo or
-  sample data for Coverity Connect, needs a defect history with aging
-  outstanding issues or a fix-rate trend, asks how to make snapshots appear on
-  past dates, wants to populate a Connect instance from a project's release
-  history, or is preparing a Coverity demo, POC, or training environment.
+  Populate Coverity Connect with a multi-version defect history whose snapshot
+  and first-detected dates reflect the project's real release dates, using
+  cov-commit-defects --backdate. Use this skill when adopting Coverity on an
+  existing codebase and wanting each finding's provenance -- which release it
+  arrived in, how long it has been outstanding -- instead of every defect
+  dating from the day the tool was installed; when migrating from another
+  static-analysis tool and carrying the history across; when a defect history
+  with aging outstanding issues or a fix-rate trend is wanted; when asked how
+  to make snapshots appear on past dates; or when preparing a demo, POC, or
+  training environment.
   Requires a local Coverity Analysis installation and a Coverity Connect
   instance the user is willing to have written to; this skill runs real builds
   and real commits.
@@ -15,9 +18,17 @@ description: >
 
 # Coverity Demo Data
 
-Produce a Connect instance whose defect history looks like it accumulated over
-years: defects outstanding since 2019, a fix rate that trends, a fresh finding
-at the tip. The mechanism is `cov-commit-defects --backdate`,
+Produce a Connect instance whose defect history reflects when the defects
+actually arrived: outstanding since 2019, a fix rate that trends, a fresh
+finding at the tip.
+
+The common case is **adopting Coverity on a codebase that already has years of
+history**. Analyze the tip only and every finding dates from installation day,
+which tells a team nothing about which ones are new, which have been shipping
+for five years, and which arrived with a particular release. Replaying the
+release history gives each finding its real provenance. The same mechanism
+serves a tool migration, and it serves a demo or POC -- the procedure does not
+change, only the reason for running it. The mechanism is `cov-commit-defects --backdate`,
 and the entire discipline of this skill follows from one property of it.
 
 **First detected is global and write-once.** Coverity assigns a CID per merge

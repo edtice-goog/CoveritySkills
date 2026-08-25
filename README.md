@@ -70,7 +70,7 @@ verified by running it or reasoned from mechanism.
 | [coverity-build-fidelity](coverity-build-fidelity/README.md) | Release gating: did wrapping the build in `cov-build` change the product? | Evidence that the product is unchanged, paired with capture coverage so the result is meaningful in both directions |
 | [coverity-recreate-from-emit](coverity-recreate-from-emit/README.md) | The build can't be re-run, or is too slow to re-run | An analyzable intermediate directory without the original toolchain — or a fast incremental update instead of a full rebuild |
 | [coverity-issue-transition-inference](coverity-issue-transition-inference/README.md) | After an upgrade: separating new findings from new analyzer behaviour | The missing control — old code analyzed by the new analyzer — which splits a confounded delta in two |
-| [coverity-demo-data](coverity-demo-data/README.md) | Building a demo or training dataset with realistic defect history | A Connect instance whose issue history looks like a decade of real development |
+| [coverity-demo-data](coverity-demo-data/README.md) | Adopting Coverity on an existing codebase, migrating from another tool, or building a demo | Findings dated to the release they actually arrived in, rather than all dated the day you installed the tool |
 
 ## Requirements
 
