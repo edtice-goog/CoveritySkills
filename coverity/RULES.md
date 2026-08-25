@@ -557,6 +557,18 @@ are different kinds of thing, and readers make decisions on them. Mark which
 is which. `CALIBRATION.md` is this project's instance of the same rule, and
 every rule added here carries a `Source:` line for it.
 
+**Mark the distinction; do not inflate it into a ritual.** Labelling a claim
+unverified is cheap and honest. Instructing the reader to *prove* something the
+product does by design is not: it adds work, it teaches distrust of behaviour
+that is table stakes for a commercial analyzer, and it makes the guidance read
+as unsure of its own tool. Reserve "go measure this" for claims specific to the
+code, build or dataset in front of you — the things a general answer genuinely
+cannot settle. For how a mature product behaves, cite the source and move on.
+
+An earlier draft of rule 32 told readers to compare cold and warm
+compilation-unit counts to establish that ccache hits still emit. They do, by
+design; the check was noise.
+
 Source: project convention.
 
 ### 28. Never take the connection target from an auth key file
