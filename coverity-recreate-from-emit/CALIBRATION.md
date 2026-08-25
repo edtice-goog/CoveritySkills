@@ -194,11 +194,21 @@ against a file on disk at all.
    reconciled `CONSISTENT`, analyzed clean, and the defect delta attributed.
    What remains unexercised is the *failure* side: every reconciliation so far
    has been perfect, so the shortfall path has never fired (item 5).
-2. **The degraded path.** Still untested, and now the most valuable gap:
-   whether a newer `cov-emit` accepts an older version's recorded flag set
-   verbatim. This decides what can be done when the original compiler is gone
-   -- the skill's nominal reason for existing. Everything measured so far had
-   the original compiler (gcc 13.3.0) still present.
+2. ~~**The degraded path.**~~ **DESCOPED, deliberately.** Whether a newer
+   `cov-emit` accepts an older version's flag set verbatim is still unmeasured,
+   and stays that way. The skill solves "the build cannot be run repeatably";
+   "the toolchain no longer exists" is a different and much harder class, and
+   usually a non-problem because the compiler is open source and obtainable.
+
+   The idir carries enough to identify what to fetch. Measured on `idir_pA`'s
+   `build-log.txt`: `/usr/bin/x86_64-linux-gnu-gcc-13` and
+   `/usr/libexec/gcc/x86_64-linux-gnu/13/cc1` give vendor, target triple and
+   major version, and `13.3.0` appears 110 times. With `--comp_ver` from the
+   recorded emit line that is an install command, not a research project.
+
+   The resolution is therefore **obtain the compiler**, never reverse-engineer
+   Coverity's model of it -- which also preserves the control run, without
+   which nothing downstream can be graded.
 3. **C++ and other argument sets.** Only a C argument set was probed.
    `--c11`/`--c17` is a C-mode flag; the `g++` arm is a separate template
    config and may drift differently. Also untested: `-m32`, mixed `-std`, and

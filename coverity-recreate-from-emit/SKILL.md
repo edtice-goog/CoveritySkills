@@ -383,18 +383,37 @@ transformation delta verbatim, the accept-or-pin decision, and the
 reconciliation triple (original / replayed / analyzable). Then state what you
 did not check.
 
-## Degraded path: the compiler is gone
+## If the compiler is missing, go and get it
 
-`cov-translate` probes the compiler at build time, so if the compiler no longer
-exists, Steps 4-5 cannot run. You can still replay by taking the **recorded
-`cov-emit` argv directly** and retargeting `--dir` and the `--pre_preinclude`
-paths -- the compiler model is already baked into those flags.
+**This skill solves "the build cannot be run repeatably". It does not try to
+solve "the toolchain no longer exists anywhere".** Those are different problem
+classes, and the second one is both much harder and much less interesting --
+in most cases the compiler is open source and obtainable.
 
-What you lose is the control, and with it the ability to distinguish a
-transformation delta from an environment difference. Whether a newer `cov-emit`
-accepts an older version's flag set verbatim is **not yet measured** -- treat it
-as an open question, test it before relying on it, and grade any result from
-this path as unverified. Do not let it pass for the probed path.
+So when `cov-translate` cannot probe because the compiler is absent, the
+answer is to **install the compiler**, not to reverse-engineer Coverity's model
+of it. The idir tells you exactly which one to fetch.
+
+Where the evidence lives, measured on a real idir:
+
+| source | what it gives you |
+|---|---|
+| `build-log.txt` | the resolved executables -- `/usr/bin/x86_64-linux-gnu-gcc-13`, `/usr/libexec/gcc/x86_64-linux-gnu/13/cc1` -- so vendor, **target triple** and major version |
+| `build-log.txt` | the probe's own version output; `13.3.0` appeared 110 times in the one examined |
+| the recorded `cov-emit` line | `--comp_ver 13.3.0`, `--gnu_version 130300`, and every `--sys_include`, which also reveals the distro's header layout |
+| `emit/<host>/config/<hash>/*/coverity_config.xml` | the probed model per configured compiler |
+
+Between the target triple and the exact version that is an install command on
+most systems. Match the version: `--comp_ver` is what the recorded emit line
+asserts, and a different point release can model differently.
+
+**Do not attempt to replay a recorded `cov-emit` line directly to route around
+a missing compiler.** It looks tempting -- the compiler model is already baked
+into those flags -- but it trades a solvable problem (obtain a compiler) for an
+unverifiable one: with no compiler there is no control run, so the
+transformation probe cannot execute and nothing downstream can be graded.
+Whether a newer `cov-emit` even accepts an older version's flag set is
+unmeasured, and deliberately left that way.
 
 ## Traps
 
