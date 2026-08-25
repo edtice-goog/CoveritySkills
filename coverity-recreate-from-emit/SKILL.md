@@ -21,7 +21,8 @@ description: >
   units; when asked how to make Coverity analysis fast enough for active
   development or an inner loop; or when an idir is being reused and someone
   needs to know whether that is safe. That path deliberately violates the
-  fresh-intermediate-directory rule and carries two applicability gates (the
+  fresh-intermediate-directory rule and carries three applicability gates (the
+  idir must have been analyzed on the same platform you will analyze on, the
   build system must track header dependencies, and the idir must come with a
   known git commit or tag), so it also answers "can I reuse this idir?" with
   a measured no.
@@ -47,8 +48,11 @@ Two situations, sharing that machinery:
 
 A is about recovering analyzability across a version gap. B is about speed
 during active development, and **deliberately violates rule 8** -- read its
-two applicability gates before starting, because knowing when it does not
-apply is most of that procedure.
+three applicability gates before starting, because knowing when it does not
+apply is most of that procedure. Gate 0 is the cheapest and rules out whole
+deployments in one command: if the reference idir was analyzed on a different
+**platform** than the one you will analyze on, incremental analysis is
+discarded and the reason to reuse goes with it.
 
 Both deliver the same thing: an idir a chosen analyzer will accept, evidence
 that it corresponds to the code you think it does, and an honest grade when it
