@@ -365,6 +365,31 @@ The general rule, alongside the vacuous-oracle note earlier in this file:
 
 Both fixes are in `postrun.sh`.
 
+## Timing precision: one decimal place, and why
+
+All wall-clock figures in this file were taken **inside a WSL2 guest** on a
+laptop whose host was doing other light work. The guest cannot observe host
+scheduling, so every duration carries noise it cannot measure or subtract.
+
+**Rule adopted 2026-08-25: report ratios to one decimal place, never more.**
+These runs are order-of-magnitude evidence -- "capture is about twice the
+build", "re-analysis is about ten times faster" -- and a second decimal place
+asserts precision the method does not have.
+
+- Do not quote `1.97x` when the honest claim is `2.0x`.
+- Do not treat a gap between, say, 3.8x and 4.1x across two subjects as a
+  finding. It may be host noise.
+- Differences of a **factor** are what these runs support. The 9x recovery from
+  fixing job parallelism, and a 10x incremental-analysis speedup, are safely
+  above the noise. A 5% gap is not.
+- The driver scripts print two decimals; that is a `printf` artefact, not a
+  precision claim. Round when reporting.
+
+Hardware, so no figure is carried off this box: AMD Ryzen 7 PRO 6850U, **8
+physical cores** (16 logical, SMT), a 15-28W mobile part that thermally
+throttles under sustained all-core load. WSL2 guest with 24GB RAM after the
+2026-08-25 reconfiguration. Only the ratios travel; absolute times do not.
+
 ## Limits of the evidence
 
 These are the boundaries of what has been measured, kept here so a claim's
