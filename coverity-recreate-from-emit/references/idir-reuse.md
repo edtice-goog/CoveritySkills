@@ -67,6 +67,54 @@ That is the case to optimise for and the case to quote numbers from. A large
 delta against an old tag is the worst case, useful mainly for finding the
 break-even point below.
 
+### What a full capture actually costs, relative to the build
+
+The number that drives every estimate below. **Budget 2x to 4x the plain build,
+and expect the upper half of that range.** Two independent measurements:
+
+| Subject | Plain build | Full `cov-build` | Ratio |
+|---|---|---|---|
+| Linux kernel (CI, three runs: 17:33 / 17:38 / 17:30) | 4 m 34 s | 17 m 34 s | **3.8** |
+| LLVM + clang, gcc 13.3, `-j8` | 1 h 44 m | -- | **3.1** measured per-edge |
+
+The LLVM figure is a per-edge ratio over 1,123 identical ninja edges completed
+by both builds (27,467 s of capture edge-time against 8,975 s plain), not an
+extrapolation of wall-clock.
+
+**Why not 2x?** The floor argument is sound: capture is essentially a
+compilation, so if the frontends were equally efficient the cost would double.
+For clang builds Coverity's frontend *is* clang, emitting an AST instead of
+object code; for other compilers it is the EDG frontend, comparable in
+performance to the underlying compiler. That reasoning gives 2x, and 2x is
+reliably a **lower bound** rather than a prediction.
+
+The gap above it is not fully explained, and this skill does not pretend
+otherwise. Contributing factors, in rough order of confidence:
+
+1. **Compiler probes.** A new set of compiler options forces Coverity to
+   re-probe. The first build therefore pays twice -- probing *and* parsing.
+   Projects with many distinct option sets (the kernel especially) pay more.
+   `emit/<HOST>/config/<md5>/` holds one directory per probed configuration, so
+   this is countable: count it before blaming anything else.
+2. **Process model.** gcc spawns one `cc1`/`cc1plus` per compilation line;
+   Coverity appears to launch one `cov-emit` per file, which would repeat
+   per-process overhead that the compiler amortises. *Plausible, not verified
+   here.*
+3. **Cache asymmetry, when comparing against a cached build.** `ccache` can
+   accelerate the plain build while capture re-emits anyway -- the kernel's
+   pervasive `__FILE__`/`__LINE__` use keeps its re-emit rate high even on an
+   unchanged tree. A ratio measured against a warm cache is inflated and is not
+   a frontend-vs-frontend comparison. Say which you measured.
+
+None of these indicate misconfiguration. A ratio in the 3-4 range is normal;
+treat a ratio far *outside* 2-4 as the signal worth investigating.
+
+**The consequence for this procedure.** Capture, not analysis, is the long
+pole, and it scales with the build. On the kernel, reuse took the same work
+from **17 m 34 s to 5 m 42 s -- a 3.1x capture saving**, landing at 1.2x the
+plain build instead of 3.8x. That is the entire value proposition in one row of
+someone else's CI dashboard.
+
 ### The break-even point
 
 The saving is proportional to how *small* the delta is. Past some fraction of
