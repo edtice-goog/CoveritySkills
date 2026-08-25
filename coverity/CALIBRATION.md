@@ -114,6 +114,21 @@ Strawberry; GNU make invoked as `gmake`).
   compatibility only), and the full schema is *Desktop Analysis JSON output
   syntax* in the Desktop Analysis User Guide.
 
+- **Rule 34 -- a captured file can be missing functions.** Three-function C
+  file, middle function referencing an undefined type, `cov-emit --c` on
+  2026.6.0. The TU emitted and `cov-emit` warned `warning #1563: function
+  "f2" not emitted, consider modeling it or review parse diagnostics to
+  improve fidelity`, followed by `[WARNING] 2 recoverable errors detected`.
+  `cov-analyze` then reported `Functions analyzed : 2`.
+  - Caught it: `coverity list` -> status `Incomplete`, Notes `Recoverable
+    Errors`, `INCOMPLETE: 1`; `cov-manage-emit list` -> TU suffixed
+    ` (recoverable errors)`; `had-recoverable-errors` /
+    `hadRecoverableErrors` -> `true`.
+  - Missed it: `capture-percentage: 100`, `astFidelityPercent: 100`,
+    `hasASTs: true`, `isFailure: false`, `FILES CAPTURED: 1` of 1.
+  - So the per-TU percentage answers "did this TU parse at all", not "is all
+    of it here". Recoverable errors are the function-level signal.
+
 ## Not found in the shipped documentation (2026.6.0)
 
 Recorded so the gap can be closed, not as a selling point: a command whose
@@ -298,9 +313,11 @@ the three methods' actual output recorded, in the style of
    so the dangerous case is the partial build, which reports 100% and
    "completed successfully". The CLI path is worse still (a build compiling
    one of two sources reported `SUCCEEDED: 13` via buildless backfill).
-3. **Partial parse.** Capture a source with constructs the front end only
-   partly understands; confirm `capture-percentage < 100` and check whether
-   `coverity list` reports `Incomplete`.
+3. ~~**Partial parse.**~~ **DONE**, and it revised its own premise -- see the
+   rule 34 entry above. `coverity list` does report `Incomplete` (note:
+   `Recoverable Errors`), but `capture-percentage` stayed at **100** while a
+   function was missing from the emit, so the percentage is not the signal
+   this row assumed it would be.
 4. **Missing AST.** Find a real path to `had-abstract-syntax-trees: false`
    and confirm how the other two methods present it.
 5. **Compiler cache.** Capture with `ccache` warm; confirm the shape of the
@@ -334,7 +351,7 @@ the three methods' actual output recorded, in the style of
    project" signal on a `cov-build` idir**, and the adjudicator's
    project-directory caveat will fire on healthy captures.
 
-10. **Rule 27: which check actually rejects a timestamp-mangled idir.**
+10. **Rule 33: which check actually rejects a timestamp-mangled idir.**
     Needs a Coverity Connect instance. Probed offline and *not* settled:
     against an analyzed idir copied three ways -- `cp -a` (times preserved),
     `cp -r` (all mtimes rewritten to now), and `cp -a` plus `touch` on

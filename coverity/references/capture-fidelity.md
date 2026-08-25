@@ -139,11 +139,19 @@ $BIN/cov-manage-emit --dir <idir> list-capture-diagnostics
 }
 ```
 
-`capture-percentage` is per-translation-unit capture fidelity -- the thing
-the headline number is usually mistaken for. Anything below 100 is a partial
-parse: the TU exists, the analyzer will run on it, and some of the code is
-simply not there. `had-abstract-syntax-trees: false` is worse and quieter --
-a record with no AST is not analyzable at all.
+`capture-percentage` below 100 is a partial parse: the TU exists, the
+analyzer will run on it, and some of the code is not there.
+`had-abstract-syntax-trees: false` is worse and quieter -- a record with no
+AST is not analyzable at all.
+
+**`capture-percentage: 100` does not mean nothing is missing.** Measured on
+2026.6.0: a three-function file whose middle function failed to parse emitted
+with `capture-percentage: 100`, `astFidelityPercent: 100` and `hasASTs:
+true`, and `cov-analyze` then reported `Functions analyzed : 2`. The signal
+that caught it was `had-recoverable-errors: true` -- and, in `coverity list`,
+capture status `Incomplete` with note `Recoverable Errors`. Treat
+`had-recoverable-errors` as a first-class finding, not a footnote to the
+percentage; see rule 34.
 
 `format_version` may move between releases, and there is no published schema
 to pin it against. Check it and degrade to A3 rather than mis-parsing.

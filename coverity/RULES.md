@@ -184,7 +184,7 @@ emitted nothing yields binaries byte-identical to native.
 
 Source: verified — `coverity`, `references/idir-anatomy.md`.
 
-### 27. If you move an intermediate directory, preserve its timestamps
+### 33. If you move an intermediate directory, preserve its timestamps
 
 **Timestamps inside an idir are state, not metadata.** Coverity reads them for
 consistency and staleness checks between phases — what still needs emitting,
@@ -234,6 +234,53 @@ project*. **Reported from the field, not reproduced here** — the commit-side
 refusal: `cov-commit-defects` performs its server handshake before any local
 staleness complaint, so it cannot be probed without a Coverity Connect
 instance. See `CALIBRATION.md`.
+
+### 34. Capture is not all-or-nothing — a captured file can be missing functions
+
+The front end recovers from errors and keeps parsing. So a translation unit
+can be emitted, carry ASTs, and still be **missing individual functions** that
+failed to parse. "The file was captured" does not mean "every function in it
+was captured", and the file-level accounting will not tell you the difference.
+
+Measured on 2026.6.0 — a three-function C file whose middle function
+references an undefined type:
+
+| Signal | What it said |
+|---|---|
+| `cov-emit` stderr | `warning #1563: function "f2" not emitted, consider modeling it or review parse diagnostics to improve fidelity`, then `[WARNING] 2 recoverable errors detected` |
+| `coverity list` | status **`Incomplete`**, Notes **`Recoverable Errors`**, `INCOMPLETE: 1` |
+| `cov-manage-emit list` | the TU suffixed ` (recoverable errors)` |
+| `list-capture-diagnostics` | `had-recoverable-errors: true` |
+| `list-json` | `hadRecoverableErrors: true` |
+| `cov-analyze` | **`Functions analyzed : 2`** — of three |
+
+`f2` was absent from the analysis entirely, and no defect in it could ever
+have been reported.
+
+**Do not trust these for this question.** In the same run:
+`capture-percentage: 100`, `astFidelityPercent: 100`, `hasASTs: true`,
+`isFailure: false`, `FILES CAPTURED: 1` of 1. They answer *did this TU parse
+at all*, not *is all of it here*. A reader who takes `capture-percentage: 100`
+as "nothing is missing" is reading a different question's answer — this rule
+exists because that inference is so natural.
+
+**What to check instead.** `coverity list` is the documented signal and it is
+unambiguous: `Incomplete` with `Recoverable Errors`. Per TU,
+`had-recoverable-errors` / `hadRecoverableErrors` say the same thing. The
+capture-time warning is the most useful of all, because it **names the
+function** — capture logs are worth keeping for exactly this. And compare
+`cov-analyze`'s `Functions analyzed` against an expectation, the same way
+rule 2 compares files: a function count is a denominator too.
+
+**Why it matters beyond the one function.** A function that is not emitted is
+not analyzed, and its callers lose whatever interprocedural information it
+would have carried, so the blast radius is larger than the function itself.
+The warning's own remediation is the right one: fix the parse error — usually
+a missing include, define, or compiler-compat detail — or model the function
+deliberately.
+
+Source: verified against 2026.6.0; the run is the *partial parse* row of
+`CALIBRATION.md`'s queue, and it revised the expectation recorded there.
 
 ### 9. Make sure the build under capture actually builds
 
