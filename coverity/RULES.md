@@ -318,15 +318,26 @@ run that graded `CONSISTENT` (5/5/5).
 Source: verified against 2026.6.0 — see
 `references/worked-example-vacuous-capture.md`.
 
-### 10. Never quote a bare capture percentage — report the triple
+### 10. Never quote a bare capture percentage — report the counts
 
-**expected / captured / analyzable**, plus a grade. Emitted, analyzable, and
-analyzed are three different numbers, printed in three different places, and
-routinely quoted as one another: `cov-build` prints both "Emitted N …
-successfully" and "N … are ready for analysis" because they are not the same
-count, and `idir/output/summary.txt` prints a third — what `cov-analyze`
-actually consumed. A translation unit with no AST is present, counted, and not
-analyzable.
+**expected / captured / analyzable / fully parsed**, plus a grade. Emitted,
+analyzable, and analyzed are three different numbers, printed in three
+different places, and routinely quoted as one another: `cov-build` prints both
+"Emitted N … successfully" and "N … are ready for analysis" because they are
+not the same count, and `idir/output/summary.txt` prints a third — what
+`cov-analyze` actually consumed. A translation unit with no AST is present,
+counted, and not analyzable.
+
+**"Fully parsed" is the fourth, and it is not optional** — by rule 34 a file
+can be captured, analyzable, and still missing functions, so a report that
+stops at *analyzable* overstates coverage. Keep the two failure modes apart:
+a TU with no AST is not analyzed at all; a TU with recoverable errors *is*
+analyzed, with holes in it.
+
+Where analysis has run, quote `Functions analyzed` from
+`idir/output/summary.txt` alongside the file counts. A function count is a
+denominator too, and it is the only one that moves when rule 34's failure
+happens.
 
 Source: verified — `coverity`, `CALIBRATION.md`.
 

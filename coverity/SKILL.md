@@ -59,7 +59,7 @@ evidence, in `RULES.md`:
 | 7 | `template-<name>-config-N` directories multiplying is the mechanism working |
 | 8 | Capture into a fresh intermediate directory |
 | 9 | Make sure the build under capture actually builds |
-| 10 | Never quote a bare capture percentage -- report expected/captured/analyzable |
+| 10 | Never quote a bare capture percentage -- report expected/captured/analyzable/fully-parsed |
 | 11 | `< 100%` is a question, not a verdict -- and 100% of nothing is still 100% |
 | 12 | Always pass `--all` to `coverity list` |
 | 13 | Use `cov-manage-emit list-capture-diagnostics` for per-TU truth |
@@ -134,14 +134,22 @@ files in the tree
   -> compilations Coverity intercepts          (compiler configuration decides)
   -> translation units emitted                 (cov-emit decides)
   -> TUs with a usable AST                     (parse success decides)
+  -> functions emitted within those TUs        (parse RECOVERY decides)
   -> functions analyzed                        (cov-analyze scope decides)
   -> defects reported                          (checkers and options decide)
 ```
 
+The second-to-last arrow is the one that hides. The front end recovers from
+errors and keeps going, so a TU can be emitted, carry ASTs, report
+`capture-percentage: 100`, and still be missing individual functions -- see
+rule 34. File-level accounting cannot see it; `had-recoverable-errors`, the
+`Incomplete` status in `coverity list`, and the capture log's `#1563` warning
+can.
+
 Most "Coverity missed it" reports are a break in an early arrow being
 diagnosed as a problem in the last one. Establish where the chain narrowed
 before debating checkers. `references/capture-fidelity.md` measures the first
-four arrows; `coverity-defect-detectability` owns the last two.
+five arrows; `coverity-defect-detectability` owns the last two.
 
 ## Verifying capture: three methods, run independently
 
@@ -180,8 +188,10 @@ Adjudicating against an unreviewed scaffold is flagged in the output, because
 an auto-generated expectation corroborating an auto-generated inventory is
 not evidence of anything.
 
-The verdict is a triple -- expected, captured, analyzable -- plus a grade,
-never a percentage on its own. Agreement between the three methods is the
+The verdict is four counts -- expected, captured, analyzable, fully parsed
+-- plus a grade, never a percentage on its own. The fourth exists because
+capture is not all-or-nothing (rule 34): a file can be captured, analyzable,
+and still missing individual functions that failed to parse. Agreement between the three methods is the
 evidence; the *pattern of disagreement* is the diagnosis, and
 `references/capture-fidelity.md` carries the table that reads it.
 

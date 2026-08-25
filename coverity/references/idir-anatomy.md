@@ -166,6 +166,52 @@ Functions analyzed             : 1
 Note that LoC input counts headers, so it is not comparable to the
 `LINES OF CODE` figure from `coverity list`.
 
+### `callgraph-metrics` -- and why the `file` field is not attribution
+
+Without flags, `cov-analyze` writes `output/callgraph-metrics.json.gz`: one
+record per function in the callgraph, with `identifier`, `mangledName`, `file`,
+`line`, `hasImplementation`, `models`, `importance`.
+
+**Do not read `file` as "where the model came from."** It is the location of the
+source *text*. Measured on an FFmpeg idir (27,008 implemented functions), 205 of
+2,252 distinct `file` values were **headers** -- `static inline` definitions in
+`get_bits.h`, `bswap.h` and friends. The same identifier also appears many
+times: `get_bits1` had **five** records with identical file, line and mangled
+name, differing only in `importance`.
+
+Passing **`--enable-callgraph-metrics`** to `cov-analyze` explains that. It adds
+no fields to the JSON, but writes two more files:
+
+| File | Contents |
+|---|---|
+| `callgraph-metrics.csv` | `call_count, name, unmangled_name, **TU**, qualifiers, cycle_id`, then repeating `module, model_type, model_file` triples per analysis module |
+| `callgraph-metrics.txt` | the same, human-readable: `... : implemented in TU 931, generic=no model, security=...` |
+
+The `TU` column is the real key. Measured on that same idir:
+
+```
+distinct implementing TUs      : 1989
+TUs in emit                    : 2060
+implementing TUs found in emit : 1989 / 1989   (100%)
+primaryFilename extensions     : .c 1989       (zero headers)
+```
+
+**Every implementing TU resolves to an emit TU, and every one is a primary
+source file.** `av_bswap32`, whose JSON `file` is `libavutil/bswap.h`, is
+recorded in the CSV as *implemented in TU 931*.
+
+This is why the emit database exists rather than a filesystem mirror: a header
+can compile to different functions, or differently-behaving ones, depending on
+which TU includes it (conditional compilation). Models must therefore be keyed
+to the **primary source file**, not to the text's location. `TU = -1` marks
+functions with no implementation in this emit -- built-ins and library
+functions served by `builtin-models.db`.
+
+**Practical rule:** to ask "does the code behind this model still exist?", use
+`--enable-callgraph-metrics` and resolve the CSV's `TU` column through
+`cov-manage-emit list-json`. Testing the JSON `file` path answers a different
+and weaker question, and gives a wrong answer for any header-defined function.
+
 ## Incremental analysis, and the one message that explains a slow run
 
 `cov-analyze` is incremental by default: an idir that already carries analysis

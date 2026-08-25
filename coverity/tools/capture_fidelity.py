@@ -211,12 +211,55 @@ SECTION_RE = re.compile(
     r"^(Files not in any module|Captured files not found on disk|"
     r"Captured files outside of the project directory)$", re.M)
 
+# Per-file row:  <path>  Succeeded   2
+#                <path>  Incomplete  10   Recoverable Errors
+# The Notes column is the function-level signal and is easy to lose.
+LIST_ROW_RE = re.compile(
+    r"^\s+(?P<path>\S.*?)\s+"
+    r"(?P<status>Succeeded|Incomplete|Failed|Ignored)"
+    r"(?:\s+(?P<lines>\d+))?"
+    r"(?:\s+(?P<notes>\S.*?))?\s*$")
+
+# cov-emit names the function it dropped.  This is the only signal that says
+# WHICH function is missing, which is why capture logs are worth keeping.
+NOT_EMITTED_RE = re.compile(
+    r'"(?P<file>[^"\n]+)",\s*line\s*(?P<line>\d+):\s*warning\s*#1563:\s*'
+    r'function\s*"(?P<function>[^"\n]+)"\s*not emitted')
+
+RECOVERABLE_IN_FILE_RE = re.compile(
+    r'\[WARNING\]\s*(?P<count>\d+)\s+recoverable errors? detected in the '
+    r'compilation of\s*"(?P<file>[^"\n]+)"')
+
+RECOVERABLE_BUILD_RE = re.compile(
+    r'\[WARNING\]\s*Recoverable errors were encountered during\s+'
+    r'(?P<count>\d+)\s+of these')
+
+SUMMARY_TXT_RE = re.compile(
+    r"^(Files analyzed|Total LoC input to cov-analyze|Functions analyzed|"
+    r"Paths analyzed)\s*:\s*(\d+)", re.M)
+
 
 def parse_coverity_list(text):
-    """Pull the summary counts and the three diagnostic sections."""
+    """Pull the summary counts, per-file rows, and diagnostic sections."""
     summary = {}
     for m in CAPTURE_SUMMARY_RE.finditer(text):
         summary[m.group(1).lower().replace(" ", "_")] = int(m.group(2))
+
+    rows = []
+    for line in text.splitlines():
+        if line.lstrip().startswith("Filename"):
+            continue                       # column header
+        m = LIST_ROW_RE.match(line)
+        if not m:
+            continue
+        notes = (m.group("notes") or "").strip()
+        rows.append({
+            "path": norm(m.group("path")),
+            "raw_path": m.group("path"),
+            "status": m.group("status"),
+            "code_lines": int(m.group("lines")) if m.group("lines") else None,
+            "notes": notes,
+        })
 
     sections = {}
     marks = [(m.start(), m.group(1)) for m in SECTION_RE.finditer(text)]
@@ -226,7 +269,7 @@ def parse_coverity_list(text):
         stop = re.search(r"^End " + re.escape(name), body, re.M | re.I)
         if stop:
             body = body[:stop.start()]
-        rows = []
+        srows = []
         for line in body.splitlines():
             line = line.strip()
             if (not line or line.startswith("=") or line.startswith("End ")
@@ -235,9 +278,69 @@ def parse_coverity_list(text):
                     or line.startswith("Filename")
                     or line.startswith("Capture summary")):
                 continue
-            rows.append(line)
-        sections[name] = rows
-    return summary, sections
+            srows.append(line)
+        sections[name] = srows
+    return summary, sections, rows
+
+
+def scan_capture_logs(idir):
+    """Find function-level capture loss in the capture logs.
+
+    A translation unit can emit, carry ASTs, report capture-percentage 100 and
+    still be missing individual functions that failed to parse.  The log is the
+    only place the dropped function is named.
+    """
+    out = {"functions_not_emitted": [], "recoverable_errors_by_file": {},
+           "build_level_recoverable_tus": None, "logs_read": []}
+    candidates = [
+        os.path.join(idir, "build-log.txt"),
+        os.path.join(idir, "capture-files-log.txt"),
+        os.path.join(idir, "coverity-cli", "coverity-cli-log.txt"),
+    ]
+    seen = set()
+    for path in candidates:
+        if not os.path.isfile(path):
+            continue
+        out["logs_read"].append(os.path.basename(path))
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                for line in f:                      # streamed: logs get big
+                    m = NOT_EMITTED_RE.search(line)
+                    if m:
+                        key = (m.group("file"), m.group("line"),
+                               m.group("function"))
+                        if key not in seen:
+                            seen.add(key)
+                            out["functions_not_emitted"].append({
+                                "file": m.group("file"),
+                                "line": int(m.group("line")),
+                                "function": m.group("function"),
+                            })
+                    m = RECOVERABLE_IN_FILE_RE.search(line)
+                    if m:
+                        out["recoverable_errors_by_file"][m.group("file")] = \
+                            int(m.group("count"))
+                    m = RECOVERABLE_BUILD_RE.search(line)
+                    if m:
+                        out["build_level_recoverable_tus"] = int(m.group("count"))
+        except OSError as e:
+            out.setdefault("errors", []).append("%s: %s" % (path, e))
+    return out
+
+
+def parse_analysis_summary(idir):
+    """Function-level denominator from cov-analyze, when analysis has run."""
+    path = os.path.join(idir, "output", "summary.txt")
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    except OSError:
+        return None
+    got = {m.group(1).lower().replace(" ", "_").replace("-", "_"): int(m.group(2))
+           for m in SUMMARY_TXT_RE.finditer(text)}
+    return got or None
 
 
 def cmd_method_a(args):
@@ -352,27 +455,69 @@ def cmd_method_a(args):
         if not args.no_all:
             cmd.append("--all")
         rc4, so4, se4 = run(cmd)
-        summary, sections = parse_coverity_list(so4 + "\n" + se4)
+        summary, sections, rows = parse_coverity_list(so4 + "\n" + se4)
         out["sources"]["coverity-list"] = {
             "rc": rc4, "ok": bool(summary), "command": cmd,
             "used_all_flag": not args.no_all,
         }
         out["coverity_list_summary"] = summary
         out["coverity_list_sections"] = sections
+        out["coverity_list_rows"] = rows
+        # `Incomplete` + Notes "Recoverable Errors" is the documented
+        # function-level signal, and the one to prefer when it disagrees with
+        # the per-TU percentage.
+        out["coverity_list_incomplete"] = [
+            r for r in rows if r["status"] == "Incomplete"]
+        out["coverity_list_failed"] = [
+            r for r in rows if r["status"] == "Failed"]
         if args.keep_raw:
             out["coverity_list_raw"] = so4
 
+    # Function-level capture loss: named functions from the capture logs, and
+    # cov-analyze's function count if analysis has run.
+    out["capture_log"] = scan_capture_logs(idir)
+    asum = parse_analysis_summary(idir)
+    if asum:
+        out["analysis_summary"] = asum
+
     out["captured"] = sorted(captured, key=lambda d: d["path"] or "")
     out["captured_count"] = len(captured)
-    out["degraded"] = [c["path"] for c in captured
-                       if c.get("has_asts") is False
-                       or (c.get("capture_percentage") is not None
-                           and c["capture_percentage"] < 100)
-                       or c.get("had_failures")
-                       or c.get("had_recoverable_errors")]
+
+    # Three states, not two.  A TU with recoverable errors IS analyzed -- it
+    # is simply missing functions -- so it must not be counted as unusable,
+    # and must not be counted as clean either.
+    unusable, partial = [], []
+    for c in captured:
+        if c.get("has_asts") is False or c.get("had_failures"):
+            unusable.append(c["path"])
+        elif (c.get("had_recoverable_errors")
+              or (c.get("capture_percentage") is not None
+                  and c["capture_percentage"] < 100)):
+            partial.append(c["path"])
+    # A file can be flagged Incomplete by `coverity list` -- the documented
+    # signal -- so honour it even if the per-TU fields look clean.
+    by_tail = {}
+    for c in captured:
+        by_tail.setdefault((c["path"] or "").split("/")[-1], []).append(c["path"])
+    for r in out.get("coverity_list_incomplete", []):
+        cands = by_tail.get(r["path"].split("/")[-1], [])
+        for p in cands:
+            if p not in partial and p not in unusable:
+                partial.append(p)
+
+    out["unusable"] = sorted(unusable)
+    out["partial"] = sorted(partial)
+    out["complete_count"] = len(captured) - len(unusable) - len(partial)
+    out["analyzable_count"] = len(captured) - len(unusable)
+    # Kept for compatibility: everything that is not fully clean.
+    out["degraded"] = sorted(set(unusable) | set(partial))
+
     write_json(args.out, out)
-    print("captured %d TU records, %d degraded"
-          % (len(captured), len(out["degraded"])), file=sys.stderr)
+    nfn = len(out["capture_log"]["functions_not_emitted"])
+    print("captured %d TU records: %d complete, %d partial, %d unusable; "
+          "%d function(s) named as not emitted"
+          % (len(captured), out["complete_count"], len(partial),
+             len(unusable), nfn), file=sys.stderr)
     return 0
 
 
@@ -530,7 +675,15 @@ def cmd_adjudicate(args):
     n_exp, n_cap = len(expect), len(cap)
     n_missing, n_surplus = len(missing), len(surplus)
     degraded = a.get("degraded", [])
-    analyzable = n_cap - len(degraded)
+    unusable = a.get("unusable", degraded)
+    partial = a.get("partial", [])
+    # Partial TUs are analyzed, with functions missing.  Only unusable ones
+    # drop out of the analysis entirely.
+    analyzable = a.get("analyzable_count", n_cap - len(unusable))
+    complete = a.get("complete_count", analyzable - len(partial))
+    lost_functions = (a.get("capture_log", {}) or {}).get(
+        "functions_not_emitted", [])
+    asum = a.get("analysis_summary") or {}
     unconf = b.get("unconfigured_compilers", [])
     sections = a.get("coverity_list_sections", {})
     notfound = sections.get("Captured files not found on disk", [])
@@ -560,11 +713,24 @@ def cmd_adjudicate(args):
             "them: incremental build, compiler-cache hits, wrong target, or "
             "an early failure the build continued past. Clean and "
             "re-capture." % n_missing)
-    elif degraded:
-        grade, why = "DEGRADED", (
-            "%d translation unit(s) captured but not fully analyzable "
-            "(partial parse, recoverable errors, or missing AST)."
-            % len(degraded))
+    elif unusable or partial:
+        grade = "DEGRADED"
+        bits = []
+        if unusable:
+            bits.append("%d translation unit(s) captured but NOT analyzable "
+                        "at all (no AST, or the emit failed)." % len(unusable))
+        if partial:
+            bits.append(
+                "%d translation unit(s) parsed only partially: they ARE "
+                "analyzed, but individual functions that failed to parse were "
+                "never emitted, so no defect in them can be reported. Capture "
+                "is not all-or-nothing, and the per-TU percentage does not say "
+                "so -- a file can read capture-percentage 100 and still be "
+                "missing a function." % len(partial))
+        if lost_functions:
+            bits.append("%d function(s) are named in the capture log as not "
+                        "emitted." % len(lost_functions))
+        why = " ".join(bits)
     elif n_surplus:
         grade, why = "SURPLUS", (
             "%d captured file(s) beyond the expectation -- normally build "
@@ -578,11 +744,23 @@ def cmd_adjudicate(args):
         grade, why = "CONSISTENT", (
             "All three methods agree; capture covers the expected set.")
 
+    # A SHORTFALL that also has partial parses must say so: fixing the missing
+    # files would otherwise look like the whole job.
+    if grade == "SHORTFALL" and (partial or lost_functions):
+        why += (" Additionally, %d captured TU(s) parsed only partially%s -- "
+                "file-level completeness would not have been the whole story."
+                % (len(partial),
+                   " and %d function(s) are named as not emitted"
+                   % len(lost_functions) if lost_functions else ""))
+
     result = {
         "grade": grade,
         "rationale": why,
-        "triple": {"expected": n_exp, "captured": n_cap,
-                   "analyzable": analyzable},
+        "counts": {"expected": n_exp, "captured": n_cap,
+                   "analyzable": analyzable, "complete": complete,
+                   "partial": len(partial), "unusable": len(unusable)},
+        "functions_not_emitted": lost_functions,
+        "analysis_summary": asum,
         "method_c_reviewed": bool(c.get("reviewed")),
         "missing": sorted(missing),
         "surplus": sorted(surplus),
@@ -603,8 +781,16 @@ def cmd_adjudicate(args):
     L = []
     L.append("# Capture fidelity: %s" % grade)
     L.append("")
-    L.append("expected %d product sources / captured %d / analyzable %d"
-             % (n_exp, n_cap, analyzable))
+    L.append("expected %d product sources / captured %d / analyzable %d / "
+             "fully parsed %d" % (n_exp, n_cap, analyzable, complete))
+    if asum.get("functions_analyzed") is not None:
+        L.append("")
+        L.append("cov-analyze reports **%d functions analyzed**%s. A function "
+                 "count is a denominator too -- compare it against what the "
+                 "sources define."
+                 % (asum["functions_analyzed"],
+                    " across %d files" % asum["files_analyzed"]
+                    if asum.get("files_analyzed") is not None else ""))
     L.append("")
     L.append(why)
     L.append("")
@@ -615,8 +801,8 @@ def cmd_adjudicate(args):
     L.append("| C -- expectation | %d expected, %d excluded%s |"
              % (n_exp, len(exclude),
                 "" if c.get("reviewed") else " (**UNREVIEWED SCAFFOLD**)"))
-    L.append("| A -- capture inventory | %d captured, %d degraded |"
-             % (n_cap, len(degraded)))
+    L.append("| A -- capture inventory | %d captured: %d complete, %d partial, "
+             "%d unusable |" % (n_cap, complete, len(partial), len(unusable)))
     L.append("| B -- scan transparency | %s (%s) |"
              % (b.get("verdict") or "?", b.get("capture_path") or "?"))
     L.append("")
@@ -634,8 +820,9 @@ def cmd_adjudicate(args):
         L.append("")
     for title, rows in (("Expected but not captured", sorted(missing)),
                         ("Captured but not expected", sorted(surplus)),
-                        ("Captured but not fully analyzable",
-                         sorted(degraded)),
+                        ("Captured but NOT analyzable at all", sorted(unusable)),
+                        ("Captured but only partially parsed — analyzed with "
+                         "functions missing", sorted(partial)),
                         ("Unconfigured compilers (exist on disk)",
                          b.get("unconfigured_compilers_existing", unconf)),
                         ("Unconfigured-compiler entries that do NOT exist "
@@ -654,6 +841,36 @@ def cmd_adjudicate(args):
             if len(rows) > args.max_rows:
                 L.append("- ... and %d more" % (len(rows) - args.max_rows))
             L.append("")
+    if lost_functions:
+        L.append("## Functions not emitted (%d)" % len(lost_functions))
+        L.append("")
+        L.append("Named by the capture log — the only source that says *which* "
+                 "function was lost. Each was skipped by the front end after a "
+                 "parse error, is absent from the analysis, and takes its "
+                 "interprocedural contribution to its callers with it.")
+        L.append("")
+        for fn in lost_functions[:args.max_rows]:
+            L.append("- `%s` at `%s:%d`"
+                     % (fn.get("function"), fn.get("file"), fn.get("line", 0)))
+        if len(lost_functions) > args.max_rows:
+            L.append("- ... and %d more"
+                     % (len(lost_functions) - args.max_rows))
+        L.append("")
+        L.append("Fix the parse error — usually a missing include, define, or "
+                 "compiler-compat detail — or model the function deliberately.")
+        L.append("")
+    elif partial:
+        L.append("## Functions not emitted")
+        L.append("")
+        L.append("**Not determined.** Translation units are flagged as "
+                 "partially parsed, but no `#1563` warning was found in the "
+                 "capture logs%s. The dropped functions are named only there, "
+                 "so keep capture logs; without them the loss is known to "
+                 "exist but not localized."
+                 % ("" if (a.get("capture_log", {}) or {}).get("logs_read")
+                    else " (no capture log was present in the idir)"))
+        L.append("")
+
     if exclude:
         L.append("## Exclusions applied (%d)" % len(exclude))
         L.append("")
@@ -669,6 +886,10 @@ def cmd_adjudicate(args):
              "emitted -> analyzable. It does not establish that the analysis "
              "was complete, that the right checkers ran, or that the build "
              "produced correct binaries.")
+    L.append("")
+    L.append("Counts are per file. A file counted as captured may still be "
+             "missing individual functions; the *fully parsed* figure and the "
+             "functions-not-emitted list above are what speak to that.")
     L.append("")
 
     text = "\n".join(L)

@@ -76,6 +76,16 @@ the three is the evidence; the *pattern of disagreement* is the diagnosis.
   byte-identical binaries
 - **Emitted, analyzable, and analyzed are three different numbers**, printed
   in three different places, and routinely quoted as one another
+- **Capture is not all-or-nothing.** The front end recovers from parse errors
+  and keeps going, so a file can be captured, carry ASTs, report
+  `capture-percentage: 100` — and still be missing individual functions.
+  Measured: a three-function file lost its middle function while every
+  file-level count read clean, and `cov-analyze` reported 4 functions where
+  the sources define 5. What sees it: `had-recoverable-errors`, `Incomplete`
+  in `coverity list`, the ` (recoverable errors)` suffix from
+  `cov-manage-emit list`, and the capture log's `#1563` warning — the only one
+  that *names* the lost function. So verdicts carry four counts, not three:
+  expected / captured / analyzable / **fully parsed**
 - An empty `unconfigured-compilers` is a real positive result; a **missing**
   `scan-transparency/` directory is not — it means the method did not run
 - **`scan-transparency/` is written at capture time, not by analysis**, and

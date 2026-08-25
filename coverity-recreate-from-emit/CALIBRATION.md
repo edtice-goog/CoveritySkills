@@ -279,6 +279,92 @@ commonly bypass those, so the JVM gap may be latent rather than active here.
 The store contents and the handshake failure are measured; *that Connect
 specifically breaks* is not, and the skill does not claim it.
 
+## Model provenance is keyed to the TU, not the file -- and the tool gets it wrong
+
+Measured 2026-08-25 on the preserved FFmpeg idir. This both **retracts** an
+earlier claim of mine and identifies a real defect in
+`tools/model_provenance.py`.
+
+**What I claimed, and retract.** Reading `output/callgraph-metrics.json.gz`, I
+found 205 of 2,252 distinct `file` values were headers and wrote that "Coverity
+attributes the model to the header." That was wrong. `file` is the location of
+the source *text*, not the attribution.
+
+**What the data actually shows.** The user proposed that the real association is
+to the primary source file (PSF), with the header shown as a convenience, and
+that `--enable-callgraph-metrics` would expose it. Both were correct.
+
+- The flag adds **no fields to the JSON**. It writes `callgraph-metrics.csv`
+  and `callgraph-metrics.txt`, and the CSV carries a **`TU`** column.
+- The text form is unambiguous:
+  `static inline uint32_t av_bswap32(uint32_t): implemented in TU 931` --
+  the same function whose JSON `file` is `libavutil/bswap.h`.
+- Cross-checked against `cov-manage-emit list-json`:
+
+  ```
+  distinct implementing TUs      : 1989
+  TUs in emit                    : 2060
+  implementing TUs found in emit : 1989 / 1989   (100%)
+  primaryFilename extensions     : .c 1989       (zero headers)
+  ```
+
+- `TU = -1` on 672 records: unimplemented, modelled from `builtin-models.db`.
+- The duplicate records are explained too. `get_bits1` appeared five times with
+  identical file, line and mangled name because it was compiled into five TUs.
+  Sampling 500 duplicated identifiers: 153 shared file+line (one header inline,
+  many TUs), 347 differed (distinct `static` functions sharing a name).
+
+**The defect this exposes.** `model_provenance.py` reads the JSON `file` field
+and tests whether that path still exists. That is a **proxy** for the real
+question, and it is wrong for any header-defined function: the header can be
+gone while the TU is fine, or present while the TU is gone. It worked on the
+`snowdsp.c` case only because there the text location and the TU primary were
+the same file, so the proxy coincided with the truth.
+
+The correct check is now available: analyze with `--enable-callgraph-metrics`,
+read the CSV's `TU` column, resolve through `cov-manage-emit list-json` to a
+`primaryFilename`, and test *that*. Rewrite pending -- **the tool's current
+verdicts should be treated as indicative, not authoritative.**
+
+Side effect: the generated-header worry is moot. A `.inc` can never be an
+implementing TU, so generated headers cannot produce false ghosts under the
+corrected check.
+
+Not measured: what `--enable-callgraph-metrics` costs on its own. The 983s run
+here was a *full* analysis forced by a win64-to-linux64 binary change, so it
+says nothing about the flag's own overhead.
+
+## A measurement harness must distinguish "I produced this" from "I found this"
+
+Recorded 2026-08-25 because it is the second time this class of error has
+appeared, in a new disguise.
+
+The overnight run's kernel stage reported:
+
+```
+KERNEL T1 (first) rc=2 wall=0s
+Files analyzed      : 5775 Total
+Functions analyzed  : 82675
+Defect occurrences  : 10583 Total
+KERNEL incremental speedup = 0.0x
+```
+
+Every number is real. The claim they imply is false. The analysis **never ran**
+-- `rc=2`, zero seconds, because no local install could read emit format 355.
+The figures came from a completed analysis already present in the supplied
+tarball, and the script grepped `output/summary.txt` without checking whether
+its own run had succeeded.
+
+The general rule, alongside the vacuous-oracle note earlier in this file:
+
+- **Gate every reported figure on the exit status of the run that was supposed
+  to produce it.** Print nothing on failure.
+- When operating on an artifact that may already contain results, **move them
+  aside first** (`output` -> `output.as-shipped`), so a failed run cannot
+  silently inherit someone else's numbers.
+
+Both fixes are in `postrun.sh`.
+
 ## Not yet calibrated -- the priority queue
 
 1. ~~**Replay end to end.**~~ **DONE** -- see above. 90/90 replayed,

@@ -128,6 +128,24 @@ Strawberry; GNU make invoked as `gmake`).
     `hasASTs: true`, `isFailure: false`, `FILES CAPTURED: 1` of 1.
   - So the per-TU percentage answers "did this TU parse at all", not "is all
     of it here". Recoverable errors are the function-level signal.
+  - Reproduced independently while updating the tool, on a two-file project
+    (a three-function file with an undefined type in `f2`, plus a clean
+    two-function file). Same outcome, plus two further signals: `cov-build`'s
+    closing block prints `Emitted 2 C/C++ compilation units (100%)
+    successfully` immediately followed by `[WARNING] Recoverable errors were
+    encountered during 1 of these C/C++ compilation units.`, and
+    `cov-manage-emit list` suffixes the TU with ` (recoverable errors)`.
+    `cov-analyze` reported `Functions analyzed : 4` against five functions
+    written. The capture log carried
+    `"src/part.c", line 5: warning #1563: function "f2" not emitted` — the
+    only place the lost function is named.
+  - `tools/capture_fidelity.py` now models this: TUs are classified
+    complete / partial / unusable rather than clean / degraded, the report
+    carries four counts (expected / captured / analyzable / fully parsed)
+    plus `Functions analyzed`, and the `#1563` warnings are extracted from
+    the capture logs and listed by name. Verified against this idir
+    (`DEGRADED`, 2/2/2/1, naming `f2` at `src/part.c:5`) with the earlier
+    `CONSISTENT` and `SHORTFALL` cases re-run as regressions.
 
 ## Not found in the shipped documentation (2026.6.0)
 

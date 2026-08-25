@@ -172,8 +172,18 @@ $BIN/cov-manage-emit --dir <idir> list-json
 $BIN/cov-manage-emit --dir <idir> list-capture-invocations --no-process-details
 ```
 
-`cov-manage-emit list` is the smallest readout and carries one fidelity
-signal of its own: a TU with no ASTs is printed with a ` (no ASTs)` suffix.
+`cov-manage-emit list` is the smallest readout and carries two fidelity
+signals of its own, both as suffixes on the TU line: ` (no ASTs)` for a TU
+that cannot be analyzed, and ` (recoverable errors)` for one that parsed only
+partially. Measured:
+
+```
+1 -> .../src/part.c (recoverable errors)
+2 -> .../src/clean.c
+```
+
+That suffix is the cheapest function-level signal there is, and it survives
+even when `list-capture-diagnostics` is unavailable.
 
 `list-json` per TU. Prefer the documented fields -- the reference explicitly
 asks callers to ignore attributes it does not document -- and treat the rest
@@ -260,6 +270,56 @@ entirely benign -- measured on zlib, "40 compilation units (97%)" with the
 single failure being a CMake `TryCompile` feature probe, and product capture
 at 100%. And 100% of nothing is 100%. A gate written as `< 100% -> fail`
 rejects good builds and passes empty ones.
+
+### A6. Function-level accounting -- what the file counts cannot show
+
+Every readout above counts **files**. Rule 34 is that a counted file can still
+be missing functions, so a verdict built only from A1-A5 overstates coverage.
+Two more sources close that gap.
+
+**The capture log names the dropped function.** It is the only place that
+does, which is why capture logs are worth keeping:
+
+```
+"src/part.c", line 5: warning #1563: function "f2" not emitted, consider
+          modeling it or review parse diagnostics to improve fidelity
+...
+[WARNING] 2 recoverable errors detected in the compilation of "src/part.c".
+```
+
+and at the end of the build, an aggregate:
+
+```
+Emitted 2 C/C++ compilation units (100%) successfully
+[WARNING] Recoverable errors were encountered during 1 of these C/C++ compilation units.
+```
+
+Note that the percentage still reads 100%. Grep `build-log.txt` (and, on the
+CLI path, `capture-files-log.txt` / `coverity-cli/coverity-cli-log.txt`) for
+`#1563`, `not emitted`, and `recoverable errors`.
+
+**`cov-analyze` gives the function denominator.** `idir/output/summary.txt`:
+
+```
+Files analyzed                 : 2 Total
+Functions analyzed             : 4
+```
+
+Compare that against what the sources actually define, the same way rule 2
+compares files. In the measured case a three-function file plus a
+two-function file yielded `Functions analyzed : 4`, not 5 -- the one missing
+function being exactly the one the `#1563` warning named.
+
+`tools/capture_fidelity.py method-a` collects both: `capture_log`
+(`functions_not_emitted`, `recoverable_errors_by_file`,
+`build_level_recoverable_tus`) and `analysis_summary`.
+
+**Blast radius.** A function that was not emitted is not analyzed, *and* its
+callers lose whatever interprocedural summary it would have contributed. The
+loss is larger than the one function, which is why this is a capture finding
+rather than a curiosity. The remediation is the warning's own: fix the parse
+error -- usually a missing include, define, or compiler-compat detail -- or
+model the function deliberately.
 
 ---
 
@@ -423,7 +483,8 @@ Compare the three frozen results. Let **C** be the expected product set,
 | `A` much smaller than `C`, B non-empty | Unconfigured compiler | `coverity-compiler-configuration` |
 | `A` near zero while the build reported success, B empty | **Vacuous capture.** A no-op incremental build, a build delegating to a persistent daemon or compile server (MSBuild node reuse, Gradle daemon), or `--record-only` with no `--replay` | `VACUOUS`. Never report as a pass |
 | `A` larger than `C` | Denominator inflation -- build probes, tests, generated or third-party sources | `SURPLUS`. Benign; name the surplus rather than celebrating the count |
-| `A` matches `C` but `capture-percentage < 100` or `had-recoverable-errors` | Partial parse; the TU is analyzed with pieces missing | `DEGRADED`. A prime cause of "Coverity missed my defect" |
+| `A` matches `C` but `had-recoverable-errors`, or `coverity list` says `Incomplete` | **Partial parse.** The TU is analyzed with individual functions missing — and `capture-percentage` may still read 100 | `DEGRADED`. Name the functions from the capture log's `#1563` warnings; a prime cause of "Coverity missed my defect" |
+| `A` matches `C`, file counts clean, but `Functions analyzed` is below what the sources define | Same failure, seen from the analysis side | `DEGRADED`. Go back to the capture log |
 | `hasASTs` / `had-abstract-syntax-trees` false | Record present, not analyzable | `DEGRADED` |
 | "Captured files not found on disk" non-empty | Stale idir, cleaned generated code, or path drift | Distrust the idir until explained |
 | B non-empty but `A` matches `C` | A compiler-shaped binary that compiled nothing product-relevant | Usually benign; name it |
@@ -436,15 +497,23 @@ Compare the three frozen results. Let **C** be the expected product set,
   applied; the exclusions appear in the report every time, never silently
 - `SHORTFALL` -- captured set is a strict subset of expected, unexplained
 - `SURPLUS` -- captured beyond expected; benign but named
-- `DEGRADED` -- captured but not fully analyzable
+- `DEGRADED` -- captured but not fully usable. Two distinct kinds, and the
+  report must say which: **unusable** (no AST, or the emit failed -- not
+  analyzed at all) and **partial** (recoverable errors -- analyzed, with
+  functions missing)
 - `VACUOUS` -- essentially nothing captured while the build claimed success
 - `INDETERMINATE` -- the methods disagree and the disagreement is unresolved
 
-Report the **triple**, never a lone percentage:
+Report **all four counts**, never a lone percentage:
 
 ```
-expected 128 product sources / captured 126 / analyzable 126
+expected 128 product sources / captured 126 / analyzable 126 / fully parsed 124
 ```
+
+And where analysis has run, quote `Functions analyzed` from
+`idir/output/summary.txt` beside them. A function count is a denominator too,
+and it is the only one that moves when a file is captured but a function
+inside it is not.
 
 An `INDETERMINATE` naming the exact disagreement is a useful result. A
 confident green check laid over a disagreement is not.
@@ -469,5 +538,14 @@ confident green check laid over a disagreement is not.
 8. **A missing `scan-transparency/` directory is not a clean result.**
 9. **`FAILED` in `coverity list` usually means the build did not compile the
    file**, not that Coverity failed on it.
-10. **Capture verification does not license "the analysis was complete."** It
-    measures the first four arrows of the pipeline chain and nothing further.
+10. **`capture-percentage: 100` does not mean "nothing is missing."** It
+    answers *did this TU parse at all*. A file can be captured, carry ASTs,
+    report 100, and still be missing a function that failed to parse. The
+    signals that see it are `had-recoverable-errors`, `Incomplete` in
+    `coverity list`, and the `#1563` warning in the capture log — which is the
+    only one that names the function. (Rule 34.)
+11. **Every file-level count is blind to this.** `FILES CAPTURED`,
+    `tu-count`, `SUCCEEDED` — all of them count a partially-parsed file as
+    present, because it is. Report *fully parsed* alongside *analyzable*.
+12. **Capture verification does not license "the analysis was complete."** It
+    measures the first five arrows of the pipeline chain and nothing further.
