@@ -372,6 +372,54 @@ This check is also what makes the fetch policy purely economic. A baseline that
 is newer than your checkout is *detectably* wrong rather than silently wrong,
 so choosing not to fetch one is a decision about resources, not correctness.
 
+## After analysis: check where the models came from
+
+The staleness check works at **file** granularity and runs *before* analysis.
+This one works at **model** granularity and runs *after* it, and is strictly
+stronger -- it asks the question that actually matters: *where did the model
+for each analyzed function come from?*
+
+`output/callgraph-metrics.json.gz` answers it directly. Each entry has
+`identifier`, `file`, `line`, `hasImplementation` and `models`, and the count of
+implementation models matches `Functions analyzed` in `summary.txt` exactly. A
+model whose `file` no longer exists is a function analyzed from code that is
+gone.
+
+```bash
+python3 tools/model_provenance.py --dir <analyzed-idir> --tree <working-tree>
+```
+
+Measured on FFmpeg, before and after repairing one orphaned TU: **11 function
+implementations** were being served from a file deleted upstream, and after
+deleting the orphan, zero. The file-level view showed the same problem as a
+single orphan.
+
+That gap is the point. A ghost model is not just extra findings in dead code:
+**it is handed to every caller of that function**, so it can change results in
+files that are perfectly current. And when the function also exists in a live
+file -- as `ff_dwt_init_x86` did, live at `snowdsp_init.c:332` and stale at the
+deleted `snowdsp.c:881` -- the emit holds two definitions of one actively
+called symbol, and nothing at file granularity shows you that.
+
+Sources outside the capture root (system headers with inline functions, 10
+functions in the measured run) are checked at their own absolute path rather
+than remapped, since they legitimately live outside the tree.
+
+## Renames need no special handling
+
+A rename is a delete plus an add, and both halves are already covered: the old
+path's TU becomes an `ORPHAN` and is deleted, the new path is a new file and is
+captured. **Nothing needs to recognise the two halves as related.**
+
+Defect continuity across a rename is Coverity Connect's job, via antecedent
+merge keys (`coverity/RULES.md` rule 27) -- not this skill's, and not something
+to reimplement by matching up added and removed files.
+
+The only cost of a large move is analysis time: moved files are re-emitted
+because their paths changed. That is a performance property, not a correctness
+one, and special-casing it would buy nothing while adding exactly the kind of
+subtle bug this procedure cannot afford.
+
 ## Stale TUs: the rule this procedure exists to enforce
 
 **The danger is path divergence, not reuse itself.** Which case you are in

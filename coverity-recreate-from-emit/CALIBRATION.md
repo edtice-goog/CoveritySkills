@@ -339,6 +339,36 @@ and the `OVERFLOW_BEFORE_WIDEN` in `snowenc.c` were unchanged. So Coverity's
 handling of TU deletion is robust even against a duplicated, actively-called
 symbol. Good news, and measured rather than assumed.
 
+## Model provenance: callgraph-metrics
+
+- **`output/callgraph-metrics.json.gz` records where every function model came
+  from.** One JSON object with `functions[]`, each carrying `mangledName`,
+  `identifier`, `ownerClassIdentifier`, `file`, `line`, `hasImplementation`,
+  `models` and `importance`. On the FFmpeg run: 27668 entries, `models` taking
+  only two values -- implementation (26997) and built-in (214) -- across 2281
+  distinct source files.
+- **The implementation count equals `Functions analyzed` in `summary.txt`
+  exactly** (26997 both), so the file is a complete account of what was
+  modelled and from where.
+- **It exposes ghost models that file-level checks understate.** Before
+  repairing one orphaned TU, **11 function implementations** were sourced from
+  the deleted `libavcodec/x86/snowdsp.c`; after deletion, zero. The file-level
+  staleness view showed the same problem as a single orphan -- an
+  eleven-to-one difference in what was actually affected.
+- **This is the check that catches a stale duplicate of a live symbol.**
+  `ff_dwt_init_x86` appeared live at `snowdsp_init.c:332` and stale at the
+  deleted `snowdsp.c:881`. A ghost model is handed to every *caller*, so it can
+  perturb files that are entirely current.
+- `tools/model_provenance.py` implements it, run after analysis as the
+  complement to the pre-analysis staleness check. Root inference anchors on the
+  most-referenced source and walks its ancestors; `commonprefix` is useless
+  because model sources mix the project root with system headers, making the
+  common prefix `/`. Sources outside the root (10 functions in the measured
+  run) are checked at their own absolute path rather than remapped. Verified
+  GHOST MODELS before repair, SOUND after.
+- **Correction:** an earlier claim in this repo that the idir does not show
+  which model a caller received was wrong. It does, at function granularity.
+
 ## The preview report, and its side effects
 
 - **`previewCommit` is a distinct Connect permission** from `commitToStream`
@@ -607,8 +637,10 @@ real project it ran against was already wrong.
    tripped `-Werror=missing-prototypes`, so `make` returned 2 even though all
    three TUs were captured. The timing stands but the run was not clean; add
    prototypes and repeat.
-7. ~~**No deletions or renames.**~~ **DELETIONS DONE** -- detected on a real
-   project and the repair validated above: removal subtracts exactly the
-   orphan's findings and perturbs nothing. **Renames remain untested**, and are
-   the more interesting case since a rename is a deletion and an addition whose
-   halves must be recognised as related.
+7. ~~**No deletions or renames.**~~ **DONE.** Deletion detected on a real
+   project and the repair validated. **Renames need no separate work** -- a
+   rename is a delete plus an add, both already covered, and nothing needs to
+   relate the halves. An earlier note here claiming otherwise conflated the
+   emit layer with the attribution layer, where a rename *can* look like
+   fixed-plus-new; that continuity is Connect's job via antecedent merge keys
+   (rule 27). The only cost of a large move is re-emit time.
