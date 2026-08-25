@@ -455,6 +455,39 @@ download, and analysis all wait for the user to choose.
 300 MB; downloading one on every session start would be far worse than the
 problem it solves.
 
+## Prerequisite: a properly formed coverity.yaml. No file, no skill.
+
+**This gate precedes everything, including the applicability gates in part B.**
+
+The project must carry a Coverity configuration -- `coverity.yaml`,
+`coverity.yml`, or `coverity.json` -- and it must **name the Connect stream**.
+Presence alone is not enough. The stream is where the snapshot history lives,
+and that history is what decides whether any of this is worth doing.
+
+"Properly formed" is the product's definition, not one invented here: the
+Coverity CLI's own configuration schema makes `commit.connect.stream` and
+`commit.connect.url` **both required**.
+
+```bash
+python3 tools/check_prerequisites.py --project-dir <project>
+```
+
+Exit 0 and it reports the stream, the URL, and where the developer's auth key
+should live. Exit 2 and **abort** -- absent file, unparseable file, or either
+key missing. Do not fall back to asking the user for a stream name, and do not
+proceed on a guess: a project without this configuration is not one this skill
+can help, and inventing the missing piece produces confident wrong answers
+against somebody else's stream.
+
+The same conservatism applies to reading the file. With no YAML parser
+available the tool uses a narrow reader for the ordinary nesting and **refuses
+on anything else** rather than guessing -- a wrong stream name is worse than no
+answer.
+
+It also derives the auth key path. The CLI documents the default as
+`$HOME/.coverity/ak-<hostname>-<port>`, so on a developer machine the key
+usually need not be asked for at all.
+
 ## Step 1 of any reuse decision: is it worth it?
 
 Before proposing anything, find out what a full run actually costs. **The
