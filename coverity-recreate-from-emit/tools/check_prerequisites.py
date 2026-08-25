@@ -91,14 +91,42 @@ def main():
     root = os.path.abspath(a.project_dir)
 
     cfg = find_config(root)
-    if not cfg:
+    if not cfg and not (a.stream and a.url):
         print("ABORT: no Coverity configuration in %s" % root)
         print("       Looked for: %s" % ", ".join(CANDIDATES))
         print()
-        print("This skill requires a project already set up for Coverity. Without")
+        print("This skill expects a project already set up for Coverity. Without")
         print("that file there is no stream, no snapshot history, and no way to")
         print("judge whether reusing an intermediate directory is worth it.")
+        print()
+        print("       A Coverity Scan project legitimately has no such file -- Scan")
+        print("       keeps its configuration on the service, not in the checkout,")
+        print("       so there is nothing here to read. To use this skill on one,")
+        print("       invoke it manually and pass BOTH --stream and --url.")
         return 2
+
+    if not cfg:
+        # Manual path: no project config, caller supplied the destination.
+        print("config : <none -- values supplied on the command line>")
+        print("stream : %s" % a.stream)
+        print("url    : %s" % a.url)
+        print()
+        print("!" * 72)
+        print("NO PROJECT CONFIGURATION -- USING VALUES YOU SUPPLIED")
+        print("  Nothing here was cross-checked against the project. A stream is a")
+        print("  DESTINATION: if it is wrong, source and defect data are committed")
+        print("  somewhere they were never meant to go.")
+        print()
+        print("  This is the expected path for a Coverity Scan project, which keeps")
+        print("  its configuration on the service rather than in the repository.")
+        print("  Confirm the destination before anything is committed.")
+        print("!" * 72)
+        print("\nPREREQUISITE MET (manually). Next: tools/estimate_from_connect.py.")
+        if a.json_out:
+            json.dump({"config": None, "stream": a.stream, "url": a.url,
+                       "auth_key_file": None, "overridden": ["stream", "url"]},
+                      open(a.json_out, "w", encoding="utf-8"), indent=1)
+        return 0
 
     text = open(cfg, encoding="utf-8", errors="replace").read()
     if cfg.endswith(".json"):

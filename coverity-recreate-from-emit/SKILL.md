@@ -504,6 +504,30 @@ would sail past the front door and fail later, at the point some command
 actually needs the stream. Failing here instead costs a second and says exactly
 what is wrong, rather than surfacing halfway through a capture.
 
+### Coverity Scan projects: manual only, and here is why
+
+Open-source projects on Coverity Scan follow an older convention that has not
+been updated, and it puts **nothing usable in the repository**. Examined:
+proftpd's entire in-repo Coverity footprint is a single modeling file
+(`contrib/dist/coverity/modeling.c`), there is no `coverity.yaml`, and **none
+of its four GitHub workflows mentions Coverity at all**. The configuration --
+project, stream, token -- lives on the Scan service.
+
+So a Scan-style project is not merely inconvenient to detect, it is **genuinely
+undetectable from the checkout**. That is the argument against probing at
+startup: there is nothing reliable to find, and looking would cost every
+session time for an answer that does not exist.
+
+The session-start hook therefore checks for `coverity.yaml` and nothing else.
+A Scan project stays silent, which is correct. **To use the skill there, the
+user invokes it manually and supplies `--stream` and `--url`** -- the same
+override path, with the same destination warning, because nothing was
+cross-checked against the project.
+
+Commercial users are the expected audience and should have a `coverity.yaml`
+regardless: the GitHub action depends on it. A project still on the older
+mechanism should add one.
+
 The same conservatism applies to reading the file. With no YAML parser
 available the tool uses a narrow reader for the ordinary nesting and **refuses
 on anything else** rather than guessing -- a wrong stream name is worse than no
