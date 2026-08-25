@@ -490,6 +490,20 @@ meant to go, which noticing afterwards does not undo. That is rule 28's
 auth-key-host failure arriving through a different door, and it deserves the
 same treatment -- surface it, name the risk, proceed only on explicit intent.
 
+**The Coverity CLI itself will not run on a broken config, so this gate is
+predicting a failure rather than inventing a restriction** -- but it is stricter
+than the CLI in the direction that matters. Measured on 2025.9.0:
+
+| config state | `coverity` CLI |
+|---|---|
+| malformed YAML | **rc=1**, `[ERROR] Failed to parse the configuration file.` |
+| valid YAML, unknown key or missing required section | **rc=0** with `[WARN] ... has issues which may need to be addressed` |
+
+So a file the CLI merely *warns* about -- one that parses but names no stream --
+would sail past the front door and fail later, at the point some command
+actually needs the stream. Failing here instead costs a second and says exactly
+what is wrong, rather than surfacing halfway through a capture.
+
 The same conservatism applies to reading the file. With no YAML parser
 available the tool uses a narrow reader for the ordinary nesting and **refuses
 on anything else** rather than guessing -- a wrong stream name is worse than no

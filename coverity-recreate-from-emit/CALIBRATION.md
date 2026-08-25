@@ -227,6 +227,55 @@ verified replay end to end** -- on one project, one language, one version pair,
 with the original compiler still available. The degraded path (item 2) and
 every failure mode (item 5) remain unmeasured. Say so if it matters.
 
+## The coverity.yaml prerequisite
+
+- **`coverity.yaml` / `.yml` / `.json` is the Coverity CLI's own config**, and
+  its documented default lookup is those three names under the project
+  directory. `commit.connect.stream` and `commit.connect.url` are **both
+  required** by the published schema, so "properly formed" is the product's
+  definition.
+- **Adding our own top-level key to it is tolerated but noisy.** A key the CLI
+  does not know produces *"'idirBaseline' is not a recognized setting"* and
+  `[WARN] ... has issues which may need to be addressed` -- on **rc=0**, so it
+  does not break anything, but every CLI invocation in the project would print
+  it. Reason enough not to extend the file.
+- **The CLI's own tolerance for a bad config, measured on 2025.9.0:**
+
+  | config state | result |
+  |---|---|
+  | malformed YAML | rc=**1**, `[ERROR] Failed to parse the configuration file.` |
+  | valid YAML, unknown key or missing required section | rc=**0** + `[WARN]` |
+
+  So the CLI hard-refuses a parse failure but only warns about a config that
+  parses and names no stream. Our gate is deliberately stricter there: that
+  file would otherwise fail later, at whichever command first needs the stream.
+- **`connect.auth-key-file` defaults to `$HOME/.coverity/ak-<hostname>-<port>`**
+  (documented), so on a developer machine the auth key generally need not be
+  asked for.
+
+## Connect interfaces, measured on two independent servers
+
+- **`GET /api/v2/snapshots/<id>` is REST and returns clean JSON** -- timings,
+  TU counts, command lines, hosts, analyzer version, `sourceVersion`.
+- **Listing a stream's snapshots has no working REST form found.** The
+  documented `/api/v2/streams/stream/snapshots` returns **400** (route exists,
+  parameter wrong) for `name`, `stream`, `streamId`, `streamName`, `id`, with
+  and without `locale`; `/api/v2/streams/<name>/snapshots` returns 404. SOAP
+  `getSnapshotsForStream` works and is the stopgap. Reproduced on a local
+  2025.12 Connect and on a hosted field-test server.
+- **Swagger is not reachable with an auth key.** `/swagger/cim/index.html` and
+  every spec path tried return **403 whose body is the sign-in page**
+  ("JavaScript and Cookies are Required") under basic auth on both servers. A
+  form login yielded a `JSESSIONID` but no access. It wants a browser session.
+- **Snapshot records carry no lines-of-code and no defect counts.**
+  `getSnapshotInformation` has `buildTime`, `analysisTime`,
+  `buildSuccessCount`, `buildFailureCount`, commands, hosts, versions and
+  `enabledCheckers` -- but neither LOC nor new/fixed/existing. Those live
+  elsewhere and are not needed for a time estimate.
+- **Enumerating streams to find history does not scale.** A SOAP sweep of 200
+  streams on the hosted server exceeded 10 minutes. Take the stream from
+  `coverity.yaml` instead of discovering it.
+
 # Part B -- idir reuse for speed
 
 Environment: the same Coverity 2025.9.0 pair (linux64 in WSL for capture,
