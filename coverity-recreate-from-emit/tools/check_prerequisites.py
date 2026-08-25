@@ -1,18 +1,29 @@
 #!/usr/bin/env python3
 """Prerequisite gate for coverity-recreate-from-emit.
 
-The skill requires a properly formed `coverity.yaml` in the project. Not just
-present -- it must name the Coverity Connect stream, because the stream is
-where the snapshot history lives, and that history is what decides whether any
-of this skill is worth using.
+The skill requires a `coverity.yaml` in the project, and normally expects it to
+name the Coverity Connect stream -- the stream is where the snapshot history
+lives, and that history is what decides whether any of this skill is worth
+using.
 
 The Coverity CLI's own schema makes `commit.connect.stream` and
 `commit.connect.url` BOTH required, so "properly formed" is the product's
 definition, not one invented here.
 
-If the file is absent, unparseable, or missing either key: **abort**. Do not
-fall back to asking the user, and do not proceed on a guess. A project without
-this configuration is not one this skill can help.
+**The file's presence gates whether the skill runs at all.** No
+`coverity.yaml`, no skill -- that is not negotiable, and it is what keeps this
+inert in projects that do not use Coverity.
+
+What the file *contains* is a softer gate. If it does not name a stream, the
+default is to abort. But a user may legitimately want to work against a stream
+this file does not mention, and it is their data; refusing outright just gets
+this skill replaced by one that does not care. So `--stream` and `--url`
+override, with a loud warning, and never silently.
+
+The warning is not ceremony. A stream is a *destination*: get it wrong and
+source code and defect data are committed somewhere they were never meant to
+go. That is the same failure mode as rule 28's auth-key host, arriving through
+a different door.
 
 Pure stdlib. PyYAML is used when importable; otherwise a deliberately narrow
 extractor handles the ordinary nesting and REFUSES on anything it cannot read
@@ -73,6 +84,8 @@ def parse_narrow(text):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--project-dir", default=".")
+    ap.add_argument("--stream", help="override the configured stream (discouraged; see --help)")
+    ap.add_argument("--url", help="override the configured Connect URL (discouraged)")
     ap.add_argument("--json-out")
     a = ap.parse_args()
     root = os.path.abspath(a.project_dir)
@@ -116,6 +129,28 @@ def main():
     print("stream : %s" % (stream or "<missing>"))
     print("url    : %s" % (url or "<missing>"))
 
+    overridden = []
+    if a.stream and a.stream != stream:
+        overridden.append(("stream", stream or "<missing>", a.stream)); stream = a.stream
+    if a.url and a.url != url:
+        overridden.append(("url", url or "<missing>", a.url)); url = a.url
+
+    if overridden:
+        print()
+        print("!" * 72)
+        print("OVERRIDING THE PROJECT CONFIGURATION")
+        for k, was, now in overridden:
+            print("  %-7s config says %-28s using %s" % (k, was, now))
+        print()
+        print("  A stream is a DESTINATION. If this one is wrong, source code and")
+        print("  defect data are committed somewhere they were never meant to go,")
+        print("  and that is not undone by noticing later.")
+        print()
+        print("  The project's own coverity.yaml is the safe answer and the one the")
+        print("  rest of the team is using. Override only if you specifically mean")
+        print("  to, and confirm the destination before anything is committed.")
+        print("!" * 72)
+
     missing = [k for k, v in (("stream", stream), ("url", url)) if not v]
     if missing:
         print()
@@ -123,6 +158,10 @@ def main():
         print("       The Coverity CLI schema makes commit.connect.stream and")
         print("       commit.connect.url both required, so this file is not a")
         print("       properly formed Coverity configuration.")
+        print()
+        print("       If you genuinely mean to work against a stream this project")
+        print("       does not name, pass --stream/--url explicitly. Read the")
+        print("       warning it prints before you do.")
         return 2
 
     # Where the developer's auth key lives. The CLI default is documented as
@@ -142,7 +181,8 @@ def main():
 
     if a.json_out:
         json.dump({"config": cfg, "stream": stream, "url": url,
-                   "auth_key_file": keyfile},
+                   "auth_key_file": keyfile,
+                   "overridden": [k for k, _, _ in overridden]},
                   open(a.json_out, "w", encoding="utf-8"), indent=1)
     return 0
 

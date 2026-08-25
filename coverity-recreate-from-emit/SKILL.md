@@ -473,11 +473,22 @@ python3 tools/check_prerequisites.py --project-dir <project>
 ```
 
 Exit 0 and it reports the stream, the URL, and where the developer's auth key
-should live. Exit 2 and **abort** -- absent file, unparseable file, or either
-key missing. Do not fall back to asking the user for a stream name, and do not
-proceed on a guess: a project without this configuration is not one this skill
-can help, and inventing the missing piece produces confident wrong answers
-against somebody else's stream.
+should live.
+
+**Two gates of different hardness, and the difference matters:**
+
+- **The file's presence is absolute.** No `coverity.yaml`, the skill does not
+  run. That is what keeps it inert in projects that do not use Coverity.
+- **What the file contains is softer.** No stream means abort *by default* --
+  never invent one, never fall back to asking as though any answer will do.
+  But a user may genuinely need a stream this file does not name, and it is
+  their data. `--stream` / `--url` override, loudly and never silently.
+
+The warning on override is not ceremony. **A stream is a destination**: get it
+wrong and source code and defect data are committed somewhere they were never
+meant to go, which noticing afterwards does not undo. That is rule 28's
+auth-key-host failure arriving through a different door, and it deserves the
+same treatment -- surface it, name the risk, proceed only on explicit intent.
 
 The same conservatism applies to reading the file. With no YAML parser
 available the tool uses a narrow reader for the ordinary nesting and **refuses
