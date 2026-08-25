@@ -86,6 +86,34 @@ Strawberry; GNU make invoked as `gmake`).
   the cause: a bare command name resolved against a directory rather than
   `PATH`, independent of capture path and independent of linking.
 
+- `cov-format-errors` options on 2026.6.0: `--json-output-v10 <file>`,
+  `--emacs-style` (documented as equivalent to `--text-output-style
+  multiline`), `--html-output <dir>`, plus the filtering options. There is
+  **no** `--text-output` option -- it is rejected with `[COMMAND LINE ERROR]
+  Undefined option 'text-output'`. Worth recording because a loose grep of
+  the help text for `--text-output` matches the *prefix* of
+  `--text-output-style` and invents a plausible flag that does not exist.
+- **`cov-format-errors --json-output-v10` produces JSON, confirmed by
+  execution** -- not merely by `--help`. Run against an idir holding one real
+  UNINIT report (`cov-emit --c` of `evals/fixtures/uninit-main.c`, then
+  `cov-analyze --all --aggressiveness-level high`; the defect does not appear
+  at defaults). It printed `Detected 1 defect occurrence that passes the
+  filter criteria` and wrote a 3.9 KB file:
+  - top level: `type`, `formatVersion`, `suppressedIssueCount`, `issues`,
+    `desktopAnalysisSettings`, `error`, `warnings`
+  - per issue: `checkerName`, `subtype`, `subcategory`, `domain`, `language`,
+    `mainEventFilePathname`, `strippedMainEventFilePathname`,
+    `mainEventLineNumber`, `mainEventColumnNumber`, `mergeKey`,
+    `occurrenceCountForMK`, `functionDisplayName`, `checkerProperties`,
+    `localTriage`, `stateOnServer`, `events`
+  - per event: `eventNumber`, `eventTag`, `eventDescription`,
+    `covLStrEventDescription`, `filePathname`, `lineNumber`, `columnNumber`,
+    `main`, `eventSet`, `eventTreePosition`, `remediation`,
+    `moreInformationId`, nested `events`
+  Documented as the recommended JSON option (`v1`-`v9` are backward
+  compatibility only), and the full schema is *Desktop Analysis JSON output
+  syntax* in the Desktop Analysis User Guide.
+
 ## From documentation, not yet executed
 
 - `coverity list --all` default-hides `vendor`, `node_modules`, `__MACOSX`,
@@ -257,6 +285,19 @@ the three methods' actual output recorded, in the style of
    to classify. Until pinned, **that section is not a reliable "outside the
    project" signal on a `cov-build` idir**, and the adjudicator's
    project-directory caveat will fire on healthy captures.
+
+10. **Rule 27: which check actually rejects a timestamp-mangled idir.**
+    Needs a Coverity Connect instance. Probed offline and *not* settled:
+    against an analyzed idir copied three ways -- `cp -a` (times preserved),
+    `cp -r` (all mtimes rewritten to now), and `cp -a` plus `touch` on
+    `emit/*/emit-db` (emit made newer than `output/`) -- `cov-commit-defects`
+    behaved identically on all three, because it resolves and contacts the
+    host before performing any local staleness check. `cov-format-errors` and
+    a re-run of `cov-analyze` likewise did not distinguish them. So the
+    mechanism is documented for *emit* decisions (the `--force` wording in
+    `cov-emit-cs`/`-java`/`-vb`) but the commit-side refusal remains reported
+    rather than measured. Repeat against a live Connect and record the exact
+    message.
 
 Until these are done, the skill's *commands and fields* are trustworthy and
 its *diagnosis table* is a well-grounded hypothesis. Say so if it matters to

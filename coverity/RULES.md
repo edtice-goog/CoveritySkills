@@ -184,6 +184,57 @@ emitted nothing yields binaries byte-identical to native.
 
 Source: verified — `coverity`, `references/idir-anatomy.md`.
 
+### 27. If you move an intermediate directory, preserve its timestamps
+
+**Timestamps inside an idir are state, not metadata.** Coverity reads them for
+consistency and staleness checks between phases — what still needs emitting,
+and whether the results in `output/` actually correspond to the emit that
+produced them. That last check is what stops results being committed for a
+directory that was never analyzed, or that was re-captured after it was.
+
+A copy that rewrites modification times destroys that state. The copy looks
+complete — same files, same bytes, same sizes — and the failure surfaces
+later, at analysis or commit, as a complaint that reads like a different
+problem entirely.
+
+**Do.** Copy with something that preserves times:
+
+```bash
+cp -a  <idir> <dest>          # or cp -rp, or rsync -a
+```
+
+```bash
+tar -cf - <idir> | (cd <dest> && tar -xf -)
+```
+
+```
+robocopy <idir> <dest> /E /COPY:DAT /DCOPY:DAT
+```
+
+On Windows, `/DCOPY:DAT` is the part people leave off: without it, directory
+timestamps are rewritten even though the files' survive. Explorer drag-copies
+and plain `xcopy` do not preserve them either. A `mv`/rename within one
+filesystem preserves everything and is the safest relocation of all.
+
+**Do not repair it by touching files.** That invents an ordering rather than
+restoring one, and a fabricated ordering satisfies the check without making
+the results correspond. If the timestamps are already lost, re-capture — and
+if that is not possible, say in the report that the idir was relocated and
+its internal ordering cannot be vouched for.
+
+Rewritten timestamps also destroy rule 8's freshness evidence: `build-cwd.txt`
+and mtimes are how you prove an idir you did not create is not yesterday's.
+
+Source: mixed. **Documented** — `cov-emit-cs`, `cov-emit-java`, and
+`cov-emit-vb` all describe `--force` as overriding incremental compilation of
+files "present in the Intermediate Directory and whose timestamps has not
+changed", so timestamps demonstrably drive re-emit decisions. **Observed** —
+`coverity capture` runs an action named *Update uncaptured file timestamps for
+project*. **Reported from the field, not reproduced here** — the commit-side
+refusal: `cov-commit-defects` performs its server handshake before any local
+staleness complaint, so it cannot be probed without a Coverity Connect
+instance. See `CALIBRATION.md`.
+
 ### 9. Make sure the build under capture actually builds
 
 An incremental build with nothing to do, a warm compiler cache, or the wrong
@@ -472,10 +523,25 @@ Coverity's defaults are tuned to a low false-positive rate, so an unusually
 noisy sample is a real signal — and it is worth catching before the report
 goes out rather than after someone has acted on it.
 
-**Do.** List the defects with `cov-format-errors` (`--text-output` for
-reading, `--json-output-v10` for sampling programmatically; confirm the flags
-in `doc/en/help/cov-format-errors.help.txt` per rule 4). Sample per checker,
-read the traces, record the counts.
+**Do.** List the defects with `cov-format-errors`: `--json-output-v10 <file>`
+to sample programmatically, `--emacs-style` (equivalently
+`--text-output-style multiline`) to read traces on stdout, `--html-output
+<dir>` for a browsable set.
+
+`--json-output-v10` is the one that makes stratified sampling easy, and it
+carries the whole trace, not just a summary line. Verified on 2026.6.0
+against a real UNINIT report — top level is `{type, formatVersion,
+suppressedIssueCount, issues, desktopAnalysisSettings, error, warnings}`, and
+each issue carries `checkerName`, `subcategory`, `mainEventFilePathname` /
+`mainEventLineNumber`, `mergeKey`, and an `events` array whose entries hold
+`eventDescription`, `eventTag`, `filePathname`, `lineNumber`, and `main`.
+Group by `checkerName` to sample per checker, and read `events` to triage
+without opening the GUI. `--json-output-v1` … `v9` exist for backward
+compatibility only.
+
+Note that `--text-output` is *not* an option, despite reading like one — it is
+rejected outright. Check `cov-format-errors --help` against your own
+installation per rule 4.
 
 **Detecting noise is in scope; explaining it is not.** If the sample looks
 noisy, the one thing worth doing here is re-checking capture (rules 2 and 9),

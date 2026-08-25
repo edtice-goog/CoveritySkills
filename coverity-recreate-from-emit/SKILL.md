@@ -171,6 +171,25 @@ absent, `[FATAL] License authorization failure: License has expired.` (rc 2)
 when stale. Installs frequently share one licence file, so check the *file*,
 not the install.
 
+**If anything in this skill will talk to Connect, check TLS now too.** Fetching
+a reference idir, the cost estimator, and `--preview-report-v3` all make TLS
+connections, and on a network with an inspecting proxy they fail *after* you
+have spent the setup effort. The trap is that there are **four independent
+trust stores** and fixing the obvious ones is what makes you believe the
+network is fine: Coverity ships its own JDKs, each with its own `cacerts` that
+no environment variable touches. Measured on
+`cov-analysis-linux64-2025.12.2`: three bundled JDKs, 109 trusted certs each,
+**zero** corporate entries.
+
+```bash
+# Fails only for intercepted hosts, so test the Connect host specifically.
+<install>/jdk21/bin/keytool -list   -keystore <install>/jdk21/lib/security/cacerts -storepass changeit | grep -ci <vendor>
+```
+
+`PKIX path building failed` means this JVM has never heard of your corporate
+CA. Full procedure, including the Go/cipd case that hangs with **no error at
+all**, in `references/corporate-tls.md`.
+
 ### Step 1. Identify the idir, and find an install that can read it
 
 ```bash
@@ -746,3 +765,6 @@ for that permission specifically rather than full commit rights.
 - `coverity-issue-transition-inference` -- the consumer: separates "the code
   changed" from "the analyzer got better", and needs the `(C1,A2)` cell this
   skill produces.
+- `references/corporate-tls.md` -- TLS-inspecting proxies: the four trust
+  stores, why Go and the JVM fail differently, and how to fix both without
+  modifying the Coverity install or the system trust store.

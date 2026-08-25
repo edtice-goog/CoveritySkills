@@ -188,6 +188,77 @@ include closure.
 not use it to argue that two idirs captured the same source, and do not use it
 against a file on disk at all.
 
+## Sizing the analysis host: stated by the user, not measured here
+
+Recorded because the natural instinct -- "a huge C++ codebase needs a huge
+machine" -- is wrong, and acting on it would send users shopping for hardware
+they do not need. Attributed, not measured: this came from the user during the
+Chromium exercise on 2026-08-25 and is **not** yet backed by a run of mine.
+
+- `cov-analyze` is built to fit a **small** memory footprint. It ran on 32-bit
+  operating systems, where 2GB was the entire addressable space.
+- The working rule of thumb: **~1GB of overhead** on a 64-bit platform, plus
+  **~0.5GB per core**. So an 8-core analysis lands near **5GB**, and will not
+  approach 16GB.
+- Under memory pressure the analysis **reduces its own parallelism** rather
+  than failing or swapping. Memory is a throughput input, not a correctness
+  cliff.
+- Reference point offered for scale: the **Linux kernel analyzes in about ten
+  minutes** on this hardware.
+
+Consequence for this skill: **do not treat RAM as the binding constraint** on
+whether a large C++ project can be analyzed, and do not tell a user their box
+is too small. The binding constraint is cores and wall-clock. Note also that
+this cuts against the case for idir reuse -- if analysis is cheap, the saving
+Part B chases is concentrated in **capture**, not analysis. Part B's break-even
+arithmetic should be read with that in mind.
+
+Still to measure: peak RSS of a real `cov-analyze` on a C++ codebase at
+Chromium scale, and whether the per-core figure holds at 16 cores.
+
+## TLS interception: measured, 2026-08-25, during the Chromium setup
+
+Found by hitting it, not by anticipating it. Every claim below is from a run on
+this box, which sits behind a **Zscaler** inspecting proxy.
+
+- **Interception is selective.** Same machine, same minute, default trust store:
+  `github.com` returned **200** while `chromium.googlesource.com` failed. So
+  "the network is fine" and "TLS is fine" both look true while one host is dead.
+- **Go ignores `CURL_CA_BUNDLE`.** With curl and git fixed and both working,
+  depot_tools' `fetch` still hung: `fetch.py` blocked on `anon_pipe_read`,
+  **empty output directory, nothing on stderr, for 13 minutes**. The child was
+  cipd (a Go binary) failing a handshake. Proof, same host, one variable:
+
+  ```
+  cipd host, SYSTEM trust store  -> http=000
+  cipd host, SCOPED bundle       -> http=200
+  ```
+
+  `SSL_CERT_FILE` fixes it; after setting it, the fetch bootstrapped vpython and
+  reached `gclient sync`.
+- **Coverity ships its own JDKs, and they are a separate store.**
+  `cov-analysis-linux64-2025.12.2` carries **three** (`jre/`, `jdk21/`,
+  `jdk25/`), each `lib/security/cacerts` holding **109 trusted certs and zero**
+  Zscaler entries. The system `cacerts` had zero as well.
+- **A Coverity JVM therefore fails an intercepted host**, measured directly with
+  `HttpsURLConnection` under `jdk21/bin/java`:
+  `SSLHandshakeException: (certificate_unknown) PKIX path building failed`
+  for googlesource, `OK ... http=200` for github in the same run.
+- **Both fixes verified.** Copying the bundled `cacerts`, importing the root
+  with `keytool`, then either `-Djavax.net.ssl.trustStore=...` **or**
+  `JAVA_TOOL_OPTIONS=...` turned that same call into `http=200`.
+  `JAVA_TOOL_OPTIONS` is preferred: it needs no change to any Coverity command
+  line and no edit to the install. It emits one `Picked up JAVA_TOOL_OPTIONS:`
+  line on stderr.
+
+Written up as `references/corporate-tls.md`, linked from Step 0.
+
+**Not yet measured:** whether Coverity Connect traffic on this network is
+actually intercepted. The local Connect is an **internal** address and proxies
+commonly bypass those, so the JVM gap may be latent rather than active here.
+The store contents and the handshake failure are measured; *that Connect
+specifically breaks* is not, and the skill does not claim it.
+
 ## Not yet calibrated -- the priority queue
 
 1. ~~**Replay end to end.**~~ **DONE** -- see above. 90/90 replayed,

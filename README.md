@@ -28,7 +28,9 @@ fast.
 The remaining rules cover configuration (pin one install; configure every
 compiler-shaped executable; regenerate rather than patch), capture (fresh
 idir; make sure the build actually builds; never quote a bare percentage;
-`--all`; what an empty vs. missing `scan-transparency/` means), analysis
+`--all`; what an empty vs. missing `scan-transparency/` means; preserve
+timestamps if you relocate an idir, because Coverity reads them as state),
+analysis
 (find where the pipeline narrowed before blaming checkers; taint needs two
 switches; never let capture doubt leak into a "not found"; triage a sample of
 the defects before anyone trusts the run), and reporting
