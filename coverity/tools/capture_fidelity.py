@@ -672,6 +672,15 @@ def cmd_adjudicate(args):
     matched_caps = {v["path"] for v in matched.values()}
     surplus = [p for p in cap if p not in matched_caps]
 
+    # Degradation only counts against the verdict when it hits a TU the
+    # expectation actually asked for.  A CMake TryCompile probe that fails by
+    # design is surplus, not a defect in the product capture -- grading on it
+    # turns a healthy build into DEGRADED.
+    def split_by_match(paths):
+        yes = [p for p in paths if p in matched_caps]
+        no = [p for p in paths if p not in matched_caps]
+        return yes, no
+
     n_exp, n_cap = len(expect), len(cap)
     n_missing, n_surplus = len(missing), len(surplus)
     degraded = a.get("degraded", [])
@@ -684,6 +693,8 @@ def cmd_adjudicate(args):
     lost_functions = (a.get("capture_log", {}) or {}).get(
         "functions_not_emitted", [])
     asum = a.get("analysis_summary") or {}
+    unusable_matched, unusable_surplus = split_by_match(unusable)
+    partial_matched, partial_surplus = split_by_match(partial)
     unconf = b.get("unconfigured_compilers", [])
     sections = a.get("coverity_list_sections", {})
     notfound = sections.get("Captured files not found on disk", [])
@@ -720,12 +731,14 @@ def cmd_adjudicate(args):
             "them: incremental build, compiler-cache hits, wrong target, or "
             "an early failure the build continued past. Clean and "
             "re-capture." % n_missing)
-    elif unusable or partial:
+    elif unusable_matched or partial_matched:
         grade = "DEGRADED"
         bits = []
+        unusable, partial = unusable_matched, partial_matched
         if unusable:
-            bits.append("%d translation unit(s) captured but NOT analyzable "
-                        "at all (no AST, or the emit failed)." % len(unusable))
+            bits.append("%d expected translation unit(s) captured but NOT "
+                        "analyzable at all (no AST, or the emit failed)."
+                        % len(unusable))
         if partial:
             bits.append(
                 "%d translation unit(s) parsed only partially: they ARE "
@@ -740,9 +753,18 @@ def cmd_adjudicate(args):
         why = " ".join(bits)
     elif n_surplus:
         grade, why = "SURPLUS", (
-            "%d captured file(s) beyond the expectation -- normally build "
-            "probes, tests, generated or third-party sources. Benign, but "
-            "name them." % n_surplus)
+            "Every expected source was captured and fully parsed. %d captured "
+            "file(s) lie beyond the expectation -- normally build probes, "
+            "tests, generated or third-party sources. Benign, but name them."
+            % n_surplus)
+        if unusable_surplus or partial_surplus:
+            n_deg = len(unusable_surplus) + len(partial_surplus)
+            why += (" %d of them %s itself degraded (%d not analyzable, "
+                    "%d partially parsed); that is expected of build probes, "
+                    "which are often designed to fail, and does not bear on "
+                    "the product verdict."
+                    % (n_deg, "is" if n_deg == 1 else "are",
+                       len(unusable_surplus), len(partial_surplus)))
     elif exclude:
         grade, why = "CONSISTENT_WITH_EXCLUSIONS", (
             "Capture matches the expectation once %d named exclusion(s) are "
@@ -827,9 +849,13 @@ def cmd_adjudicate(args):
         L.append("")
     for title, rows in (("Expected but not captured", sorted(missing)),
                         ("Captured but not expected", sorted(surplus)),
-                        ("Captured but NOT analyzable at all", sorted(unusable)),
-                        ("Captured but only partially parsed — analyzed with "
-                         "functions missing", sorted(partial)),
+                        ("Expected, but NOT analyzable at all",
+                         sorted(unusable_matched)),
+                        ("Expected, but only partially parsed — analyzed with "
+                         "functions missing", sorted(partial_matched)),
+                        ("Degraded, but outside the expectation (build probes "
+                         "and the like — informational)",
+                         sorted(unusable_surplus + partial_surplus)),
                         ("Unconfigured compilers (exist on disk)",
                          b.get("unconfigured_compilers_existing", unconf)),
                         ("Unconfigured-compiler entries that do NOT exist "

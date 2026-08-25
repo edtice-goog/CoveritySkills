@@ -403,6 +403,20 @@ adds `isFailure`, `hadRecoverableErrors`, and `astFidelityPercent`.
 Use it by default: it is one call, machine-readable, per-TU, and it is what
 `coverity list` runs internally.
 
+**`capture-percentage` is not a health signal in either direction.** Measured
+on 2026.6.0, both extremes in the same intermediate directory:
+
+| TU | `capture-percentage` | Reality |
+|---|---|---|
+| a file whose middle function failed to parse | 100 | one function missing from the emit (rule 34) |
+| a compilation that failed outright | **100** | `had-failures: true`, `had-abstract-syntax-trees: false` — nothing emitted at all |
+
+So a TU that produced *nothing* still reports 100. Read `had-failures` and
+`had-abstract-syntax-trees` for analyzability and `had-recoverable-errors` for
+completeness; treat the percentage as decoration. `cov-manage-emit list`
+labels the failed TU plainly — ` (no ASTs) (failure)` — and `coverity list`
+gives it status `Failed`, which is the one place that status was seen firing.
+
 **Know the documented long forms, for when it does not work.** On 2026.6.0
 this subcommand is not listed in `cov-manage-emit --help` and its field names
 are not in the reference, so on another version it may be absent, renamed, or

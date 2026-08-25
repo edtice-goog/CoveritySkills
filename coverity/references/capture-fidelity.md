@@ -229,10 +229,22 @@ object files -- plus a metrics block:
 "metrics": { "tu-count": 500, "tu-failures": 3, "lu-count": 10, "lu-failures": 0 }
 ```
 
-Link units enable the strongest build-system-agnostic reconciliation
-available: for each linked artifact, every input object should correspond to
-a captured TU. Objects with no TU behind them are holes, and they are located
-precisely. `lu-count: 0` on a project that links is itself a finding.
+Link units would enable a strong build-system-agnostic reconciliation -- for
+each linked artifact, every input object should correspond to a captured TU,
+so objects with no TU behind them are precisely located holes.
+
+**On this toolchain they are not produced, so do not build a check on them.**
+Measured on 2026.6.0: a CMake project that built `libmathy.a` *and* linked
+`app.exe` recorded `lu-count: 0` and an empty `link-units` array. `ar` was
+configured (it is in `--gcc`'s list) and genuinely intercepted -- the capture
+log shows `COMPILING: cov-translate.exe "ar.exe" qc ...` -- yet there were
+**zero `cov-emit-link` invocations**. `cov-emit-link.exe` ships in `bin/` but
+has no help file, and no `cov-build` or `cov-translate` option turns it on.
+
+So `lu-count: 0` is the ordinary result for gcc/`gmake`/`ar` here, **not a
+finding**, and a gate that treats it as one will fire on every such project.
+Treat an empty `link-units` as uninformative unless you have confirmed on your
+own toolchain that it populates.
 
 ### A4. `output/cli-diagnostics.json` -- only on a CLI capture
 
@@ -286,10 +298,35 @@ wrapped.
 
 **The percentage is a trap in both directions.** Its denominator includes the
 build system's own throwaway compilations, so a figure below 100% is often
-entirely benign -- measured on zlib, "40 compilation units (97%)" with the
-single failure being a CMake `TryCompile` feature probe, and product capture
-at 100%. And 100% of nothing is 100%. A gate written as `< 100% -> fail`
-rejects good builds and passes empty ones.
+entirely benign. And 100% of nothing is 100%. A gate written as
+`< 100% -> fail` rejects good builds and passes empty ones.
+
+Reproduced deliberately on 2026.6.0 -- a three-source CMake project with two
+`check_include_file` probes (one for a header that does not exist) and one
+`check_function_exists`, captured as `cov-build … sh -c "cmake -S . -B build
+&& cmake --build build"`:
+
+```
+[WARNING] Emitted 7 C/C++ compilation units (87%) successfully
+```
+
+87%, one failure, and **product capture was 3 of 3 at 100%**. Of the 8 TUs,
+five were build-system scaffolding: `CMakeCCompilerId.c`, two
+`CheckIncludeFile.c`, `CheckFunctionExists.c`, and `CMakeCCompilerABI.c` --
+that last one from `C:/Program Files/CMake/share/…`, outside the project
+tree entirely. The one failure was the probe designed to fail.
+
+Two consequences for the audit:
+
+- **The probe sources are gone before you look.** CMake deletes its
+  `CMakeFiles/CMakeScratch/TryCompile-*` directories after configure, so
+  those TUs exist in the emit with no counterpart on disk. They will always
+  present as surplus, and their absence from the tree is not staleness.
+- **Grade degradation over the expected set, not the whole emit.** The failed
+  probe is `had-failures: true` with no ASTs. Counted globally it drags a
+  healthy capture to `DEGRADED`; counted against the expectation it is
+  surplus, and the correct verdict is `SURPLUS` with the product intact.
+  `tools/capture_fidelity.py` splits them for this reason.
 
 ### A6. Function-level accounting -- what the file counts cannot show
 

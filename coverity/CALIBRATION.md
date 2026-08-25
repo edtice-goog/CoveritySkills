@@ -365,6 +365,41 @@ reported as evidence that nothing was ignored, duplicated, or filtered.
   `coverity list` had been run (present). It is not a read-only query --
   relevant to release gating, archival, and anything that hashes an idir.
 
+- **Rules 11 and 13 -- denominator inflation, a failed TU, and no link
+  units.** Three-source CMake project (static lib `mathy` + executable `app`)
+  with `check_include_file("stdio.h")`, `check_include_file` for a header that
+  does not exist, and `check_function_exists(strlen)`. Captured as
+  `cov-build ... sh -c "cmake -S . -B build -G 'Unix Makefiles' && cmake
+  --build build"` so configure-time probes are intercepted too.
+  - `[WARNING] Emitted 7 C/C++ compilation units (87%) successfully`. Of 8
+    TUs, **five were build-system scaffolding**: `CMakeCCompilerId.c`, two
+    `CheckIncludeFile.c`, `CheckFunctionExists.c`, and `CMakeCCompilerABI.c`
+    -- the last from `C:/Program Files/CMake/share/...`, outside the project
+    tree. **Product capture was 3 of 3.** This is the zlib "97%" result
+    reproduced from scratch.
+  - CMake **deletes** its `CMakeFiles/CMakeScratch/TryCompile-*` directories
+    after configure, so those TUs exist in the emit with no file on disk.
+    They always present as surplus, and that is not staleness.
+  - **Missing AST found here**: the failing probe emitted with
+    `had-failures: true`, `had-abstract-syntax-trees: false`, and
+    `capture-percentage: 100`. Combined with the rule 34 result, the
+    percentage now has a measured 100 at *both* extremes -- a TU missing one
+    function, and a TU containing nothing at all. It is not a health signal.
+  - **Link units: none.** `lu-count: 0`, empty `link-units`, and zero
+    `cov-emit-link` invocations -- despite the build producing `libmathy.a`
+    and `app.exe`, and despite `ar` being configured and intercepted
+    (`COMPILING: cov-translate.exe "ar.exe" qc ...` in the capture log).
+    `cov-emit-link.exe` ships in `bin/` with no help file and no enabling
+    option in `cov-build`/`cov-translate`. So the object-to-TU reconciliation
+    the reference recommended is unavailable here, and `lu-count: 0` is the
+    ordinary result rather than a finding. Claim corrected.
+  - **Tool bug found and fixed.** The first adjudication graded `DEGRADED`,
+    because the failed probe was counted as an unusable TU. Degradation is
+    now split by whether the TU matched the expectation: the corrected run
+    grades `SURPLUS` (3/8/7/7), states that every expected source was
+    captured and fully parsed, and lists the failed probe as informational.
+    A build probe designed to fail must not degrade the product verdict.
+
 ## Not yet calibrated -- the priority queue
 
 The adjudication table in `references/capture-fidelity.md` is reasoned from
@@ -390,8 +425,13 @@ the three methods' actual output recorded, in the style of
    `Recoverable Errors`), but `capture-percentage` stayed at **100** while a
    function was missing from the emit, so the percentage is not the signal
    this row assumed it would be.
-4. **Missing AST.** Find a real path to `had-abstract-syntax-trees: false`
-   and confirm how the other two methods present it.
+4. ~~**Missing AST.**~~ **DONE** -- a compilation that fails outright. Came
+   free with the CMake run below: the deliberately-failing
+   `check_include_file` probe emitted a TU with `had-failures: true`,
+   `had-abstract-syntax-trees: false` and **`capture-percentage: 100`**.
+   `cov-manage-emit list` labels it ` (no ASTs) (failure)`; `coverity list`
+   gives status `Failed` with 12 code lines -- the only sighting of `Failed`
+   in any run so far. Method B stayed silent.
 5. **Compiler cache.** Capture with `ccache` warm; confirm the shape of the
    resulting hole and whether method B notices. Lower priority now: the
    incremental-build measurement above establishes the *shape* of a
@@ -402,11 +442,12 @@ the three methods' actual output recorded, in the style of
 6. ~~**Stale idir.**~~ **DONE** -- see the stale-source entry above. It
    populates on a CLI-captured idir and does **not** on a `cov-build` one,
    which is the opposite of the assumption this row was written under.
-7. **Denominator inflation.** A CMake project, to reproduce the zlib "97%
-   with a `TryCompile` failure" result under the three-method procedure and
-   confirm it grades `SURPLUS`/`CONSISTENT_WITH_EXCLUSIONS` rather than
-   failing.
-8. **Link-unit reconciliation.** A project that actually links, to exercise
+7. ~~**Denominator inflation.**~~ **DONE** -- reproduced at 87%, and it
+   exposed a grading bug in the tool. See the entry above.
+8. ~~**Link-unit reconciliation.**~~ **DONE, negative** -- link units are not
+   produced on this toolchain at all, so the check cannot be built. See the
+   entry above. Original wording follows.
+   **Link-unit reconciliation.** A project that actually links, to exercise
    the object-to-TU check and confirm `lu-count` behaviour.
 
 9. **"Captured files outside of the project directory" on a `cov-build`
