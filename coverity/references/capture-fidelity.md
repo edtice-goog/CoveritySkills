@@ -148,6 +148,14 @@ a record with no AST is not analyzable at all.
 `format_version` may move between releases, and there is no published schema
 to pin it against. Check it and degrade to A3 rather than mis-parsing.
 
+**If this subcommand is missing or its shape has moved, do not give up on the
+question** -- A3's `list` and `list-json` answer the analyzable/not-analyzable
+question in documented form, and `coverity list`'s per-file capture status
+covers succeeded / incomplete / failed. The verdict then loses the numeric
+parse percentage and per-TU recoverable-error flag, which the report should
+say, but it keeps the part that decides whether a TU can be analyzed at
+all.
+
 ### A3. Other `cov-manage-emit` readouts
 
 ```bash
@@ -156,16 +164,20 @@ $BIN/cov-manage-emit --dir <idir> list-json
 $BIN/cov-manage-emit --dir <idir> list-capture-invocations --no-process-details
 ```
 
-`list-json` per TU (the fields beyond the documented set are real and
-useful):
+`cov-manage-emit list` is the smallest readout and carries one fidelity
+signal of its own: a TU with no ASTs is printed with a ` (no ASTs)` suffix.
+
+`list-json` per TU. Prefer the documented fields -- the reference explicitly
+asks callers to ignore attributes it does not document -- and treat the rest
+as corroboration rather than as the basis of a verdict:
 
 | Field | Use |
 |---|---|
 | `primaryFilename` | the captured source |
 | `primaryFileHash` | MD5 -- proves *which* revision was captured |
-| `hasASTs` | false = present but not analyzable |
-| `isFailure`, `hadRecoverableErrors` | parse trouble |
-| `astFidelityPercent` | same quantity as `capture-percentage` |
+| `hasASTs` | **documented.** false = present but not analyzable |
+| `isFailure`, `hadRecoverableErrors` | parse trouble (not in the reference) |
+| `astFidelityPercent` | same quantity as `capture-percentage` (not in the reference) |
 | `isFromBootClassPathOrSystem` | system/library code, not product |
 
 `primaryFileHash` deserves emphasis: it is the only cheap way to prove the

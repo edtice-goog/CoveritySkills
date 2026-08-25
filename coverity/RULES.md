@@ -315,12 +315,32 @@ The best programmatic source for per-translation-unit truth:
 `had-abstract-syntax-trees`, `code-line-count`. `cov-manage-emit list-json`
 adds `isFailure`, `hadRecoverableErrors`, and `astFidelityPercent`.
 
-On 2026.6.0 this subcommand is not listed in `cov-manage-emit --help`, and
-these field names appear nowhere in the shipped documentation — so treat them
-as version-specific and confirm them against the installation you pinned in
-rule 3 rather than assuming they survived an upgrade.
+Use it by default: it is one call, machine-readable, per-TU, and it is what
+`coverity list` runs internally.
 
-Source: verified against 2026.6.0 (`format_version: 4`) — `CALIBRATION.md`.
+**Know the documented long forms, for when it does not work.** On 2026.6.0
+this subcommand is not listed in `cov-manage-emit --help` and its field names
+are not in the reference, so on another version it may be absent, renamed, or
+reshaped. Every question it answers has a documented alternative, and they are
+what to reach for the moment the easy path misbehaves — never conclude "cannot
+be determined" while these are available:
+
+| Question | Documented fallback |
+|---|---|
+| Is this TU analyzable? | `cov-manage-emit list` marks a TU lacking ASTs with a ` (no ASTs)` suffix; `list-json` carries the documented boolean `hasASTs` |
+| Did it parse completely / fail? | `coverity list` capture status — `Succeeded`, `Incomplete`, `Failed`, `Ignored` |
+| Lines of code | `coverity list` *Code Lines* column, `LINES OF CODE` total |
+| Recoverable errors | `BUILD.metrics.xml` `recoverable-errors` (build-level; there is no documented per-TU form) |
+| Which revision was captured | `list-json` `primaryFileHash`, `primaryFileSizeInBytes` |
+
+Note that the `list-json` reference asks you to ignore attributes it does not
+document, so prefer `hasASTs` over the neighbouring `astFidelityPercent` and
+`isFailure` when the documented answer is enough.
+
+Source: verified against 2026.6.0 (`format_version: 4`); fallback set
+documented, and the ` (no ASTs)` marker confirmed as a literal in the shipped
+`cov-manage-emit` binary but not yet triggered in a live run —
+`CALIBRATION.md`.
 
 ### 14. An empty `unconfigured-compilers` is a pass; a missing `scan-transparency/` is not
 

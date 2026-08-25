@@ -131,6 +131,11 @@ the entire `doc/en` tree, HTML and PDF included.
 Until these appear in the reference, treat their names and output shapes as
 version-specific and re-check them against the installation in use.
 
+`list-capture-diagnostics` remains the default path in the skill -- one call,
+per-TU, machine-readable. The substitutes below are the documented fallback
+for a version where it is absent or reshaped, which the skill now names
+explicitly so a failure there does not become an "unknown".
+
 ### Documented substitutes exist for nearly all of it
 
 Checked against 2026.6.0. `cov-manage-emit list-diagnostics` does **not**
@@ -140,7 +145,7 @@ documented and covers most of what Method A2 currently takes from
 
 | Needed | Undocumented source now used | Documented alternative |
 |---|---|---|
-| Is this TU analyzable? | `had-abstract-syntax-trees` | **`list-json` -> `hasASTs`**, documented with an example |
+| Is this TU analyzable? | `had-abstract-syntax-trees` | **`list-json` -> `hasASTs`**, documented with an example. Also `cov-manage-emit list`, which suffixes such a TU with ` (no ASTs)` -- the literal is present in the 2026.6.0 binary; the marker itself has not been triggered in a live run (queue item 4) and the `list` documentation mentions only ID and filename |
 | Did this TU parse completely? | `capture-percentage`, `astFidelityPercent` | `coverity list` capture status **`Incomplete`** -- categorical rather than a percentage, but it is the actionable distinction |
 | Did this TU fail? | `had-failures`, `isFailure` | `coverity list` status **`Failed`** and the `FAILED` count |
 | Recoverable errors | `had-recoverable-errors` (per TU) | `BUILD.metrics.xml` `recoverable-errors` -- build-level only; no documented per-TU equivalent |
