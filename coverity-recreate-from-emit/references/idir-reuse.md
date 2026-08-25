@@ -341,6 +341,12 @@ git show <tag>:<path> | wc -c        # against primaryFileSizeInBytes from list-
 
 A mismatch means the idir was not built from the revision you were told. Stop.
 
+**This gate constrains the reference idir, never the target.** In the *Local
+update* case the target is uncommitted work and has no revision at all -- that
+is the point of it. What must be known is the commit the **idir** was captured
+at, because that is the fixed end of the diff. The other end can be
+`git diff` against a dirty working tree.
+
 ## Routing: which path applies
 
 Compute the delta against the recorded tag:

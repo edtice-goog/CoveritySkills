@@ -43,13 +43,29 @@ Two situations, sharing that machinery:
 
 | Path | Situation | Where |
 |---|---|---|
-| **Recreate** | The build **cannot be run** -- toolchain gone, CI retired, old commit no longer builds -- and a newer analyzer refuses the old emit | below |
-| **Reuse** | The build **can** be run but is **too slow** to repeat; you want a reference idir brought up to date with a working tree | `references/idir-reuse.md` |
+| **Recreate** | *"Analyze an old capture with a new analyzer."* The build **cannot be run** -- toolchain gone, CI retired, old commit no longer builds -- and a newer analyzer refuses the old emit | below |
+| **Fast-forward** | *"I have been away; catch my idir up."* A reference idir some distance behind the working tree, brought current across many commits. Typically CI or a PR gate | `references/idir-reuse.md` |
+| **Local update** | *"Include what I have not committed yet."* An idir at a known commit, brought current with the **uncommitted** working tree, fast enough to run before committing | `references/idir-reuse.md` |
 
-*Recreate* is about recovering analyzability across a version gap. *Reuse* is
-about speed during active development, and **deliberately violates rule 8** --
-read its three applicability gates before starting, because knowing when it
-does not apply is most of that procedure. Gate 0 is the cheapest and rules out whole
+*Recreate* is about recovering analyzability across a version gap. The other
+two are about speed during active development, and both **deliberately violate
+rule 8** -- read the three applicability gates before starting, because knowing
+when they do not apply is most of that procedure.
+
+**Fast-forward and Local update are the same machinery with different deltas**,
+and are documented together on purpose. Do not let them drift apart:
+
+|  | Fast-forward | Local update |
+|---|---|---|
+| delta computed from | `git diff <idir-commit>..HEAD` | `git diff` / `git status` -- working tree |
+| target has a commit identity | yes | **no**, it is uncommitted work |
+| judged against | the full clean capture | the **incremental build** just run |
+| typical cohort | CI, pull-request gate | desktop, pre-commit |
+| tolerable cost | minutes | seconds |
+
+Everything else -- the gates, the staleness check, the stale-TU rule, model
+provenance, the analysis step -- is identical, and a change to one should be
+made to both unless there is a stated reason it applies to only one. Gate 0 is the cheapest and rules out whole
 deployments in one command: if the reference idir was analyzed on a different
 **platform** than the one you will analyze on, incremental analysis is
 discarded and the reason to reuse goes with it.
