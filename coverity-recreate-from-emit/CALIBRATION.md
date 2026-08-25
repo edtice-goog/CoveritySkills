@@ -365,7 +365,13 @@ The general rule, alongside the vacuous-oracle note earlier in this file:
 
 Both fixes are in `postrun.sh`.
 
-## Not yet calibrated -- the priority queue
+## Limits of the evidence
+
+These are the boundaries of what has been measured, kept here so a claim's
+provenance is never guessed at (rule 23). They are limits of the evidence,
+not missing pieces of the skill: the procedure is complete and each item
+below tells you which specific claim to treat as reasoned rather than
+measured, and what would settle it.
 
 1. ~~**Replay end to end.**~~ **DONE** -- see above. 90/90 replayed,
    reconciled `CONSISTENT`, analyzed clean, and the defect delta attributed.
@@ -793,7 +799,7 @@ This is also the strongest available argument for the check being mandatory
 rather than advisory: it was written to guard a hypothetical, and the first
 real project it ran against was already wrong.
 
-### Not yet calibrated -- reuse queue
+### Limits of the evidence -- reuse
 
 1. **Gate 2 verification has not been exercised.** Insisting on a git tag and
    checking it via `primaryFileSizeInBytes` against `git show <tag>:<path>` is

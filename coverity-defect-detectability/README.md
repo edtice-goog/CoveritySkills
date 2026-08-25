@@ -69,7 +69,7 @@ coverity-defect-detectability/
 │   ├── capture.md              # cov-emit vs cov-build, stubbing safely,
 │   │                           #   canary probe, capture-doubt principle
 │   ├── worked-example-uninit.md# real end-to-end session
-│   └── csharp.md               # preliminary C# capture notes
+│   └── csharp.md               # C# capture route
 └── evals/
     ├── evals.json              # test prompts + assertions used to develop it
     └── fixtures/               # the defect samples the evals run against
@@ -85,6 +85,7 @@ ground truth established beforehand. `evals/` contains the test set; the
 fixture in `fixtures/rfi-insecure.c` comes from
 [UlrikeHeidler/hud-rfi](https://github.com/UlrikeHeidler/hud-rfi).
 
-Roadmap: C# support (capture via `csc.exe`/`cov-emit-cs`/`cov-build`, plus
-handling synthetic samples whose planted defects are botched), then other
-Coverity-supported languages.
+Scope: C and C++ are the validated path, and the escalation ladder,
+suppression table and report craft are language-independent. `references/csharp.md`
+carries the C# capture route (`csc.exe`, `cov-emit-cs`, `cov-build`) for when
+the question arrives in that language.

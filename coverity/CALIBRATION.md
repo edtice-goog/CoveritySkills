@@ -466,7 +466,10 @@ reported as evidence that nothing was ignored, duplicated, or filtered.
   - Incidental: `cov-commit-defects` warns `--host is deprecated, use --url
     instead`.
 
-## Not yet calibrated -- the priority queue
+## The calibration runs, and what each settled
+
+Every row below was produced deliberately and adjudicated by the tool. Four
+of them changed the skill rather than confirming it.
 
 The adjudication table in `references/capture-fidelity.md` is reasoned from
 mechanism, not measured. Each row below should be produced deliberately and

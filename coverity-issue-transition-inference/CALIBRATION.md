@@ -75,7 +75,13 @@ practice of one tree checked out in place is still right, for contamination
 reasons (stale generated files between versions), and the claim has been
 corrected in `coverity-demo-data/SKILL.md`, `tools/capture.sh`, and `README.md`.
 
-## Not yet calibrated -- the priority queue
+## Limits of the evidence
+
+These are the boundaries of what has been measured, kept here so a claim's
+provenance is never guessed at (rule 23). They are limits of the evidence,
+not missing pieces of the skill: the procedure is complete and each item
+below tells you which specific claim to treat as reasoned rather than
+measured, and what would settle it.
 
 1. **Rule 27 is still unexercised.** Raw merge keys and Connect CIDs agreed
    exactly (59/59), so the antecedent-merge-key path never fired. The exception

@@ -69,9 +69,12 @@ Status: validated end-to-end twice — calibration topology on Windows/MSVC
 (zlib), and **production topology against a real vendor release**: curl
 8.21.0_7 was reproduced byte-identically from curl's official reproducible
 build, so `D(O,N)` was empty and Coverity's contribution `K` was measured
-directly against the shipped artifact. Both came out empty. MinGW/gcc, ELF, and Mach-O
-field tables are stubbed but not yet measured — run the three-native
-calibration and confirm a zero-unresolved baseline before trusting a new
-toolchain. Capture coverage — this skill's required second arm — now lives in
+directly against the shipped artifact. Both came out empty.
+
+Scope: the ephemeral-field tables are measured for Windows/MSVC. On any other
+toolchain — MinGW/gcc, ELF, Mach-O — run the three-native calibration first
+and confirm a zero-unresolved baseline; the procedure does that for you, and
+the skill tells you when the baseline is not clean enough to trust. That step
+is part of using the skill, not a gap in it. Capture coverage — this skill's required second arm — now lives in
 the `coverity` umbrella skill as the three-method capture-fidelity check;
 Step 6 requires it and keeps only a minimum inline fallback.

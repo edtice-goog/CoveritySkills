@@ -101,12 +101,18 @@ capture-verification step the rest depend on.
 ## How this project treats facts
 
 The standard here is that a factual claim in a skill was **established by
-running the command**, not remembered. Where that has not happened yet, the
-text says so: each skill's `CALIBRATION.md` separates what was measured from
-what is reasoned from mechanism, and keeps a queue of the experiments still
-outstanding. When one of those experiments contradicts what the text assumed,
-the text changes — rule 9 was rewritten that way, after a calibration run
-showed the mechanism behaving differently from the write-up.
+running the command**, not remembered. Each skill's `CALIBRATION.md` records
+the runs behind its claims, and states the boundary of what those runs cover
+so that a claim resting on documented mechanism is never mistaken for one
+that was measured.
+
+When a calibration run contradicts what the text assumed, the text changes.
+That has happened repeatedly and the corrections are kept rather than tidied
+away: rule 9 was rewritten after a run showed the mechanism behaving
+differently from the write-up; a recommended link-unit reconciliation was
+withdrawn when the link units turned out never to be produced; and the
+stale-idir check was found to work on one capture path and not the other,
+which was the reverse of what had been written.
 
 If you are betting something important on a claim in here, check the
 calibration file before you do.
