@@ -478,8 +478,8 @@ the three methods' actual output recorded, in the style of
    **Link-unit reconciliation.** A project that actually links, to exercise
    the object-to-TU check and confirm `lu-count` behaviour.
 
-9. **"Captured files outside of the project directory" on a `cov-build`
-   idir.** On all three rule 9 runs, `coverity list --project-dir <proj>
+9. ~~**"Captured files outside of the project directory" on a `cov-build`
+   idir.**~~ **DONE** -- the discriminator is the capture path; details below. On all three rule 9 runs, `coverity list --project-dir <proj>
    --all` filed every captured file under that heading although the files are
    `<proj>\src\*.c`, while the `Files for module: <proj>\Makefile` section sat
    empty. Not a path-style artifact: native-backslash, forward-slash, and
