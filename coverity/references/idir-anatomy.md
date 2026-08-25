@@ -152,6 +152,7 @@ capture. Do not read capture conclusions from it.
 | `annotation-info.json` | annotation usage, including unused annotations |
 | `ANALYSIS.metrics.xml` | run metrics |
 | `<CHECKER>.errors.xml` | per-checker findings |
+| `callgraph-metrics.json.gz` | one record per function in the callgraph: `identifier`, `mangledName`, `file`, `line`, `hasImplementation`, `models`, `importance`. See below -- richer with `--enable-callgraph-metrics` |
 | `models/`, `exported-summaries/` | function summaries and models |
 
 `summary.txt` is the fastest way to see the third denominator:
@@ -164,6 +165,58 @@ Functions analyzed             : 1
 
 Note that LoC input counts headers, so it is not comparable to the
 `LINES OF CODE` figure from `coverity list`.
+
+## Incremental analysis, and the one message that explains a slow run
+
+`cov-analyze` is incremental by default: an idir that already carries analysis
+state re-analyzes only what changed. `--force` disables that.
+
+The cache is **not** keyed on the product version alone. It is invalidated when
+the analysis binary itself differs, and `cov-analyze` says so:
+
+```
+[STATUS] Incremental analysis could not be used because
+analysis binary changed.  This may take a while.
+```
+
+**Measured, 2026-08-25.** An idir analyzed by `cov-analysis-win64-2025.9.0` and
+then re-analyzed by `cov-analysis-linux64-2025.9.0` -- *identical product
+version* -- printed exactly that and performed a full analysis.
+
+This is conservative on purpose: reusing state a different binary may have
+computed differently would risk wrong results, so the cache is discarded
+instead. Treat it as correct behaviour, not a defect. The cost is **time, not
+accuracy** -- the analysis that follows is complete and correct.
+
+You can tell which binary last analyzed an idir without running anything: line
+1 of `output/summary.txt` is the full `cov-analyze` command line, install path
+included.
+
+```bash
+head -1 <idir>/output/summary.txt
+```
+
+Compare that path's platform against the install you are about to use; that
+predicts whether incrementality survives.
+
+### What "same platform" means here
+
+The test is the OS that **runs the build and the analysis** -- not the OS of the
+developer's laptop. This distinction decides whether idir reuse is applicable
+at all:
+
+- CI analyzes on Linux, developer analyzes on Linux (bare metal, WSL, or a
+  Linux container) -- **same platform, incrementality survives.**
+- CI analyzes on Linux, developer works in VS Code with **remote development
+  into a Linux container** -- the guest OS matches CI, so this is a **valid
+  case** even though the workstation is Windows or macOS. This is the common
+  modern arrangement, adopted precisely so local builds do not diverge from CI.
+- CI analyzes on Linux, developer analyzes natively on Windows -- **different
+  platform; idir reuse for speed is not applicable.** Capture still ports
+  (idirs are platform-independent), but every analysis pays full price.
+
+If the platforms differ, do not design around it -- say so and stop. This is an
+enumerated limitation, not a problem to engineer past.
 
 ## Reading order for a cold intermediate directory
 

@@ -208,13 +208,33 @@ Chromium exercise on 2026-08-25 and is **not** yet backed by a run of mine.
 
 Consequence for this skill: **do not treat RAM as the binding constraint** on
 whether a large C++ project can be analyzed, and do not tell a user their box
-is too small. The binding constraint is cores and wall-clock. Note also that
-this cuts against the case for idir reuse -- if analysis is cheap, the saving
-Part B chases is concentrated in **capture**, not analysis. Part B's break-even
-arithmetic should be read with that in mind.
+is too small. The binding constraint is cores and wall-clock.
+
+**Correction, same day.** An earlier draft of this section said "if analysis is
+cheap". That was my paraphrase and it was wrong twice over, so it is recorded
+here rather than quietly deleted:
+
+1. The user's claim was that analysis is **incremental**, not that it is cheap.
+   A *first* analysis of a large C++ codebase is not cheap. A *re-analysis* of
+   an idir that already carries analysis state is much faster, because
+   `cov-analyze` caches per-function results and re-does only what changed.
+   Those are different claims and only the second one was made.
+2. The draft then said this "cuts against the case for idir reuse". It does the
+   opposite. Reuse (Part B) exists to avoid re-**capture**; cheap re-analysis
+   does not compete with that, it means the capture saving is the *whole*
+   saving rather than being diluted.
+
+The load-bearing point is about **capture, not analysis**: capture time is
+routinely the long pole, and it is worst in the naive CI pattern of a **clean
+build and full rebuild** performed solely to guarantee the idir is current.
+That is the cost Part B removes. It also follows that for a **smaller** project,
+idir reuse plus judicious rebuild minimization is frequently *more than fast
+enough* on its own -- reaching for anything more elaborate is premature.
 
 Still to measure: peak RSS of a real `cov-analyze` on a C++ codebase at
-Chromium scale, and whether the per-core figure holds at 16 cores.
+Chromium scale; whether the per-core figure holds at 16 cores; and **the
+re-analysis speedup itself**, which the skill asserts in two places
+(`idir-reuse.md` lines 30 and 522) but has never quantified.
 
 ## TLS interception: measured, 2026-08-25, during the Chromium setup
 

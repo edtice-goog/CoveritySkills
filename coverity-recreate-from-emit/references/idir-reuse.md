@@ -94,10 +94,77 @@ so and prefer the fresh capture next time.
 compliance evidence, no "the scan is clean" claim. It is a developer
 iteration tool. When the answer matters, capture fresh.
 
-## Two applicability gates, checked before anything else
+## Three applicability gates, checked before anything else
 
-Both are pass/fail. If either fails, the technique does not apply -- say so
+All are pass/fail. If any fails, the technique does not apply -- say so
 and use a fresh idir. Knowing when it does not apply is half of this skill.
+
+### Gate 0: the analyzing platform must match
+
+Cheapest gate, so check it first. `cov-analyze` is incremental by default, but
+the cache is invalidated when the **analysis binary** differs -- not merely the
+version. Measured 2026-08-25: an idir analyzed by `cov-analysis-win64-2025.9.0`
+and re-analyzed by `cov-analysis-linux64-2025.9.0`, *identical product
+version*, printed
+
+```
+[STATUS] Incremental analysis could not be used because
+analysis binary changed.  This may take a while.
+```
+
+and performed a full analysis. This is correct, conservative behaviour: the
+results are right, but the re-analysis saving is gone.
+
+The idir names its own last analyzer -- line 1 of `output/summary.txt` is the
+full `cov-analyze` command line including the install path:
+
+```bash
+head -1 <reference-idir>/output/summary.txt
+```
+
+**The test is the OS that runs the build and the analysis, not the OS of the
+developer's workstation.** That difference decides real cases:
+
+| CI analyzes on | developer analyzes on | verdict |
+|---|---|---|
+| Linux | Linux (bare metal, WSL, or a Linux container) | **applies** |
+| Linux | VS Code **remote development into a Linux container** | **applies** -- guest OS matches CI, workstation OS is irrelevant |
+| Linux | Windows, natively | **does not apply** |
+
+The container row is not an edge case; it is the common modern arrangement,
+adopted so local builds do not diverge from CI. Do not reject it by looking at
+the laptop.
+
+When this gate fails, **say so and stop.** Capture still ports -- idirs are
+platform-independent, and that is unchanged -- but every analysis pays full
+price, which removes the reason to reuse. This is an enumerated limitation of
+the technique, not something to engineer around.
+
+A case worth calling out because it is the *best* one for this technique: two
+branches in **two containers on the same host**, from the same base image,
+shuffling one idir between them. The analysis binary is byte-identical, so
+Gate 0 passes cleanly and incremental analysis survives every hop.
+
+**When you control the environments, normalize the checkout path.** If both
+containers mount the source at the same absolute path -- `/workspace`, `/src`,
+whatever -- then the paths recorded in the idir are already correct in the
+other environment, and an entire class of problem disappears:
+
+- no capture-root inference, and no chance of inferring it wrongly
+- the staleness check compares like with like
+- model provenance resolves directly instead of via a remap
+- generated files under a build directory resolve too, since that path matches
+  as well
+
+This costs nothing to arrange up front and is far more reliable than fixing it
+afterwards. `--strip-path` can rewrite recorded prefixes, but it is a **silent
+no-op when the prefix does not match**, so a normalization you believe happened
+may not have; if you use it, verify the result rather than assuming it.
+
+Divergent paths are a nuisance, not a blocker -- the tools here infer and remap
+a capture root. But the inference is a heuristic, and heuristics are worth
+avoiding when a mount point would have done.
+
 
 ### Gate 1: the build system must track header dependencies
 
