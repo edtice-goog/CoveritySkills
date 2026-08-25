@@ -20,6 +20,76 @@ feedback loop and a nightly job.
 
 The cost is that every safeguard in rule 8 is now yours to enforce.
 
+### Where the saving actually comes from
+
+Two phases, and they have **different granularity**:
+
+- **Capture works on files**, because that is what build systems operate on.
+  A build system recompiles whole translation units, so a changed header
+  forces every TU that includes it back through `cov-emit`.
+- **Analysis works on functions.** `cov-analyze` is incremental by default and
+  caches per-function results in the idir.
+
+That gap is what makes reuse pay even when the recompile is broad. The most
+common header edit adds a prototype or a macro that the dependent TUs do not
+otherwise use: every one of them recompiles, but their *functions* are
+unchanged, so the analysis cache still hits. (This is the same observation
+behind the old habit of hand-compiling a single file when you knew you had
+only added a prototype.)
+
+So do not judge the technique by the recompile count alone. A run can
+re-emit most of the project and still finish far faster than a cold analysis,
+because the expensive phase is the one working at function granularity. And
+preserving the idir is what preserves that cache -- capturing into a fresh one
+throws it away by definition.
+
+Measured on FFmpeg (2053 TUs, 16 cores, full detail in `CALIBRATION.md`):
+
+| scenario | capture | analyze | total |
+|---|---|---|---|
+| cold -- fresh idir, no cache | 373s | 794s | **1167s** |
+| release tag -> master (99% of TUs re-emitted) | 344s | 407s | **751s** |
+| current idir + 3 edited files | **8s** | **78s** | **86s** |
+
+Read the middle row carefully: capture saved almost nothing, and the run was
+still 36% faster. Read the last row for what the technique is actually for --
+19.5 minutes down to 1.4.
+
+### The deployment this is really for
+
+The realistic setup is not a months-old release tag. It is an idir published
+by a **post-merge CI job** -- a GitHub Action that captures and analyzes on
+every merge to the mainline -- so a developer picks up an idir that is hours
+old, with a delta of a handful of files and a build cache that is already
+~99% warm.
+
+That is the case to optimise for and the case to quote numbers from. A large
+delta against an old tag is the worst case, useful mainly for finding the
+break-even point below.
+
+### The break-even point
+
+The saving is proportional to how *small* the delta is. Past some fraction of
+the codebase, updating an idir stops being cheaper than capturing a new one --
+you pay the copy, the surgery, and the reconciliation, and still rebuild most
+of the project.
+
+Compute the ratio before starting and say it out loud:
+
+```bash
+changed=$(git diff --name-only <tag> | grep -cE '\.(c|cc|cpp|cxx)$')
+total=$(cov-manage-emit --dir <ref-idir> list | grep -c '^[0-9]* ->')
+```
+
+A handful of files against thousands is the case this procedure was built for.
+A delta approaching the size of the emit is a recapture wearing a disguise --
+do the clean capture instead, and get rule 8's guarantees back for free.
+
+There is no single threshold worth hard-coding, because the real cost driver
+is how far the *header* changes cascade, not the file count. Report the ratio,
+and if the delta capture ends up recompiling most of the project anyway, say
+so and prefer the fresh capture next time.
+
 **Do not use this for anything anyone will rely on**: no release gates, no
 compliance evidence, no "the scan is clean" claim. It is a developer
 iteration tool. When the answer matters, capture fresh.
@@ -159,6 +229,18 @@ Let the build system determine what a change affects.
    ```
    The build recompiles what it believes the change affects; Coverity captures
    exactly that. If this emits **zero** TUs, gate 1 was wrong -- stop.
+
+   **Check the build's exit code, not just the emitted count.** `cov-emit`
+   parses independently of the compiler's warnings-as-errors settings, so a
+   capture can report *"Emitted N compilation units (100%) successfully"* for a
+   compile the real toolchain rejected. Measured: FFmpeg builds with
+   `-Werror=missing-prototypes`; a source edit that tripped it made `gcc` fail
+   and `make` abort, while Coverity emitted the TU regardless. `cov-build`
+   flags this separately -- *"[WARNING] Build command ... exited with code 2"* --
+   and that warning is the only signal. This is rule 9 inverted: the familiar
+   trap is a green build that captured nothing; here the capture was fine and
+   the build was broken. A reused idir updated from a half-finished build is
+   stale in exactly the places the build did not reach.
 4. **Delete the corresponding stale TUs from the copy** (matching by
    repo-relative path, since the absolute paths differ between locations).
 5. **Transplant:** `cov-manage-emit --dir <copy> add <delta-idir>`.
@@ -170,11 +252,22 @@ Let the build system determine what a change affects.
 
 ## Stale TUs: the rule this procedure exists to enforce
 
-**Delete the stale TU before adding the fresh one. Always.**
+**The danger is path divergence, not reuse itself.** Which case you are in
+decides how much work you have to do:
 
-Two TUs whose primary source files are at *different absolute paths* are
-different primary source files, so `--one-tu-per-psf` will not deduplicate
-them. Both get analyzed.
+**Same paths — Coverity handles it.** If the working tree is at the same
+absolute path the reference idir was captured from, just capture the
+incremental build *into* the preserved idir. A re-emitted TU **supersedes** its
+predecessor for that primary source file. Measured on FFmpeg: an idir holding
+2053 TUs, re-captured after 2027 recompiles plus 7 genuinely new files, came
+out at **2060 TUs, not 4080**, with `--tus-per-psf=latest` equal to the total.
+No duplicates, no manual deletion.
+
+**Different paths — you must delete first.** Two TUs whose primary source
+files sit at different absolute paths are *different primary source files*, so
+`--one-tu-per-psf` will not deduplicate them. Both get analyzed. This is the
+case when the idir came from CI, another host, or another checkout — which is
+the whole premise of importing one, so it is the common case in practice.
 
 Measured, on a four-file project where the reference contained an array
 overrun that the working copy **fixed**:
@@ -191,14 +284,21 @@ against a path in a tree they are not working in. Nothing errors. The count
 looks plausible. It is simply wrong, in the direction that wastes the most
 time.
 
-The same-path case is subtler but no safer: `--one-tu-per-psf` picks one TU by
-an algorithm the documentation explicitly warns "might make different choices
-and the results might vary, even though the code appears to be unchanged."
-Deleting first removes the ambiguity instead of gambling on it.
+If you ever do end up with two TUs for one primary source file at the *same*
+path, `--one-tu-per-psf` picks one by an algorithm the documentation warns
+"might make different choices and the results might vary, even though the code
+appears to be unchanged" -- so prefer superseding (re-capture) or deleting over
+leaving duplicates around.
 
-`--tus-per-psf=non-latest delete` prunes superseded TUs, but do not rely on it
-to clean up after a transplant across differing paths -- those are not
-superseded, they are duplicates.
+`--tus-per-psf=non-latest delete` prunes superseded TUs. It does **not** clean
+up after a transplant across differing paths -- those are not superseded, they
+are duplicates, and nothing but an explicit delete removes them.
+
+**How to tell which case you are in:** compare the reference idir's recorded
+primary paths against your working tree's root. If they share a root, you are
+in the same-path case and can capture straight into the copy. If they do not,
+you are transplanting, and every refreshed file needs its stale TU deleted by
+repo-relative path first.
 
 ## Verifying the result
 

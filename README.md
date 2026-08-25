@@ -499,9 +499,18 @@ Still unmeasured for A: the degraded path for when the compiler is gone,
 anything other than C, and every *failure* mode — each reconciliation so far
 has been perfect, so the shortfall path has never fired.
 
-Status (B): both paths validated against oracles, and both gate outcomes
-measured. **But no timing has been taken** — the entire premise is speed, and
-every calibration subject was small enough that the difference was noise. Also
+Status (B): both paths validated against oracles, both gate outcomes measured,
+and **timing confirmed on FFmpeg** (2053 TUs, 16 cores): a full cold run costs
+373s capture + 794s analyze = **19.5 min**; a current idir plus three edited
+files costs 8s + 78s = **1.4 min**, a **13.6× speedup**. Even the worst case —
+a release tag to master jump that forces 99% of TUs to re-emit — still returns
+**1.55×**, because the saving lives in the function-granular analysis phase
+rather than the file-granular capture.
+
+Correctness at that scale was checked rather than assumed: re-analyzing the
+updated idir with `--force` (full analysis of identical emit) took 734s against
+the incremental 78s and produced **the same 935 defect sites and 1212 records,
+with zero differences either way** — 9.4× faster for an identical answer. Still
 untested: a genuinely foreign idir (`reset-host-name` was a no-op every time),
 the git-tag verification, iteration across several rounds including a reverted
 file, and deletions or renames. `CALIBRATION.md` keeps both queues.

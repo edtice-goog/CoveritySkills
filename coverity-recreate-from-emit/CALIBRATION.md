@@ -304,15 +304,99 @@ applicability gate: **proftpd** (hand-written recursive make, two checkouts at
   `unconfigured-compilers` named `/usr/bin/x86_64-linux-gnu-gcc-13` and `cc1`.
   Adding `--template --compiler cc --comptype gcc` fixed it.
 
+### Timing, measured on FFmpeg
+
+The premise of part B is speed, so it needed a subject where speed is visible.
+**FFmpeg**, 16 cores, `cov-analysis-linux64-2025.9.0` capturing under WSL and
+`win64 2025.9.0` analyzing (the Linux licences on this machine are expired).
+Configured `--disable-x86asm --disable-doc --disable-programs`; **2053
+translation units**, 2798 files and ~27000 functions analyzed.
+
+Chosen because its build tracks header dependencies properly (`DEPFLAGS`,
+`-include $(OBJS:.o=.d)`), so it passes gate 1 by construction.
+
+| scenario | capture | analyze | total | vs cold |
+|---|---|---|---|---|
+| **cold** -- full capture, fresh idir, no cache | 373s | 794s | **1167s** | 1x |
+| **worst case** -- release tag -> master, 2 months, 99% of TUs re-emitted | 344s | 407s | **751s** | **1.55x** |
+| **realistic** -- current idir + 3 locally edited `.c` files | **8s** | **78s** | **86s** | **13.6x** |
+
+Three things this establishes.
+
+**The saving is in analysis, not capture.** In the worst case the capture
+barely moved (344s vs 373s) because `config.h` changed and forced 2027 of 2053
+TUs to recompile -- and the run *still* came in 36% faster overall, entirely
+from the analysis phase halving. That is the file-granularity vs
+function-granularity gap doing the work: nearly every file was re-emitted, but
+the functions inside them were unchanged, so the per-function cache hit.
+
+**The realistic case is an order of magnitude.** Three edited files: capture
+dropped from 373s to **8s**, and analysis from 794s to **78s**. 19.5 minutes
+becomes 1.4 minutes. This is the post-merge-CI-artifact scenario the technique
+is actually for.
+
+**Even the worst case is worth doing, but only just.** A tag-to-master jump is
+the "essentially a recapture" case -- 875 changed files, 506 `.c` -- and it
+still returned 1.55x. The break-even is further out than the recompile count
+suggests, precisely because the recompile count is the wrong thing to measure.
+
+**Correctness: the incremental result is identical to a full one.** The
+speed number is only worth having if the answer matches, so the updated idir
+was copied and re-analyzed with `--force` (full re-analysis of *identical* emit
+content):
+
+| | wall | files | functions | defects |
+|---|---|---|---|---|
+| incremental (reused idir) | **78s** | 2810 | 27011 | 1212 |
+| `--force` (same emit, no cache) | **734s** | 2810 | 27011 | 1212 |
+
+Comparing the defect records themselves, keyed on checker + file + function +
+line: **935 distinct sites, 1212 records, and zero differences in either
+direction.** All three planted `OVERRUN`s appear in both. So the analysis phase
+alone is **9.4x faster for an identical answer**.
+
+(A first attempt at this comparison keyed on a `<mergeKey>` element that does
+not exist in `*.errors.xml`, so it compared two empty sets and reported
+"IDENTICAL" -- a reminder that an oracle which finds nothing agrees with
+everything. The real schema is `<error>` records carrying `checker`, `file`,
+`function` and per-event `line`.)
+
+Further signals from the fast run: functions analyzed went 27008 -> 27011
+(+3, the three probe functions) and defects 1209 -> 1212 (+3), and none of the
+probes appeared in the prior analysis.
+
+**A capture can succeed on a compile that failed.** The probe functions
+planted for this run had no prototypes, and FFmpeg builds with
+`-Werror=missing-prototypes`, so `gcc` rejected `libavformat/id3v2.o` and
+`make -j16` aborted. `cov-build` nonetheless reported *"Emitted 3 C/C++
+compilation units (100%) successfully"* -- **`cov-emit` parses independently of
+the compiler's warnings-as-errors settings**, so the emit was complete while
+the build was not. `cov-build` did flag it: *"[WARNING] Build command make -j16
+exited with code 2. Please verify that the build completed successfully."*
+
+This is rule 9 inverted -- the usual trap is a build that succeeds while
+capturing nothing; here capture succeeded while the build broke. Both matter,
+and both are caught only by reading `cov-build`'s exit-code warning rather than
+its percentage. The delta-capture timing above is unaffected (all three target
+TUs were emitted before make stopped), but the run was not green, and a clean
+re-run is on the queue.
+
+**Also measured incidentally:** capturing into a preserved idir at the *same
+paths* **supersedes** per primary source file rather than accumulating. 2053
+TUs, re-captured over 2027 recompiles plus 7 new files, came out at **2060**,
+with `--tus-per-psf=latest` equal to the total. Duplicate accumulation is a
+path-divergence problem only.
+
 ### Not yet calibrated -- part B queue
 
 1. **Gate 2 verification has not been exercised.** Insisting on a git tag and
    checking it via `primaryFileSizeInBytes` against `git show <tag>:<path>` is
    reasoned from the part-A measurement that those sizes match disk exactly;
    the check itself has not been run against a mismatched tag.
-2. **No timing measured.** The entire premise is speed, and every subject here
-   was small enough that the difference was noise. Measure capture-plus-analyze
-   time saved on something that takes hours before quoting a benefit.
+2. ~~**No timing measured.**~~ **DONE** -- see the FFmpeg table above: 13.6x on
+   the realistic case, 1.55x on the worst case. What is still missing is a
+   subject that takes *hours* rather than twenty minutes, and any non-gcc
+   toolchain.
 3. **Only same-host, same-version reuse.** `reset-host-name` was a no-op every
    time; a genuinely foreign idir has not been tried.
 4. **Iteration has not been tested.** Re-deriving the delta from the tag on a
@@ -320,5 +404,9 @@ applicability gate: **proftpd** (hand-written recursive make, two checkouts at
    reasoned, not measured.
 5. **C only, and only two build systems.** MSBuild and ninja are asserted to
    pass gate 1 on reputation, not measurement.
-6. **No deletions or renames.** Only modified and header-affected files were
+6. **Re-run the FFmpeg realistic arm on a green build.** The planted probes
+   tripped `-Werror=missing-prototypes`, so `make` returned 2 even though all
+   three TUs were captured. The timing stands but the run was not clean; add
+   prototypes and repeat.
+7. **No deletions or renames.** Only modified and header-affected files were
    exercised; a deleted source file's stale TU has not been tested.
