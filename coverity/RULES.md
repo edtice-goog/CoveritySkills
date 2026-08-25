@@ -769,15 +769,19 @@ invocation is not recognised as a compiler, so nothing is captured and the
 build looks uncapturable. Configure the prefix and the invocation is
 understood.
 
-**Verify, do not assume, on a warm cache.** Capture is driven by intercepting
-the invocation rather than by watching the real compiler run, so cache hits
-should still emit — but confirm it on the project in front of you rather than
-taking that on trust: build once cold and once warm and compare the compilation
-unit counts, and check `scan-transparency/unconfigured-compilers` is empty
-(rule 14). If a warm build captures fewer units than a cold one, say so and
-clear the cache for the scan — that is a measured decision, not a reflex.
+**A warm cache is not a problem.** Capture works by intercepting and parsing
+the compilation invocation and driving `cov-emit` from it — not by observing
+whether the real compiler ran. A ccache hit therefore emits normally, and there
+is no reason to clear the cache before a scan. Handling wrapped and cached
+builds is table stakes for a commercial analyzer; assume the product does the
+right thing here rather than inventing a verification ritual for it.
 
-Source: verified — `cov-configure --list-compiler-types` documents `prefix` as
+The check that *is* worth doing is the ordinary one: after capture, confirm
+`scan-transparency/unconfigured-compilers` is empty (rule 14) and that the
+compilation-unit count matches the build. That catches a missing prefix
+configuration, which is the actual failure mode.
+
+Source: `prefix` is documented by `cov-configure --list-compiler-types` as
 "Prefix to a compiler (e.g. ccache)", and the configuration above was generated
-and inspected on 2025.9.0. The warm-cache emit behaviour was **not** measured
-here.
+and inspected on 2025.9.0. The invocation-driven capture behaviour is domain
+knowledge from the repository owner.
