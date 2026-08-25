@@ -63,11 +63,13 @@ the three is the evidence; the *pattern of disagreement* is the diagnosis.
 - …but it hides `vendor`, `node_modules`, and dot-directories **unless they
   were captured**. The files most likely to be silently skipped are exactly
   the ones the default view hides. Always pass `--all`
-- `cov-manage-emit list-capture-diagnostics` is undocumented and is the best
-  programmatic source there is: per-translation-unit `capture-percentage`,
-  `had-recoverable-errors`, and `had-abstract-syntax-trees`. `list-json`
-  likewise carries undocumented `astFidelityPercent` and `isFailure` fields.
-  A TU with no AST is present, counted, and not analyzable
+- `cov-manage-emit list-capture-diagnostics` is the best programmatic source
+  for per-translation-unit truth: `capture-percentage`,
+  `had-recoverable-errors`, `had-abstract-syntax-trees`. `list-json` adds
+  `astFidelityPercent` and `isFailure`. A TU with no AST is present, counted,
+  and not analyzable. Neither subcommand is listed in `cov-manage-emit
+  --help` on 2026.6.0, so confirm the field names against your own
+  installation
 - **A reused intermediate directory makes a broken capture look perfect** —
   yesterday's translation units answer today's questions. The exact
   counterpart of the build-fidelity trap where an empty capture yields

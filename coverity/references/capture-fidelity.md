@@ -108,8 +108,9 @@ does not document. Each is a genuine signal:
 
 ### A2. `cov-manage-emit list-capture-diagnostics` (machine-readable)
 
-Undocumented, and the best programmatic source. This is what `coverity list`
-calls internally.
+The best programmatic source, and what `coverity list` calls internally. Not
+listed in `cov-manage-emit --help` on 2026.6.0 -- check your own installation
+before relying on the field names below.
 
 ```bash
 $BIN/cov-manage-emit --dir <idir> list-capture-diagnostics
@@ -144,8 +145,8 @@ parse: the TU exists, the analyzer will run on it, and some of the code is
 simply not there. `had-abstract-syntax-trees: false` is worse and quieter --
 a record with no AST is not analyzable at all.
 
-Being undocumented, `format_version` may move between releases. Check it and
-degrade to A3 rather than mis-parsing.
+`format_version` may move between releases, and there is no published schema
+to pin it against. Check it and degrade to A3 rather than mis-parsing.
 
 ### A3. Other `cov-manage-emit` readouts
 

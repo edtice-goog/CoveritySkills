@@ -4,7 +4,7 @@ Part of [CoveritySkills](../README.md).
 
 Builds multi-version Coverity Connect demo datasets whose snapshot and
 first-detected dates reflect real historical release dates, using the
-undocumented `cov-commit-defects --backdate`. The output is a Connect instance
+`cov-commit-defects --backdate` option. The output is a Connect instance
 whose defect history looks like it accumulated over a decade: issues
 outstanding since 2019, a fix rate that trends, a fresh finding at the tip.
 

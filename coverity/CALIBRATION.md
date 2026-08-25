@@ -25,12 +25,12 @@ Strawberry; GNU make invoked as `gmake`).
 - `coverity list` internally invokes `cov-manage-emit list-capture-diagnostics`
   and `cov-manage-emit list-capture-invocations --coverity-cli-summary-only`
   (visible in its `[INFO] Executing command:` lines).
-- `cov-manage-emit list-capture-diagnostics` exists, is **undocumented**, and
-  returns `format_version: 4` with per-file `capture-percentage`,
+- `cov-manage-emit list-capture-diagnostics` exists and returns
+  `format_version: 4` with per-file `capture-percentage`,
   `had-failures`, `had-recoverable-errors`, `had-abstract-syntax-trees`,
   `code-line-count`, `last-modified`, `file-size-in-bytes`.
-- `cov-manage-emit list-json` returns, beyond the documented fields, the
-  **undocumented** `isFailure`, `isCreateEDGPCH`, `hadRecoverableErrors`,
+- `cov-manage-emit list-json` returns, beyond the fields named in the
+  reference, `isFailure`, `isCreateEDGPCH`, `hadRecoverableErrors`,
   `astFidelityPercent`, `isFromBootClassPathOrSystem`.
 - `cov-manage-emit list-capture-invocations --no-process-details` output
   shape, including the `metrics` block and an empty `link-units` array for a
@@ -113,6 +113,24 @@ Strawberry; GNU make invoked as `gmake`).
   Documented as the recommended JSON option (`v1`-`v9` are backward
   compatibility only), and the full schema is *Desktop Analysis JSON output
   syntax* in the Desktop Analysis User Guide.
+
+## Not found in the shipped documentation (2026.6.0)
+
+Recorded so the gap can be closed, not as a selling point: a command whose
+behaviour is not in the reference has no stability contract, which is a cost
+to the reader, not a discovery. Searched in each case: the tool's own
+`--help`, `doc/en/help/*.help.txt`, and a recursive case-insensitive grep of
+the entire `doc/en` tree, HTML and PDF included.
+
+| Item | Used by | Search result |
+|---|---|---|
+| `cov-manage-emit list-capture-diagnostics` | capture fidelity, Method A2 | Absent from `cov-manage-emit --help`, which lists `list`, `list-capture-invocations`, `list-json`, `list-json-schema-versions`. Zero hits under `doc/en`. `coverity list` calls it internally |
+| Its per-TU field names (`capture-percentage`, `had-abstract-syntax-trees`, `had-recoverable-errors`, `code-line-count`) and `list-json`'s `astFidelityPercent` / `isFailure` / `hadRecoverableErrors` | same | Zero hits under `doc/en` |
+| `cov-commit-defects --backdate` | `coverity-demo-data` | Absent from `cov-commit-defects --help`; zero hits under `doc/en`, `cov_command_ref.html` included. Appears only in `Platform/bin/schema.sql`, as the `snapshot.backdated` column |
+| `cov-manage-emit ... delete` | `coverity-recreate-from-emit` | Present in the sub-command body, absent from the synopsis (recorded in that skill's `CALIBRATION.md`) |
+
+Until these appear in the reference, treat their names and output shapes as
+version-specific and re-check them against the installation in use.
 
 ## From documentation, not yet executed
 

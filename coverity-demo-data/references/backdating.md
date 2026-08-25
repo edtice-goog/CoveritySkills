@@ -1,8 +1,10 @@
 # What `--backdate` actually does
 
-Undocumented; absent from `cov-commit-defects --help`. Present in the long
-option table of at least 2025.9.0 and 2026.6.0, transmitted to Connect as a
-`&backdate=` query parameter on the commit URL.
+Accepted by `cov-commit-defects` in at least 2025.9.0 and 2026.6.0, and
+transmitted to Connect as a `&backdate=` query parameter on the commit URL.
+It does not appear in `cov-commit-defects --help` or in the shipped doc set of
+those releases, so verify the behaviour below against your own version rather
+than assuming it is stable.
 
 Everything below was measured against a live instance (analysis 2025.9.0 ->
 Connect 2025.12.0), not inferred.

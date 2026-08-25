@@ -310,15 +310,15 @@ hiding behaviour is documented but not yet reproduced against such a tree.
 
 ### 13. Use `cov-manage-emit list-capture-diagnostics` for per-TU truth
 
-Undocumented, and the best programmatic source there is: per-translation-unit
+The best programmatic source for per-translation-unit truth:
 `capture-percentage`, `had-failures`, `had-recoverable-errors`,
 `had-abstract-syntax-trees`, `code-line-count`. `cov-manage-emit list-json`
-likewise carries undocumented `isFailure`, `hadRecoverableErrors`, and
-`astFidelityPercent`.
+adds `isFailure`, `hadRecoverableErrors`, and `astFidelityPercent`.
 
-Being undocumented, these field names are version-specific — confirm them
-against the installation you pinned in rule 3 rather than assuming they
-survived an upgrade.
+On 2026.6.0 this subcommand is not listed in `cov-manage-emit --help`, and
+these field names appear nowhere in the shipped documentation — so treat them
+as version-specific and confirm them against the installation you pinned in
+rule 3 rather than assuming they survived an upgrade.
 
 Source: verified against 2026.6.0 (`format_version: 4`) — `CALIBRATION.md`.
 

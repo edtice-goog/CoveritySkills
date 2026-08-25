@@ -25,9 +25,11 @@ Most of that comes down to knowing where the leverage sits:
 - **Tuning aimed at a question.** "Can Coverity find this bug?" answered by
   running it, then narrowed to the minimal checker and option that reports
   it — so you turn on what earns its keep instead of everything.
-- **The undocumented details** that otherwise cost an afternoon: fields and
-  flags that are not in the manual, and defaults that are off for good reasons
-  you may not share.
+- **A map of the documentation.** The reference is thorough and very large;
+  the work is knowing which twenty lines of it bear on the situation in front
+  of you. The skills point straight at the option table, checker page, or
+  diagnostic file that answers the question — including the defaults that are
+  off for good reasons you may not share.
 
 The practical payoff is more real defects per run, results you can put your
 name on, and much less time spent re-running long builds to work out why a

@@ -17,7 +17,7 @@ description: >
 
 Produce a Connect instance whose defect history looks like it accumulated over
 years: defects outstanding since 2019, a fix rate that trends, a fresh finding
-at the tip. The mechanism is the undocumented `cov-commit-defects --backdate`,
+at the tip. The mechanism is `cov-commit-defects --backdate`,
 and the entire discipline of this skill follows from one property of it.
 
 **First detected is global and write-once.** Coverity assigns a CID per merge
