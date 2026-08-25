@@ -27,14 +27,23 @@ So versions must be committed **strictly oldest-first**, and the commit phase
 is **one-shot** -- a mistake cannot be corrected in place, only by restoring
 the database and starting over.
 
-The deliverable is a populated Connect instance plus a written account of what
-story the data supports and which defects were audited -- not just a database.
+**Scope: this skill builds the data.** Deciding what you want to demonstrate,
+and judging afterwards whether a dataset serves that goal, are the user's own
+steps and usually easy for them. What is genuinely hard to do by hand -- and
+what this skill exists for -- is getting twenty-odd versions found, mapped onto
+sensible projects and streams, built, analyzed, committed with the right dates,
+and audited, repeatably. Do not drift into writing the customer narrative.
+
+The deliverable is a populated Connect instance, the population table that
+describes what is in it, and an audit verdict for the defects sampled -- enough
+for someone else to judge whether it fits their story.
 
 **This skill assumes the `coverity` skill and its `RULES.md`.** Read the rules
-before running any Coverity command; the rule numbers cited below are from that
-list and are stable. Rules 9, 10 and 11 (build verification and capture
-percentages) and rule 26 (triage a sample) do most of the work here; this skill
-adds the demo-data-specific consequences rather than restating them.
+before running any Coverity command; the numbers cited here are stable. Rules
+9-11 (build verification and capture percentages), 26 (triage a sample), 29
+(one stream per branch), 30 (name the global invariant) and 31 (`--strip-path`,
+verified) carry most of the weight; this skill adds the demo-data-specific
+consequences rather than restating them.
 
 ## The architecture follows from the constraint
 
@@ -44,7 +53,7 @@ important structural decision in the skill:
 | Phase | Reversible? | Cost of a mistake |
 |---|---|---|
 | 1. Capture + analyze every candidate version | Yes, freely | Re-run it |
-| 2. Select versions and story, offline | Yes, freely | Re-run it |
+| 2. Map streams, select versions, offline | Yes, freely | Re-run it |
 | 3. Commit oldest-first with `--backdate` | **No** | Restore DB, redo |
 | 4. False-positive audit | Yes | Re-run it |
 
@@ -53,7 +62,8 @@ exactly what Connect will show. Enter Phase 3 only with a decided list. Phase 2
 output has been verified to match Connect's actual CID counts exactly, so treat
 it as a faithful preview, not an estimate.
 
-Story builders should live in Phase 2 and never touch Phase 3 mechanics.
+Phases 1 and 2 touch no database at all, so a corpus can be taken all the way
+to the population table before anyone commits to anything.
 
 ## Step 0: Establish the reset point
 

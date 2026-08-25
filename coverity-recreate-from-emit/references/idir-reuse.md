@@ -250,6 +250,72 @@ Let the build system determine what a change affects.
    you are doing deliberately, which is why the oracle check matters.
 6. Reconcile and analyze.
 
+## Multiple build targets in one idir
+
+An ideal deployment captures and analyzes **one target at a time**: a build
+producing both `-m32` and `-m64` should be two Coverity analyses. Real idirs
+are not always built that way -- which is precisely why `--one-tu-per-psf`
+exists and defaults to true.
+
+**Detect this at import, before anything else looks at the emit.**
+
+```bash
+python3 tools/build_targets.py --bin <bin> --dir <idir>
+```
+
+Targets are fingerprinted by the **type model** the front end was given, not by
+grepping the compiler argv. Measured on gcc:
+
+| flag | `-m64` | `-m32` |
+|---|---|---|
+| `--type_sizes` | `e16Pdlx8fi4s2` | `e12dx8Pfil4s2` |
+| `--size_t_type` | `m` | `j` |
+| `--ptrdiff_t_type` | `l` | `i` |
+
+The type model generalises to cross-compilers and other architectures, and it
+is the thing that actually changes how the code is read.
+
+**Then one question: does the local build produce every target the idir
+contains?**
+
+- **Yes** -- nothing to do. The delta capture refreshes each of them.
+- **No** -- **strip the others at import** (`--strip-keep N`). Left in place
+  they are never rebuilt, go stale, and `--one-tu-per-psf` then chooses between
+  a fresh TU and a stale one by an algorithm the documentation warns "might
+  make different choices" between runs.
+
+### Why this broke the staleness check
+
+Measured on a 3-file, 2-target idir: **6 TUs, but `--tus-per-psf=latest`
+reports 3.** This skill's own staleness check was written against `latest` and
+would therefore have examined half the emit and called it clean -- and the
+unexamined half is exactly the target the local build does not rebuild.
+
+The check now lists **all** TUs and reports when sources carry more than one.
+Any tool that reasons about "the TUs" in an imported idir has to decide this
+consciously; `latest` is a convenience that silently discards a build target.
+
+## Remember the determinations, per project
+
+Several facts here are expensive to derive and stable across sessions: the
+build targets and which to keep, the capture root, whether the build system
+tracks header dependencies (gate 1), the stream, and the cost estimate that
+chose the method. Recomputing them every session wastes minutes and, worse,
+invites a different answer each time.
+
+Cache them per project, and record what invalidates each:
+
+| determination | invalidated by |
+|---|---|
+| build targets / strip choice | a new baseline idir, or a build-system change |
+| capture root | a new baseline from a different machine or path |
+| gate 1 (header deps) | build-system change |
+| stream / url | `coverity.yaml` changing |
+| cost estimate + chosen method | new snapshots -- re-check periodically, see SKILL.md |
+
+The estimate is the one to re-derive on a schedule rather than cache
+indefinitely: it is the input to a decision that should be revisited.
+
 ## The staleness check: mandatory, between capture and analysis
 
 Every other safeguard here is a *policy* — fetch this baseline, route that way,
