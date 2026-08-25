@@ -301,6 +301,44 @@ This is also the first evidence for the recommendation thresholds themselves:
 at 4-7 minutes the honest answer really is "capture fresh", which is what four
 of five streams produce.
 
+## Orphan repair, validated on a real deletion
+
+The staleness check found `libavcodec/x86/snowdsp.c` orphaned in an FFmpeg idir
+updated from `n8.2-dev` to master. Repairing it:
+
+1. `cov-manage-emit --dir <idir> --tu 1887 delete` -> 2060 TUs became 2059.
+2. The staleness check then graded **CURRENT**, 2059/2059 OK, zero orphans.
+3. Full `--force` re-analysis: 2809 files (was 2810), **26997 functions (was
+   27011)**, 1211 defects (was 1212).
+4. Defect sets compared: **935 sites -> 934, 1212 records -> 1211. Exactly one
+   disappearance -- the orphan's own DEADCODE -- and zero appearances.**
+
+Removal subtracts cleanly. Nothing else in the analysis moved.
+
+Note the function count: the orphan defined **14** functions, not one. A single
+orphaned TU can withdraw a good deal from the analyzable set.
+
+### The boundary case this happened to be
+
+The deletion was not an ordinary one. Upstream replaced the C intrinsics with
+**assembly** (`snowdsp.asm`, `cglobal snow_inner_add_yblock`) *and* relocated
+the init function to a new file. So in the un-repaired idir:
+
+- `ff_dwt_init_x86` was defined **twice** -- stale, at `snowdsp.c:881`, and
+  live, at `snowdsp_init.c:332` (TU 2058, a file that exists)
+- and it is actively called, from `snow_dwt.c:858`
+
+That is worse than a plain orphan: a stale duplicate definition of a live,
+called function, where nothing in the idir makes it obvious which model a
+caller was analyzed against. It was also worth testing because `.c` replaced by
+`.asm` moves a function out of Coverity's analyzable world entirely, rather
+than to another `.c`.
+
+**It still subtracted cleanly** -- the six `NEGATIVE_RETURNS` in `snow_dwt.c`
+and the `OVERFLOW_BEFORE_WIDEN` in `snowenc.c` were unchanged. So Coverity's
+handling of TU deletion is robust even against a duplicated, actively-called
+symbol. Good news, and measured rather than assumed.
+
 ## The preview report, and its side effects
 
 - **`previewCommit` is a distinct Connect permission** from `commitToStream`
@@ -569,8 +607,8 @@ real project it ran against was already wrong.
    tripped `-Werror=missing-prototypes`, so `make` returned 2 even though all
    three TUs were captured. The timing stands but the run was not clean; add
    prototypes and repeat.
-7. ~~**No deletions or renames.**~~ **PARTLY DONE** -- deletion is now
-   detected (see the staleness check above) and was caught on a real project.
-   What remains untested is the *repair*: deleting the orphaned TUs and
-   confirming the analysis then matches a clean capture. Renames are still
-   entirely untested.
+7. ~~**No deletions or renames.**~~ **DELETIONS DONE** -- detected on a real
+   project and the repair validated above: removal subtracts exactly the
+   orphan's findings and perturbs nothing. **Renames remain untested**, and are
+   the more interesting case since a rename is a deletion and an addition whose
+   halves must be recognised as related.

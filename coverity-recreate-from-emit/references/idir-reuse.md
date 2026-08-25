@@ -342,6 +342,20 @@ added yet is ordinary work in progress, and the analysis of it is valid.
 upstream leaves its TU behind in the idir, and nothing in a build tells you to
 remove it. It is then analyzed **as if the code were still there**.
 
+**Repairing it is a plain delete, and it is safe.** Measured on the FFmpeg
+case: `cov-manage-emit --dir <idir> --tu <id> delete`, then re-analyze. The
+defect set lost **exactly the orphan's own finding and nothing else** -- 935
+sites to 934, zero new findings, every other result identical.
+
+That held even though the deletion was a nasty one. Upstream had replaced the C
+with **assembly** and relocated the init function to a new file, so the idir
+carried a *stale duplicate definition* of `ff_dwt_init_x86` -- live at
+`snowdsp_init.c:332`, stale at the deleted `snowdsp.c:881` -- for a function
+actively called from `snow_dwt.c:858`. Removal still subtracted cleanly.
+
+One number worth noting: that single orphaned TU defined **14 functions**.
+Orphans withdraw more from the analyzable set than their file count suggests.
+
 Measured on FFmpeg: updating a `n8.2-dev` idir to master left
 `libavcodec/x86/snowdsp.c` in the emit — deleted upstream in commit
 `5c830fccf4` — and it **contributed a DEADCODE finding to the results**. Three
