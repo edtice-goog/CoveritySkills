@@ -682,6 +682,62 @@ iteration speed by spending rule 8's safety margin.
 
 ---
 
+# Attribution: which of these are mine?
+
+Producing an idir is half the job. The other half is answering *what did I
+break* -- and Coverity Connect answers it, so do not build a parallel
+mechanism.
+
+After a full `cov-analyze` on the updated idir:
+
+```bash
+cov-commit-defects --dir <idir> --url <connect-url> --stream <stream>     --auth-key-file <key> --preview-report-v3 report.json
+```
+
+The server returns, per issue: `cid`, `mergeKey`, **`presentInComparisonSnapshot`**,
+**`firstDetectedDateTime`**, a full `triage` block (severity, owner,
+classification, action, fixTarget, legacy), `customTriage`, and
+`ownerLdapServerName`. `--comparison-snapshot-id` selects the baseline;
+otherwise the most recent is used.
+
+**Measured, from an imported idir with foreign paths:** 112 issues, 111
+`presentInComparisonSnapshot: true` carrying first-detected dates as old as
+2017, and exactly one `false` -- the single defect planted for the test, in the
+right file and function. Two seconds. Attribution is a solved problem; use it.
+
+Filter on `presentInComparisonSnapshot` plus owner, with `git blame` for code
+Connect has not seen. Not on raw merge-key diffs between two local runs --
+rule 27.
+
+## Preview is not free, and the cost is permanent
+
+`--preview-report` "sends only the defect occurrences" and creates **no
+snapshot** (verified: the next snapshot id 404s afterwards). It is easy to read
+that as side-effect-free. It is not.
+
+**Measured.** Running the same preview twice returned **identical CIDs for all
+112 merge keys**, and the newly-seen defect kept both its allocated
+`cid=10223` and its original `firstDetectedDateTime` on the second run. So the
+preview **allocates CIDs and records first-detection**, and that state persists.
+
+Two consequences:
+
+- **A defect's first-detected date is set by whoever previews it first**, not
+  by the CI commit. Preview on Monday, have CI commit on Friday, and the record
+  says Monday. Anyone using first-detected for age or SLA reporting should know
+  that a developer's local run writes it.
+- **Test previews leave CIDs behind.** They do not appear in snapshot-scoped
+  queries -- there is no snapshot to scope to -- but the mapping is real and
+  permanent. Do exploratory previews against a scratch stream, not a stream
+  anyone reports from.
+
+It also needs its own privilege: Connect exposes **`previewCommit` ("Preview
+Commit") separately from `commitToStream` ("Commit to a stream")**, so a
+developer can be granted preview without the ability to commit snapshots. Ask
+for that permission specifically rather than full commit rights.
+
+---
+
 ## Related
 
 - `coverity` -- standing rules, idir anatomy, the three-method capture-fidelity

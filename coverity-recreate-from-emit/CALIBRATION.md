@@ -301,6 +301,36 @@ This is also the first evidence for the recommendation thresholds themselves:
 at 4-7 minutes the honest answer really is "capture fresh", which is what four
 of five streams produce.
 
+## The preview report, and its side effects
+
+- **`previewCommit` is a distinct Connect permission** from `commitToStream`
+  (`/api/v2/permissions` lists "Preview Commit" and "Commit to a stream"
+  separately), so preview can be granted without snapshot-commit rights.
+- **It works from an imported idir with foreign paths.** `cov-commit-defects
+  --preview-report-v3` against an idir whose primaries are `/tmp/pA/...`, on a
+  stream whose captures came from entirely different roots: **rc=0 in 2
+  seconds**, 146 KB report. Intermediate directories are self-contained for
+  this; a failure here would be a bug, not a limit.
+- **Attribution is exact.** proftpd 1.3.9 clean -> 111 issues, every one
+  `presentInComparisonSnapshot: true`, `firstDetectedDateTime` values as old as
+  2017-04-10 from the backdated corpus. The same tree with one planted
+  `FORWARD_NULL` -> **112 issues: 111 true, 1 false**, and the false one is the
+  planted defect in `/tmp/pB/lib/sstrncpy.c`, function `sstrncpy`.
+- **Per-issue payload:** `cid`, `mergeKey`, `presentInComparisonSnapshot`,
+  `firstDetectedDateTime`, `triage` (severity, owner, classification, action,
+  fixTarget, legacy), `customTriage`, `ownerLdapServerName`. `analysisInfo`
+  carries the chosen `comparisonSnapshotId` and `ownerAssignmentRule`.
+- **It is NOT side-effect-free, and an earlier claim in this repo that it was
+  is retracted.** No snapshot is created (the next snapshot id 404s), but
+  running the same preview twice returned **identical CIDs for all 112 merge
+  keys**, and the newly-seen defect kept `cid=10223` *and* its original
+  `firstDetectedDateTime` across both runs. The merge-key -> CID mapping and
+  the first-detection timestamp are allocated by the preview and persist.
+- **Therefore first-detected is set by whoever previews first**, not by the CI
+  commit -- a real consequence for anyone reporting defect age. And test
+  previews leave CIDs behind; they are invisible to snapshot-scoped queries
+  (there is no snapshot) but permanent. Explore against a scratch stream.
+
 ## Connect interfaces, measured on two independent servers
 
 - **`GET /api/v2/snapshots/<id>` is REST and returns clean JSON** -- timings,
