@@ -115,6 +115,50 @@ from **17 m 34 s to 5 m 42 s -- a 3.1x capture saving**, landing at 1.2x the
 plain build instead of 3.8x. That is the entire value proposition in one row of
 someone else's CI dashboard.
 
+### The yardstick is the inner loop, not the clean build
+
+Easy to measure against the wrong baseline. Beating a *clean capture* is not
+the bar. Nobody working on code runs a clean build -- they run an **incremental**
+one, and that is the cost they have already accepted.
+
+The Linux kernel numbers make the point. A clean build is **4 m 34 s** and a
+full capture **17 m 34 s**; reuse brings capture to **5 m 42 s**, a 3.1x saving
+and only 1.2x the clean build. Excellent against the wrong denominator --
+and still **too slow**, because the developer's actual inner loop is an
+incremental build measured in seconds.
+
+A common shape of work, though not everyone's: write code to confirm the
+strategy without worrying about edge cases; go back and clean it up; then, when
+it looks ready, run the tools to validate before committing or opening a pull
+request. At *that* moment the tool is standing between the developer and a
+commit they already believe in. **Minutes is too long.** Several minutes on
+every pre-commit hook or PR check is how a tool gets disabled.
+
+So state the target properly:
+
+> Bring the idir current in time proportional to **what actually changed**,
+> comparable to the incremental build the developer just ran -- not
+> proportional to the size of the project.
+
+Consequences that should shape every choice in this procedure:
+
+- **Re-emit only the changed translation units.** Anything that re-emits
+  broadly has already failed, even when it beats a clean capture. "Faster than
+  a full recapture" is not the same as "fast enough to run before every
+  commit".
+- **Judge cost against `git diff`, not against the emit size.** Five changed
+  files should cost roughly five files' worth of capture. If it costs a
+  thousand files' worth, report that -- the header cascade, not the file count,
+  is what went wrong.
+- **The analysis side is already there.** `cov-analyze` is incremental and
+  caches per-function results, so a re-analysis after a small delta is a small
+  fraction of the first one. Capture is the half that needs this procedure.
+
+This is also why the reuse path exists at all rather than telling people to run
+a clean capture on a fast machine. Hardware does not fix a workflow problem: a
+17-minute capture on a 4x faster box is still four minutes, and four minutes is
+still too long to sit in front of.
+
 ### The break-even point
 
 The saving is proportional to how *small* the delta is. Past some fraction of
@@ -132,6 +176,11 @@ total=$(cov-manage-emit --dir <ref-idir> list | grep -c '^[0-9]* ->')
 A handful of files against thousands is the case this procedure was built for.
 A delta approaching the size of the emit is a recapture wearing a disguise --
 do the clean capture instead, and get rule 8's guarantees back for free.
+
+Judge the result against the **incremental build**, not the clean one (see
+above). If bringing the idir current takes materially longer than the
+incremental build the developer just ran, the procedure has not delivered what
+it exists to deliver, however favourably it compares to a full recapture.
 
 There is no single threshold worth hard-coding, because the real cost driver
 is how far the *header* changes cascade, not the file count. Report the ratio,
