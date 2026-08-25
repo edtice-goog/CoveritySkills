@@ -85,6 +85,18 @@ def snapshot_dates(platform_bin):
     return rows
 
 
+def unstripped_paths(platform_bin, strip):
+    """True if Connect still holds paths under the prefix we meant to strip."""
+    sql = ("SELECT count(*) FROM file_path WHERE pathname LIKE '"
+           + strip.replace("'", "''") + "%';")
+    r = run([str(pathlib.Path(platform_bin) / "cov-admin-db"), "psql"], input=sql)
+    for line in r.stdout.splitlines():
+        t = line.strip()
+        if t.isdigit():
+            return int(t) > 0
+    return False
+
+
 def check_invariant(before, after, expect_date, tag):
     """Earlier dates must be untouched; growth only at the current date."""
     problems = []
@@ -134,6 +146,16 @@ def main():
     tags = read_tags(args.tags, args.stream)
     root = pathlib.Path(args.idirs_root)
 
+    # --strip-path only matches with the trailing separator. Given
+    # "/home/me/demo/proj" it strips NOTHING, silently -- no error, no warning,
+    # just every path in Connect prefixed with a build directory nobody wants
+    # to see in a demo. Normalise rather than trust the caller.
+    strip = args.strip_path
+    if strip and not strip.endswith("/"):
+        strip += "/"
+        print(f"[note] --strip-path normalised to {strip!r} "
+              f"(it is a silent no-op without the trailing separator)")
+
     # Fail before touching Connect if any idir is missing or unanalyzed.
     missing = [t for t, _, _ in tags if not (root / t).is_dir()]
     if missing:
@@ -153,6 +175,8 @@ def main():
               "post-commit invariant check. On a one-shot phase this is a "
               "poor trade.", file=sys.stderr)
 
+    stripped_ok = False
+
     print("\nThis phase is NOT reversible. Ensure the Step 0 backup exists.\n")
     for tag, date, stream in tags:
         before = first_detected_counts(args.platform_bin) if args.platform_bin else {}
@@ -161,8 +185,8 @@ def main():
                "--auth-key-file", args.auth_key_file, "--stream", stream,
                "--backdate", date.replace("-", ""),
                "--description", tag, "--version", tag]
-        if args.strip_path:
-            cmd += ["--strip-path", args.strip_path]
+        if strip:
+            cmd += ["--strip-path", strip]
 
         print(f"[{date}] committing {tag} -> {stream} ...", flush=True)
         r = run(cmd)
@@ -184,6 +208,14 @@ def main():
             new = after.get(date, 0) - before.get(date, 0)
             print(f"           ok: snapshot dated {date}, "
                   f"{new} newly-originated CID(s)")
+            if strip and not stripped_ok:
+                stripped_ok = True
+                if unstripped_paths(args.platform_bin, strip):
+                    sys.exit(
+                        f"[FATAL] --strip-path {strip!r} stripped nothing -- "
+                        f"Connect is storing full build paths. Fix the prefix "
+                        f"and re-run from the Step 0 backup before committing "
+                        f"the rest.")
 
     if args.platform_bin:
         print("\nFinal first-detected distribution:")

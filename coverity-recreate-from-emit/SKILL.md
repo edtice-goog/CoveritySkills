@@ -455,6 +455,39 @@ download, and analysis all wait for the user to choose.
 300 MB; downloading one on every session start would be far worse than the
 problem it solves.
 
+## The choice is revisable, and the skill should revisit it
+
+The estimate picks a path; it does not settle one. A project that took six
+minutes a year ago may take twenty-five now, and nobody re-runs the arithmetic
+on their own. **Watch what the chosen method actually costs, and say when a
+different one has become worth it.**
+
+Two signals, and both are free:
+
+- **The history keeps accumulating.** Every post-merge snapshot adds a data
+  point, so re-running `tools/estimate_from_connect.py` later is a direct
+  measurement of whether the project has outgrown its current method. Measured
+  on proftpd: 4m03-4m34 on one release line, 5m48-20m26 on another. A project
+  can move between those bands without anyone noticing.
+- **The local run just told you.** Whatever path is in use, it reported its own
+  elapsed time. Compare it against the estimate the decision was made on.
+
+When to raise it:
+
+| observed | if currently | suggest |
+|---|---|---|
+| full capture creeping past ~15 min | capturing fresh each time | importing a baseline -- the inner loop is now the bottleneck |
+| delta capture recompiling most of the project | reusing | the delta has outgrown the technique; capture fresh (see break-even) |
+| consistently a few minutes | reusing | drop back to fresh capture and reclaim rule 8's guarantees |
+
+The last row matters as much as the first. **Upgrading is not the only useful
+direction** -- a project that shrank, or whose build got faster, should shed the
+apparatus rather than carry it out of habit.
+
+Raise it once, with the number that changed, and let the user decide. Do not
+switch methods on your own: the choice has consequences for what the results
+mean, and rule 8's guarantees are the user's to spend.
+
 ## Prerequisite: a properly formed coverity.yaml. No file, no skill.
 
 **This gate precedes everything, including the applicability gates in part B.**

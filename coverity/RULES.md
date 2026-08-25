@@ -668,3 +668,47 @@ nine proftpd findings: three were wrong, and every one was checker-correct.
 Full worked triage in
 `coverity-demo-data/references/worked-example-fp-audit.md`; vocabulary in
 `coverity-demo-data/references/triage-verdicts.md`.
+
+### 31. Always `--strip-path` when committing, and confirm it took effect
+
+Commit results with `--strip-path` set to the build root. Without it every path
+in Coverity Connect carries the directory the build happened to run in —
+`/home/someone/demo/proj/src/fsio.c` instead of `/src/fsio.c`. That is harder
+to read, harder to search, harder to correlate with a repository, and in a
+customer-facing setting it exposes a local directory layout nobody wants on
+screen.
+
+**The trap: the option only matches with the trailing separator, and fails
+silently without it.**
+
+```
+--strip-path /home/me/demo/proj     ->  strips NOTHING. No error, no warning.
+--strip-path /home/me/demo/proj/    ->  /src/fsio.c
+```
+
+Nothing in the commit output distinguishes the two. The first run looks
+completely successful and the damage is only visible later, when someone tries
+to find a file in the UI.
+
+So verify rather than assume. After the first commit, check that no stored path
+still begins with the prefix:
+
+```sql
+SELECT pathname FROM file_path LIMIT 5;
+```
+
+Expect `/src/fsio.c`, not `/home/me/demo/proj/src/fsio.c`. Note that the
+stripped form keeps a leading `/`.
+
+Two related points:
+
+- `cov-format-errors` takes its **own** `--strip-path` for JSON export. Setting
+  it at commit does not affect exported reports, and vice versa.
+- Correcting this after the fact means re-committing, so on a backdated dataset
+  it means restoring the database first (rule: first detected is write-once).
+  Get it right on the first commit, or verify early enough that only one commit
+  has to be redone.
+
+Source: verified — `coverity-demo-data`. Measured on a 24-snapshot proftpd
+dataset committed without the trailing separator: every path stored in full,
+with no diagnostic of any kind.
