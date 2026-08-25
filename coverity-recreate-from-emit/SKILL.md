@@ -414,6 +414,49 @@ this path as unverified. Do not let it pass for the probed path.
 
 ---
 
+# Bootstrapping: noticing that a project uses Coverity
+
+A `SessionStart` hook (`hooks/coverity-session-start.sh`) makes this skill
+discoverable without the user having to remember it, and **without touching
+projects that do not use Coverity**.
+
+The trigger is the presence of the Coverity CLI's own config -- `coverity.yaml`,
+`coverity.yml`, or `coverity.json` in the project directory. That file means
+Coverity is enabled here. No file, no output, `exit 0`: installed globally, the
+hook has zero effect on every other repository. That silence is the point --
+a prompt in an unrelated project is a cost paid by everyone to help a few.
+
+Install once in `~/.claude/settings.json`:
+
+```json
+{ "hooks": { "SessionStart": [ { "hooks": [
+    { "type": "command",
+      "command": "<repo>/coverity-recreate-from-emit/hooks/coverity-session-start.sh",
+      "timeout": 10 } ] } ] } }
+```
+
+Output reaches the session as `hookSpecificOutput.additionalContext`.
+
+**The hook computes nothing, and that is deliberate.** It does not read git,
+inspect a cache, or contact anything. It tells the session the skill exists and
+instructs it to *offer once*, then stop. Two reasons:
+
+- The option space is not settled. Recommending a path before we know the
+  tradeoffs would bake in guesses.
+- **Importing a baseline is not always right.** On a small codebase a plain
+  `cov-build` plus `cov-analyze` is simpler and finishes fast enough that the
+  whole import apparatus is wasted motion. Deciding that needs a conversation,
+  not a hook.
+
+So the hook's contract is: announce, ask, recommend -- never act. Capture,
+download, and analysis all wait for the user to choose.
+
+*Do not extend it to fetch anything.* A baseline idir is on the order of
+300 MB; downloading one on every session start would be far worse than the
+problem it solves.
+
+---
+
 # B. Reuse: the build is too slow to repeat
 
 Full procedure in **`references/idir-reuse.md`**. The shape of it:

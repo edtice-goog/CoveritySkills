@@ -250,6 +250,48 @@ Let the build system determine what a change affects.
    you are doing deliberately, which is why the oracle check matters.
 6. Reconcile and analyze.
 
+## The staleness check: mandatory, between capture and analysis
+
+Every other safeguard here is a *policy* — fetch this baseline, route that way,
+delete before adding. Policies can be wrong. This step is the one that catches
+it when they are, so **run it after the delta capture and before every
+analysis**, regardless of how the idir was obtained.
+
+The invariant, scoped to builds that do not generate source:
+
+> Every TU's primary source file must be **present on disk**, and its size must
+> match what was emitted.
+
+Presence is the test — **not git tracking**. A file you created and have not
+added yet is ordinary work in progress, and the analysis of it is valid.
+
+| bucket | meaning | action |
+|---|---|---|
+| `OK` | present, size matches the emit | analyze |
+| `STALE` | present, size differs | re-emit the TU |
+| `ORPHAN` | **absent from the tree** | **delete the TU** |
+| `UNTRACKED` | present but not in git | fine — see the note below |
+
+`ORPHAN` is the one the build system can never report. A source file deleted
+upstream leaves its TU behind in the idir, and nothing in a build tells you to
+remove it. It is then analyzed **as if the code were still there**.
+
+Measured on FFmpeg: updating a `n8.2-dev` idir to master left
+`libavcodec/x86/snowdsp.c` in the emit — deleted upstream in commit
+`5c830fccf4` — and it **contributed a DEADCODE finding to the results**. Three
+`.c` files were deleted across that range; one had been captured. A two-month
+delta on a real project produced exactly this, silently.
+
+The `UNTRACKED` note is informational, not a failure: `git diff` cannot report
+changes to an untracked file, so the delta computation will not see it move.
+For work in progress that is harmless — you are editing it and rebuilding
+anyway. For a **build-generated** source it is the hazard that puts the project
+outside this skill's scope.
+
+This check is also what makes the fetch policy purely economic. A baseline that
+is newer than your checkout is *detectably* wrong rather than silently wrong,
+so choosing not to fetch one is a decision about resources, not correctness.
+
 ## Stale TUs: the rule this procedure exists to enforce
 
 **The danger is path divergence, not reuse itself.** Which case you are in

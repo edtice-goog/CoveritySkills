@@ -387,6 +387,40 @@ TUs, re-captured over 2027 recompiles plus 7 new files, came out at **2060**,
 with `--tus-per-psf=latest` equal to the total. Duplicate accumulation is a
 path-divergence problem only.
 
+### The staleness check, and a real orphan it caught
+
+A pre-analysis check was built and exercised, on the principle that
+correctness must come from *detection* rather than from the fetch policy being
+right. Invariant: every TU's primary source file is present on disk and its
+size matches the emit. **Presence is the test, not git tracking** -- an
+untracked new file is ordinary work in progress.
+
+Four cases, all behaving correctly:
+
+| case | result |
+|---|---|
+| idir matches the tree | `CURRENT`, 4/4 OK |
+| source file deleted from the tree | `ORPHAN` named, verdict STALE |
+| source edited but not rebuilt | `STALE` named (emitted 136, disk 170) |
+| new **untracked** source, captured | `CURRENT` + informational note |
+
+**And it found a real one.** Updating the FFmpeg `n8.2-dev` idir to master left
+`libavcodec/x86/snowdsp.c` in the emit (41150 bytes) with no file on disk --
+deleted upstream in commit `5c830fccf4`. Three `.c` files were deleted across
+that two-month range; one had been captured. **It contributed a DEADCODE
+finding** to both the warm and the local-edit analyses.
+
+**Correction to the timing section above.** Those runs therefore included one
+phantom finding from a file that does not exist at master, so the absolute
+counts (1209, 1212) are each one too high. The *comparison* is unaffected --
+incremental and `--force` ran over the same emit and agreed exactly -- and the
+timings are unaffected. But the numbers were reported before this check
+existed, and they were not clean.
+
+This is also the strongest available argument for the check being mandatory
+rather than advisory: it was written to guard a hypothetical, and the first
+real project it ran against was already wrong.
+
 ### Not yet calibrated -- part B queue
 
 1. **Gate 2 verification has not been exercised.** Insisting on a git tag and
@@ -408,5 +442,8 @@ path-divergence problem only.
    tripped `-Werror=missing-prototypes`, so `make` returned 2 even though all
    three TUs were captured. The timing stands but the run was not clean; add
    prototypes and repeat.
-7. **No deletions or renames.** Only modified and header-affected files were
-   exercised; a deleted source file's stale TU has not been tested.
+7. ~~**No deletions or renames.**~~ **PARTLY DONE** -- deletion is now
+   detected (see the staleness check above) and was caught on a real project.
+   What remains untested is the *repair*: deleting the orphaned TUs and
+   confirming the analysis then matches a clean capture. Renames are still
+   entirely untested.
