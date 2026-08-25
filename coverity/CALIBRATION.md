@@ -428,7 +428,8 @@ reported as evidence that nothing was ignored, duplicated, or filtered.
 
 - **Rule 33 -- the commit-side staleness check, measured live.** Coverity
   Connect at `http://localhost:8080` (HTTP, port 8080 -- the target the user
-  gave, *not* the `10.230.18.77:8443` named inside the auth key; rule 28).
+  gave, *not* the private address and port named inside the auth key;
+  rule 28).
   One analyzed idir copied three ways, each committed to a throwaway stream
   `idir-staleness-test` under project `claude-idir-staleness`, with
   `--strip-path` per rule 31.

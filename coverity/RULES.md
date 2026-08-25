@@ -868,8 +868,8 @@ verbatim and failed only because the address happened to be unreachable. The
 mismatch causes above are domain knowledge from the repository owner.
 
 Re-confirmed live on 2026-08-25 against a Coverity Connect at
-`http://localhost:8080`, using a key whose `comments` named `10.230.18.77`,
-port `8443`, `ssl:true`. Connecting to the user-supplied target worked; the
+`http://localhost:8080`, using a key whose `comments` named an unrelated
+private address, port `8443`, `ssl:true`. Connecting to the user-supplied target worked; the
 key's own host was never contacted, and the mismatch was routine rather than
 suspicious.
 
