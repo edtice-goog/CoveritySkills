@@ -368,9 +368,11 @@ and it is also the easiest way to wave away a real defect, so every such
 dismissal must **name the invariant, locate where it is enforced, and say what
 would break it**. No location, no dismissal: report it unresolved instead.
 
-**Real-but-arguable is a demo failure too** -- see the legibility rule. So is a
-correctly-dismissed global invariant: the dataset is fine, but explaining why a
-defect is not a defect is not a story to tell on stage.
+Verdict is separate from demo-worthiness. A finding can be perfectly real and
+still fail the legibility rule; a correctly-dismissed global invariant leaves
+the dataset fine but is not something to put on screen, because explaining why
+a defect is not a defect is not a story anyone wants told. Keep both in the
+dataset, keep both off the slide.
 
 **Run this phase with the strongest model available.** Measured on the proftpd
 corpus, a stratified sample of nine defects contained three false positives --

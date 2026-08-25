@@ -108,11 +108,13 @@ The loop exits when `fs->fs_next` is NULL regardless of whether a handler was
 found, and the fallback promised by the comment is not implemented. So the code
 does contradict itself.
 
-**Verdict: real-but-arguable. Not a demo item.** Reachability depends on the
-terminal `pr_fs_t` in the chain having a NULL `realpath`, which it plausibly
-never does -- if the terminal element *is* the system realpath handler, the
-code keeps its promise after all. Coverity's own evidence is the statistical
-`checked 1 out of 1 times`, which is thin.
+**Verdict: unresolved, leaning global invariant. Not a demo item.**
+Reachability depends on the terminal `pr_fs_t` in the chain having a NULL
+`realpath`. If the terminal element *is* the system realpath handler, the code
+keeps its promise after all and this is an in-code global invariant -- but that
+was not confirmed by reading the fs-chain construction, so `unresolved` is the
+honest verdict rather than a dismissal. Coverity's own evidence is the
+statistical `checked 1 out of 1 times`, which is thin.
 
 The disqualifying property is not correctness but **legibility**: an
 experienced reader needed several minutes to reach a confident opinion. On
