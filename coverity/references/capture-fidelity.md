@@ -10,7 +10,7 @@ differently -- which is the entire point of running all three.
 | | Method | Evidence base | Blind to |
 |---|---|---|---|
 | A | `coverity list` / `cov-manage-emit` | the emit database | anything the build never attempted |
-| B | `idir/scan-transparency/` | the build's process tree | anything configured that then failed to parse |
+| B | `idir/scan-transparency/` | the build's process tree | anything configured that then failed to parse -- **and compiler wrappers, which it does not name at all** |
 | C | model inference | source tree + build system | what actually happened at runtime |
 
 No single one is sufficient. A reports triumphantly on an empty idir. B is
@@ -395,6 +395,12 @@ still produce a truthful, informative `unconfigured-compilers`.
 
 - Empty file: no compiler-shaped binary escaped configuration. This is a
   positive result, and it is *not* evidence that anything was captured.
+  **Nor is it evidence that a wrapper was handled.** Measured: with
+  `CC = ccache gcc` and only `--gcc` configured, this file was empty on every
+  run -- including one that captured zero TUs. `ccache` ran as the compiler
+  driver, was unconfigured, and was never named. For wrappers
+  (`ccache`, `sccache`, `distcc`, `icecc`) Method B is simply silent; the
+  count against Method C is what finds them. See rule 32.
 - Non-empty: each entry is a *candidate* hole -- see the caveat immediately
   below before treating it as one. The usual real causes are cross-compiler
   prefixes, wrapper scripts, and `ccache`/`sccache`/`distcc`; route those to

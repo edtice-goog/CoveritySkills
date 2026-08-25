@@ -400,6 +400,32 @@ reported as evidence that nothing was ignored, duplicated, or filtered.
     captured and fully parsed, and lists the failed probe as informational.
     A build probe designed to fail must not degrade the product verdict.
 
+- **Rule 32 -- ccache, three ways.** Two-source Makefile project,
+  `CC = ccache gcc`, `CCACHE_DIR` pointed at scratch so the real cache was
+  untouched. One fresh idir per run.
+
+  | `ccache` configured? | Cache state | Emitted |
+  |---|---|---|
+  | no (`--gcc` only) | fully warm, 2/2 hits | **0 TUs**, `[WARNING] No files were emitted…`, `successes = 0` |
+  | no | partly warm, 1 hit / 1 miss | **1 of 2**, `Emitted 1 … (100%) successfully`, no warning, only the *miss* captured |
+  | yes (`--template --compiler ccache --comptype prefix`) | fully warm, 2/2 hits, gcc never ran | **2 of 2, 100%**, `CONSISTENT` (2/2/2/2) |
+
+  - **Method B is blind to it.** `scan-transparency/unconfigured-compilers`
+    was **empty in all three runs**, including the one that captured nothing.
+    `ccache` ran as the compiler driver, was unconfigured in two of the runs,
+    and was never named. Rule 32's claim that checking that file "catches a
+    missing prefix configuration" was wrong and is corrected.
+  - The middle row is the one that reaches a report: a 50% capture presented
+    as 100% success with every per-TU field healthy. Adjudicated `SHORTFALL`
+    (2/1/1/1); the standing rationale already lists compiler-cache hits among
+    the causes.
+  - The third row settles the previously-assumed claim: with the prefix
+    configured, a build in which the compiler **never executed** captured
+    completely, and `emit/<host>/config/<md5>/prefix-config-0` records that
+    the wrapper was seen through. The failure mode is the missing prefix
+    configuration, not the cache -- so clearing the cache would have
+    "worked" for the wrong reason.
+
 ## Not yet calibrated -- the priority queue
 
 The adjudication table in `references/capture-fidelity.md` is reasoned from
@@ -432,8 +458,10 @@ the three methods' actual output recorded, in the style of
    `cov-manage-emit list` labels it ` (no ASTs) (failure)`; `coverity list`
    gives status `Failed` with 12 code lines -- the only sighting of `Failed`
    in any run so far. Method B stayed silent.
-5. **Compiler cache.** Capture with `ccache` warm; confirm the shape of the
-   resulting hole and whether method B notices. Lower priority now: the
+5. ~~**Compiler cache.**~~ **DONE** -- see the ccache entry above. Method B
+   does **not** notice: `unconfigured-compilers` was empty on every run,
+   including one that captured nothing. The rule 32 claim that a warm cache
+   is harmless once the prefix is configured is now measured, not assumed. Lower priority now: the
    incremental-build measurement above establishes the *shape* of a
    build-never-compiled-it hole (silent, 100%, `failures = 0`). What remains
    specific to `ccache` is whether the wrapper additionally appears in

@@ -1022,12 +1022,25 @@ invocation is not recognised as a compiler, so nothing is captured and the
 build looks uncapturable. Configure the prefix and the invocation is
 understood.
 
-**A warm cache is not a problem.** Capture works by intercepting and parsing
-the compilation invocation and driving `cov-emit` from it — not by observing
-whether the real compiler ran. A ccache hit therefore emits normally, and there
-is no reason to clear the cache before a scan. Handling wrapped and cached
-builds is table stakes for a commercial analyzer; assume the product does the
-right thing here rather than inventing a verification ritual for it.
+**A warm cache is not a problem — measured.** Capture works by intercepting
+and parsing the compilation invocation and driving `cov-emit` from it, not by
+observing whether the real compiler ran. So a ccache hit emits normally, and
+there is no reason to clear the cache before a scan.
+
+Same two-source project on 2026.6.0, three ways:
+
+| `ccache` configured? | Cache state | Result |
+|---|---|---|
+| no (`--gcc` only) | fully warm, 2/2 hits | **0 TUs**, `[WARNING] No files were emitted…`, `successes = 0` |
+| no | partly warm, 1 hit / 1 miss | **1 of 2**, reported `Emitted 1 … (100%) successfully`, no warning — only the *miss* captured |
+| **yes** (`--template --compiler ccache --comptype prefix`) | **fully warm, 2/2 hits, gcc never ran** | **2 of 2, 100%**, adjudicated `CONSISTENT` (2/2/2/2) |
+
+The third row is the one that matters: with the prefix configured, a build
+where the compiler never executed at all still captured completely. The emit
+records a `prefix-config-0` under `emit/<host>/config/<md5>/`, confirming the
+wrapper was seen through. **The failure mode is the missing prefix
+configuration, not the cache** — which is exactly why clearing the cache is
+the wrong fix, and why it would have "worked" for the wrong reason.
 
 **`unconfigured-compilers` does NOT catch a missing prefix configuration.**
 Measured on 2026.6.0 with `--gcc` only and `CC = ccache gcc`: the file was
