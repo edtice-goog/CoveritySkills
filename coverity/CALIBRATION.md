@@ -426,6 +426,46 @@ reported as evidence that nothing was ignored, duplicated, or filtered.
     configuration, not the cache -- so clearing the cache would have
     "worked" for the wrong reason.
 
+- **Rule 33 -- the commit-side staleness check, measured live.** Coverity
+  Connect at `http://localhost:8080` (HTTP, port 8080 -- the target the user
+  gave, *not* the `10.230.18.77:8443` named inside the auth key; rule 28).
+  One analyzed idir copied three ways, each committed to a throwaway stream
+  `idir-staleness-test` under project `claude-idir-staleness`, with
+  `--strip-path` per rule 31.
+
+  | Copy | emit vs `output/` | Result |
+  |---|---|---|
+  | `cp -a` (times preserved) | output newer | committed, snapshot 10033 |
+  | `cp -r` (all mtimes rewritten to now) | equal | **committed**, snapshot 10034 |
+  | `cp -a` + `touch emit/*/emit-db` | emit newer | **refused, exit 2** |
+
+  Exact refusal:
+
+  ```
+  [ERROR] Emit appears more recent than analysis results.
+          Please read the documentation to determine the appropriate
+          ordering in which to run the Coverity Prevent commands.
+  ```
+
+  - **The check is relative, not absolute.** It asks only whether the emit is
+    *newer than* the analysis results. A wholesale mtime rewrite does not trip
+    it, because everything lands equal -- which makes the uniform rewrite the
+    more dangerous case: it passes while certifying an ordering that no longer
+    means anything.
+  - `cp -r` passing looks incidental rather than guaranteed: `emit/` sorts
+    before `output/`, so a recursive copy touches `output/` last. A copy tool
+    walking the tree in another order could leave emit newer and be refused.
+    Inference from the ordering, not separately measured.
+  - This **overturns the earlier offline finding.** The previous probe
+    concluded the command contacts the host before any local staleness check,
+    because all three copies behaved identically without a reachable host.
+    They do not behave identically once there is one. Whether the check runs
+    before or after the connection is still unsettled -- the refusal printed
+    with no preceding `[STATUS]` connection lines, but authentication may be
+    silent -- and nothing here depends on that ordering.
+  - Incidental: `cov-commit-defects` warns `--host is deprecated, use --url
+    instead`.
+
 ## Not yet calibrated -- the priority queue
 
 The adjudication table in `references/capture-fidelity.md` is reasoned from
@@ -512,22 +552,27 @@ the three methods' actual output recorded, in the style of
    saying that the counts are not tree-comparable and that staleness cannot
    be detected from this run.
 
-10. **Rule 33: which check actually rejects a timestamp-mangled idir.**
-    Needs a Coverity Connect instance. Probed offline and *not* settled:
-    against an analyzed idir copied three ways -- `cp -a` (times preserved),
-    `cp -r` (all mtimes rewritten to now), and `cp -a` plus `touch` on
-    `emit/*/emit-db` (emit made newer than `output/`) -- `cov-commit-defects`
-    behaved identically on all three, because it resolves and contacts the
-    host before performing any local staleness check. `cov-format-errors` and
-    a re-run of `cov-analyze` likewise did not distinguish them. So the
-    mechanism is documented for *emit* decisions (the `--force` wording in
-    `cov-emit-cs`/`-java`/`-vb`) but the commit-side refusal remains reported
-    rather than measured. Repeat against a live Connect and record the exact
-    message.
+10. ~~**Rule 33: which check actually rejects a timestamp-mangled idir.**~~
+    **DONE** -- run against a live Coverity Connect. See the entry above. The
+    earlier offline conclusion (that no local staleness check is reachable)
+    was an artifact of having no host: with one, the emit-newer case is
+    refused outright.
 
-Until these are done, the skill's *commands and fields* are trustworthy and
-its *diagnosis table* is a well-grounded hypothesis. Say so if it matters to
-the reader.
+**The queue is empty.** Every row above has been produced deliberately and
+recorded, so the diagnosis table is no longer a well-grounded hypothesis: each
+branch of it has been reached by a real capture and adjudicated by the tool.
+Four rows changed the skill rather than confirming it -- the partial parse
+revised its own premise, the stale-idir row inverted, link-unit reconciliation
+came back negative and retracted a recommendation, and rule 33's commit check
+overturned an earlier offline conclusion.
+
+What remains reasoned rather than measured is narrower and worth stating
+plainly when a reader is betting on it: the mechanism behind the
+`unconfigured-compilers` phantom and behind the `cov-build` outside-project
+bucketing (both are consistent inferences from `strip-path`, not confirmed
+internals), whether the commit-side staleness check runs before or after the
+connection, and the conditions under which `successfully-captured-files` and
+its siblings are ever written. New rows belong here as they are found.
 
 **Deliberately not queued:** why an analysis is noisy. Rule 26 has the user
 *detect* noise and re-check capture; diagnosing the rest is a methodology of

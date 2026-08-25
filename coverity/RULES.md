@@ -224,6 +224,36 @@ complete — same files, same bytes, same sizes — and the failure surfaces
 later, at analysis or commit, as a complaint that reads like a different
 problem entirely.
 
+**The commit-side check, measured against a live Coverity Connect.** One
+analyzed idir copied three ways and committed to a throwaway stream:
+
+| Copy | emit vs `output/` | `cov-commit-defects` |
+|---|---|---|
+| `cp -a` (times preserved) | output newer | committed |
+| `cp -r` (all mtimes rewritten to now) | equal | **committed** |
+| `cp -a`, then `touch` on `emit/*/emit-db` | emit newer | **refused, exit 2** |
+
+```
+[ERROR] Emit appears more recent than analysis results.
+        Please read the documentation to determine the appropriate
+        ordering in which to run the Coverity Prevent commands.
+```
+
+So the check is **relative, not absolute**: it asks whether the emit is
+*newer than* the analysis results, and nothing else. Rewriting every timestamp
+does not trip it, because everything ends up equal.
+
+That makes a uniform rewrite the more dangerous case, not the safer one — it
+**passes** while the ordering it certifies has become meaningless. And it
+passes for a reason that is incidental: `emit/` sorts before `output/`, so a
+recursive copy touches `output/` last and leaves it newer or equal. A copy
+tool that walked the tree in another order could land emit newer and be
+refused. Do not rely on either outcome; preserve the times.
+
+The rule against repairing by `touch` holds and now has both directions:
+touching the emit is what produced the refusal above, and touching `output/`
+would silence it without making the results correspond to the emit.
+
 **Do.** Copy with something that preserves times:
 
 ```bash
@@ -836,6 +866,12 @@ Source: verified — `coverity-demo-data`. Given a key whose `comments.host` was
 a stale address, a first connection attempt used that host, port and ssl flag
 verbatim and failed only because the address happened to be unreachable. The
 mismatch causes above are domain knowledge from the repository owner.
+
+Re-confirmed live on 2026-08-25 against a Coverity Connect at
+`http://localhost:8080`, using a key whose `comments` named `10.230.18.77`,
+port `8443`, `ssl:true`. Connecting to the user-supplied target worked; the
+key's own host was never contacted, and the mismatch was routine rather than
+suspicious.
 
 ### 29. One stream per branch; a stream must move forward only
 
