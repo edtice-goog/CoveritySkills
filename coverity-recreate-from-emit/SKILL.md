@@ -41,15 +41,15 @@ unit.
 
 Two situations, sharing that machinery:
 
-| | Situation | Procedure |
+| Path | Situation | Where |
 |---|---|---|
-| **Recreate** | The build **cannot be run** -- toolchain gone, CI retired, old commit no longer builds -- and a newer analyzer refuses the old emit | *Recreate*, below |
-| **Reuse** | The build **can** be run but is **too slow** to repeat; you want a reference idir brought up to date with a working tree | *Reuse*, see `references/idir-reuse.md` |
+| **Recreate** | The build **cannot be run** -- toolchain gone, CI retired, old commit no longer builds -- and a newer analyzer refuses the old emit | below |
+| **Reuse** | The build **can** be run but is **too slow** to repeat; you want a reference idir brought up to date with a working tree | `references/idir-reuse.md` |
 
 *Recreate* is about recovering analyzability across a version gap. *Reuse* is
-about speed during active development, and **deliberately violates rule 8** -- read its
-three applicability gates before starting, because knowing when it does not
-apply is most of that procedure. Gate 0 is the cheapest and rules out whole
+about speed during active development, and **deliberately violates rule 8** --
+read its three applicability gates before starting, because knowing when it
+does not apply is most of that procedure. Gate 0 is the cheapest and rules out whole
 deployments in one command: if the reference idir was analyzed on a different
 **platform** than the one you will analyze on, incremental analysis is
 discarded and the reason to reuse goes with it.
