@@ -253,6 +253,44 @@ every failure mode (item 5) remain unmeasured. Say so if it matters.
   (documented), so on a developer machine the auth key generally need not be
   asked for.
 
+## The estimator against a real snapshot history
+
+24 snapshots across five proftpd release-line streams on a local Connect, each
+run captured into a clean intermediate directory. The first real distribution
+the estimator has seen, and it corrected the design.
+
+| stream | snapshots | capture range | spread |
+|---|---|---|---|
+| proftpd-1.3.5 | 5 | 4m22 - 7m10 | 1.6x |
+| proftpd-1.3.6 | 6 | 4m06 - 7m30 | 1.8x |
+| **proftpd-1.3.7** | **7** | **5m48 - 20m26** | **3.5x** |
+| proftpd-1.3.8 | 5 | 4m03 - 4m34 | 1.1x |
+| proftpd-1.3.9 | 1 | - | - |
+
+TU counts are constant within each stream (88 / 94 / 103 / 90), so the spread
+is not the codebase growing.
+
+**A single figure was not honest, and the first version reported one.** On
+1.3.7 the median-of-all came to 8m 55s while the most recent run took 16m 31s
+-- an understatement in exactly the direction that talks somebody out of
+optimising. Three of the four multi-snapshot streams are well behaved, so this
+is not a universal drift; it is one stream with genuinely high variance.
+
+**MAD was right to drop nothing there.** With values 348/358/369/535/1226/665/957
+the modified z-score of 1226 is 2.63, inside the 3.5 threshold. Those are not
+outliers to discard, they are real runs that differed. The filter was working;
+the *summary* was wrong.
+
+The estimator now reports median, most-recent, and the full range with its
+ratio, and when capture time varies >= 2x it says so plainly and quotes **the
+worse of median and most-recent**. Verified both ways: 1.3.7 now recommends
+against a 16m 31s figure rather than 9m 32s, while 1.3.8 (1.1x) is unchanged
+at 4m 54s and prints no variance warning.
+
+This is also the first evidence for the recommendation thresholds themselves:
+at 4-7 minutes the honest answer really is "capture fresh", which is what four
+of five streams produce.
+
 ## Connect interfaces, measured on two independent servers
 
 - **`GET /api/v2/snapshots/<id>` is REST and returns clean JSON** -- timings,

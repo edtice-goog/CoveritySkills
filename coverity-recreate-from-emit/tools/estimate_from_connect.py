@@ -152,6 +152,14 @@ def main():
     bk, bd = drop_outliers(builds)
     ak, ad = drop_outliers(analyses)
     est = median(bk) + median(ak)
+    # Snapshots come back oldest-first; the last is the most recent run.
+    recent = (builds[-1] or 0) + (analyses[-1] or 0)
+    spread = (max(builds) / float(min(builds))) if min(builds) else 1.0
+    # A single figure is only honest when the history is actually consistent.
+    # Where it is not, quote the worse of median and most-recent, so the
+    # estimate errs toward "this is expensive" rather than talking someone out
+    # of optimising something that regularly takes three times the median.
+    headline = max(est, recent) if spread >= 2.0 else est
 
     print("\nESTIMATE for a full capture + analysis")
     print("  capture  (median of %d) : %s%s"
@@ -159,6 +167,17 @@ def main():
     print("  analysis (median of %d) : %s%s"
           % (len(ak), fmt(median(ak)), "  [dropped %s outlier(s)]" % len(ad) if ad else ""))
     print("  TOTAL                   : %s" % fmt(est))
+    print("  most recent run         : %s" % fmt(recent))
+    print("  capture range           : %s to %s  (%.1fx)"
+          % (fmt(min(builds)), fmt(max(builds)), spread))
+    if spread >= 2.0:
+        print()
+        print("  HIGH VARIANCE. Capture time varies %.1fx across this history, so no" % spread)
+        print("  single figure describes it. These are not outliers to discard --")
+        print("  with that spread nothing qualifies -- they are real runs that")
+        print("  genuinely differed. Quoting the worse of median and most-recent")
+        print("  below, because underestimating talks people out of optimising")
+        print("  something that regularly costs far more than the median suggests.")
     if len(snaps) < 4:
         print("\n  Only %d snapshot(s) -- treat this as indicative, not a distribution."
               % len(snaps))
@@ -168,6 +187,7 @@ def main():
               % ", ".join(sorted(versions)))
 
     print("\nRECOMMENDATION")
+    est = headline          # the conservative figure when variance is high
     if est < 300:
         print("  Just run a full analysis. At %s there is nothing to optimise, and a" % fmt(est))
         print("  fresh intermediate directory keeps rule 8's guarantees for free.")
@@ -181,7 +201,8 @@ def main():
 
     if a.json_out:
         json.dump({"stream": a.stream, "snapshots": snaps,
-                   "estimate_seconds": est,
+                   "estimate_seconds": est, "most_recent_seconds": recent,
+                   "capture_spread_ratio": round(spread, 2),
                    "capture_median": median(bk), "analysis_median": median(ak),
                    "outliers_dropped": {"capture": bd, "analysis": ad}},
                   open(a.json_out, "w", encoding="utf-8"), indent=1)
