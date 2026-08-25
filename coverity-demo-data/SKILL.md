@@ -72,6 +72,13 @@ full re-capture of the corpus: hours of builds to undo one wrong backdate.
 Keep them. They are cheap -- a 24-release corpus spanning a decade came in
 well under a gigabyte -- and they are the difference between a reset and a redo.
 
+**This is what makes the stream mapping safe to get wrong.** Assigning tags to
+streams is a judgement call about someone else's branching strategy, and a
+first attempt may well be wrong. With a backup and the idirs in hand, a bad
+mapping costs a restore and a re-run of Phase 3 -- minutes, no rebuilding.
+Without them it costs the corpus. Take the backup before the first commit, not
+after the first mistake.
+
 ```
 cov-admin-db backup --dir <ABSOLUTE path that does NOT yet exist>
 ```
@@ -204,6 +211,31 @@ adjacent versions. Zero overlap almost always means the versions were built at
 different paths. Catching it here costs a re-run; catching it after Phase 3
 costs the whole database.
 
+### Map tags to streams by hand
+
+Deriving release lines from tags, and spotting where two lines run
+concurrently, is **deliberately not automated**. Every project brands and
+branches differently -- version-in-tag, date-in-tag, release branches, trains,
+LTS lines -- and a heuristic that infers structure from tag names is confidently
+wrong on the projects it was not written for, in a way nothing downstream
+detects. `commit_sweep.py` validates dates and merge keys; it cannot tell you
+that a branch topology is nonsense.
+
+Do this step by reading the project's actual history and reasoning about it.
+Useful signals:
+
+- `git for-each-ref --sort=creatordate --format='%(refname:short) %(creatordate:short)' refs/tags`
+- **Two releases tagged on the same day** almost always means concurrent lines
+  -- a backport shipping alongside a new release
+- `git branch --contains <tag>` and merge-base relationships, where the project
+  keeps real branches
+- The project's own release notes, which usually name the lines outright
+
+Then write `<tag> <date> <stream>` per line and sanity-check that each stream
+reads as one lineage moving forward. Getting this wrong is recoverable (see
+Step 0); getting it wrong *silently* is what to avoid, so state the mapping you
+chose and why before committing.
+
 Choosing which versions to commit is a story decision, not a mechanical one.
 See `references/selection.md` for the shapes that make good demos and the
 selection criteria -- including the **legibility rule**: a defect featured in a
@@ -311,6 +343,15 @@ signals that decide whether a true positive belongs on screen.
 Audit against the real source and the full event trace, not the defect title.
 Report a verdict per defect: real, real-but-arguable, or false positive.
 **Real-but-arguable is a demo failure too** -- see the legibility rule.
+
+**Run this phase with the strongest model available.** Measured on the proftpd
+corpus, a stratified sample of nine defects contained three false positives --
+and every one was *checker-correct*. Catching them required reading a guarding
+`strncasecmp` that made a null-return path infeasible, recognising a deliberate
+two-check cycle idiom that a copy-paste heuristic misread, and knowing that a
+`time_t` duration is not an epoch timestamp. None of that is visible in the
+defect title, the checker name, or the event trace alone. The audit is cheap
+and the failure mode is public, so this is the wrong place to economise.
 
 ## Step 5: Hand off
 

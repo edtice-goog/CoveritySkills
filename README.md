@@ -472,7 +472,9 @@ coverity-recreate-from-emit/
 │   ├── transformation-probe.md       # the method, the normalization set, why the control
 │   ├── invocation-anatomy.md         # what list-capture-invocations contains
 │   ├── idir-reuse.md                 # part B: gates, routing, stale-TU rule
-│   └── worked-example-proftpd.md     # the calibration session, with the numbers
+│   ├── worked-example-proftpd.md     # the calibration session, with the numbers
+│   └── worked-example-fp-audit.md    # a real triage pass: 3 of 9 sampled
+│                                     #   defects were false positives
 └── tools/
     └── emit_probe.py                 # pure stdlib; identify / extract / probe /
                                       #   delta / replay / reconcile
@@ -574,7 +576,9 @@ coverity-demo-data/
 │   ├── corpus.md                     # choosing a corpus, fixed build trees,
 │   │                                 #   cross-platform capture
 │   ├── selection.md                  # story shapes and the legibility rule
-│   └── worked-example-proftpd.md     # the calibration session, with the numbers
+│   ├── worked-example-proftpd.md     # the calibration session, with the numbers
+│   └── worked-example-fp-audit.md    # a real triage pass: 3 of 9 sampled
+│                                     #   defects were false positives
 └── tools/
     ├── capture.sh                    # fixed-path serial capture, verified
     ├── phase2.py                     # merge-key set algebra + stability guard
