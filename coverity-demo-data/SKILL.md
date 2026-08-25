@@ -176,6 +176,16 @@ See `references/corpus.md` for choosing a corpus and preparing a build tree.
 defect population over time by merge key: introduced, persisting, fixed, and
 how long each surviving defect has been present.
 
+For a multi-stream corpus pass `--tags <file>` (the same
+`<tag> <date> <stream>` file Phase 3 uses) rather than a flat list of versions.
+Population deltas are only meaningful **within** a stream: comparing the last
+release of one line against the first of the next measures a branch change, not
+a fix rate, and reports dozens of spurious "fixed" defects. `--tags` also
+prints the **projected first-detected distribution** -- what Connect will show
+after Phase 3, computed globally per merge key. That projection is the last
+piece of evidence available before the irreversible phase, and it is the one
+that shows whether the aging story you want is actually there.
+
 **Rule 27 does not bear on this work.** Rule 27 warns against comparing raw
 merge keys between local result sets, because a key can move across analyzer
 versions and Connect's antecedent merge keys are what line the old and new

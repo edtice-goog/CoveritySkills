@@ -123,3 +123,67 @@ times in this dataset, so a sample of a few would almost certainly have missed
 this one -- while it is simultaneously the single most likely defect to end up
 on screen. That asymmetry is why story-surfaced defects get audited
 unconditionally.
+
+## The full corpus: 24 releases, 2015-2025
+
+Extending the calibration to every proftpd release. All 24 captured (one,
+`v1.3.6d`, needed a retry -- see below), all analyzed under the single pinned
+2025.9.0 analyzer.
+
+**Capture determinism held across the whole corpus.** Compilation-unit counts
+are constant within each release line and step only between lines:
+
+| line | CUs |
+|---|---|
+| v1.3.5a-e | 88 |
+| v1.3.6-v1.3.6e | 94 |
+| v1.3.7-v1.3.7f | 103 |
+| v1.3.8-v1.3.9 | 90 |
+
+Not one anomaly in 24 builds. With the parallel-make race still in place these
+would have been ragged, and every raggedness would have entered the dataset as
+a fabricated fix or regression.
+
+**Per-stream populations are nearly flat**, which is what maintenance branches
+actually look like -- targeted fixes, not sweeping change:
+
+```
+=== proftpd-1.3.5 ===        === proftpd-1.3.7 ===
+v1.3.5a  176                 v1.3.7   113
+v1.3.5e  178                 v1.3.7f  115
+```
+
+**The story is across streams, and in the first-detected projection:**
+
+```
+Projected first-detected distribution after Phase 3
+  2015-05-27    176
+  2017-04-09     33
+  2020-07-20      6
+  ... 222 distinct CIDs total
+
+Defects in v1.3.9 (2025-03-14) by first-detected date:
+  2015-05-27     78     <- outstanding for nearly ten years
+  2017-04-09     21
+  2025-03-14      1
+```
+
+Total population falls 176 -> 112 across the decade, and **78 defects first
+seen in May 2015 are still present in the March 2025 release.** That is the
+aging story, and it is real rather than constructed.
+
+### Two process failures worth recording
+
+**A transient one.** `v1.3.6d` failed with a bash syntax error, not a build
+error: git rewrote `capture.sh` in the working tree (`core.autocrlf=true`)
+while WSL bash was executing it, mid-sweep. Re-capturing produced 94 CUs,
+matching its line exactly. Two design choices contained it -- the sweep was
+non-fail-fast, so one release was lost rather than the run, and `.gitattributes`
+now pins `*.sh` to LF. The general lesson: do not run a long sweep out of a
+working tree you are actively committing to.
+
+**A tooling one.** The first full-corpus Phase 2 run treated all 24 releases as
+one linear chain, and reported 76 defects "fixed" at v1.3.6 -- an artifact of
+comparing the 1.3.6 line's first release against the 1.3.5 line's last. That is
+precisely the flattening rule 29 warns about, reproduced by the analysis tool
+rather than by the commit. `phase2.py --tags` now reports per-stream.

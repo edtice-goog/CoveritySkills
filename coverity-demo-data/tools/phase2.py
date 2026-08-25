@@ -55,13 +55,96 @@ def load(path: pathlib.Path) -> dict:
     return out
 
 
+def stream_aware(args):
+    """Multi-stream corpus: per-stream tables plus what Connect will show.
+
+    Rule 29 puts each branch in its own stream, so population deltas are only
+    meaningful WITHIN a stream -- comparing the last release of one line
+    against the first of the next measures a branch change, not a fix rate.
+
+    First detected, by contrast, is global per merge key across the whole
+    instance. A defect carried into a new branch keeps the date it was first
+    seen anywhere, so a stream's opening snapshot can be full of defects dated
+    years earlier. That projection is the last column of evidence before the
+    one-shot commit phase.
+    """
+    bindir = pathlib.Path(args.bindir)
+    root = pathlib.Path(args.idirs_root)
+    rows = []
+    for line in pathlib.Path(args.tags).read_text(encoding="utf-8").splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        parts = line.split()
+        rows.append((parts[0], parts[1], parts[2] if len(parts) > 2 else "default"))
+    rows.sort(key=lambda r: (r[1], r[0]))
+
+    sets = {}
+    for tag, _, _ in rows:
+        idir = root / tag
+        if not idir.exists():
+            print(f"[ERROR] no such idir: {idir}", file=sys.stderr)
+            return 1
+        sets[tag] = load(export(idir, bindir))
+
+    for stream in sorted({r[2] for r in rows}):
+        chain = [r for r in rows if r[2] == stream]
+        print()
+        print(f"=== {stream} ===")
+        print(f"{'version':<12} {'date':<12} {'total':>6} {'new':>6} "
+              f"{'persist':>8} {'fixed':>6}")
+        prev = None
+        for tag, date, _ in chain:
+            cur = sets[tag]
+            if prev is None:
+                print(f"{tag:<12} {date:<12} {len(cur):>6} {len(cur):>6} "
+                      f"{'-':>8} {'-':>6}")
+            else:
+                print(f"{tag:<12} {date:<12} {len(cur):>6} "
+                      f"{len(cur.keys() - prev.keys()):>6} "
+                      f"{len(cur.keys() & prev.keys()):>8} "
+                      f"{len(prev.keys() - cur.keys()):>6}")
+            prev = cur
+
+    # Global first detected: earliest date any version contained the key.
+    first = {}
+    for tag, date, _ in rows:
+        for mk in sets[tag]:
+            if mk not in first or date < first[mk]:
+                first[mk] = date
+    print()
+    print("Projected first-detected distribution after Phase 3")
+    print("(what Connect will show; global per merge key, not per stream):")
+    dist = collections.Counter(first.values())
+    for date in sorted(dist):
+        print(f"  {date}   {dist[date]:>4}")
+    print(f"  total distinct CIDs: {len(first)}")
+
+    latest = rows[-1][0]
+    still = collections.Counter(first[mk] for mk in sets[latest])
+    print()
+    print(f"Defects in {latest} ({rows[-1][1]}) by first-detected date:")
+    for date in sorted(still):
+        print(f"  {date}   {still[date]:>4}")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--bindir", required=True,
                     help="Coverity Analysis bin directory")
-    ap.add_argument("versions", nargs="+",
+    ap.add_argument("versions", nargs="*",
                     help="tag=idir pairs, in CHRONOLOGICAL order")
+    ap.add_argument("--tags",
+                    help="file of '<tag> <YYYY-MM-DD> [stream]' lines. Enables "
+                         "stream-aware reporting: per-stream population tables "
+                         "plus the global first-detected projection.")
+    ap.add_argument("--idirs-root", default="idirs")
     args = ap.parse_args()
+
+    if args.tags:
+        return stream_aware(args)
+    if not args.versions:
+        ap.error("give tag=idir pairs, or --tags")
 
     bindir = pathlib.Path(args.bindir)
     order, sets = [], {}
