@@ -735,3 +735,49 @@ Source: verified — `coverity-demo-data`. A 24-snapshot proftpd dataset
 committed every path in full because Git Bash rewrote the prefix; nothing in
 the commit output indicated it. Confirmed by re-running with
 `MSYS_NO_PATHCONV=1` and no trailing separator, which strips correctly.
+
+### 32. Configure compiler wrappers like ccache — never disable them
+
+When a build invokes the compiler through a wrapper — `ccache`, `sccache`,
+`distcc`, `icecc` — configure the wrapper. **Do not turn it off to make capture
+work.** Coverity ships a compiler type for exactly this case:
+
+```
+cov-configure --template --compiler ccache --comptype prefix
+```
+
+This produces `template-prefix-config-N/` containing
+`<comp_name>ccache</comp_name>` and `<comp_translator>prefix</comp_translator>`
+— note the directory is named for the *comptype*, not the compiler. Still
+configure the underlying compiler as well (rule 5): the prefix configuration
+tells Coverity how to see through the wrapper, not how to handle `gcc`.
+
+Disabling the wrapper is the wrong answer three times over:
+
+1. **It changes the build.** You are then scanning something other than what
+   the project actually builds, which is precisely the property build-fidelity
+   work exists to establish. A capture that required altering the build is a
+   weaker claim than one that did not.
+2. **It is slow.** Removing the cache from a large build can turn minutes into
+   hours, and on a repeated corpus — a demo dataset, a CI gate — it multiplies.
+3. **It looks like the tool cannot cope.** In front of a customer whose build
+   uses ccache because their build is big, "first, switch off your build
+   accelerator" is an unforced admission of exactly the wrong thing.
+
+The reason people reach for it is that an unconfigured `ccache gcc foo.c`
+invocation is not recognised as a compiler, so nothing is captured and the
+build looks uncapturable. Configure the prefix and the invocation is
+understood.
+
+**Verify, do not assume, on a warm cache.** Capture is driven by intercepting
+the invocation rather than by watching the real compiler run, so cache hits
+should still emit — but confirm it on the project in front of you rather than
+taking that on trust: build once cold and once warm and compare the compilation
+unit counts, and check `scan-transparency/unconfigured-compilers` is empty
+(rule 14). If a warm build captures fewer units than a cold one, say so and
+clear the cache for the scan — that is a measured decision, not a reflex.
+
+Source: verified — `cov-configure --list-compiler-types` documents `prefix` as
+"Prefix to a compiler (e.g. ccache)", and the configuration above was generated
+and inspected on 2025.9.0. The warm-cache emit behaviour was **not** measured
+here.
