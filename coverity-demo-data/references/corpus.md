@@ -84,3 +84,52 @@ chain, usually the stable release line.
 A version whose CU count differs sharply from its neighbours needs explanation
 before it enters the dataset. Usually it is a build failure or a race, not a
 finding.
+
+## Expect a target-poor environment
+
+**A project mature enough to be a credible demo has probably already fixed the
+defects you want to show.** Anything with a following runs static analysis, and
+since roughly 2023 also runs AI review on commits -- Copilot on GitHub pull
+requests at minimum. Those tools are good at exactly the findings that make
+good demo material: the short, legible, obviously-real ones. What survives into
+the tip of a well-tended project is the residue that a decade of tooling and
+human review declined to act on, and that residue is enriched for false
+positives, intentional code, and findings too marginal to be worth fixing.
+
+Taken to the limit the point is stark: **if every real defect has been fixed,
+the false-positive rate of what remains is 100%.** Not because the analyzer got
+worse, but because you are looking at the set of things nobody chose to fix.
+
+proftpd shows the effect cleanly. Tooling arrives, and the population stops
+falling:
+
+| release | date | tooling in repo | defects |
+|---|---|---|---|
+| v1.3.5a | 2015 | `.travis.yml` (CI only) | 176 |
+| v1.3.6 | 2017 | `.travis.yml` | 134 |
+| v1.3.7 | 2020 | + `.cirrus.yml`, `.codacy.yml` | 113 |
+| v1.3.8 | 2022 | + `.clang-tidy`, 2 workflows | 113 |
+| v1.3.9 | 2025 | + `.codeql.yml`, 4 workflows | 112 |
+
+The population falls 36% over the decade and then flattens exactly as static
+analysis lands. And the survivors are old: **78 of the 112 defects in the 2025
+release were first detected in the 2015 release** -- they are, by definition,
+the ones a decade of tooling and review left alone. A stratified audit of nine
+of them found four false positives. That is the expected result, not a bad run.
+
+### What to do about it
+
+- **Check what the project already runs** before choosing it. Look for
+  `.github/workflows/`, `.codeql.yml`, `.codacy.yml`, `.clang-tidy`, a Coverity
+  Scan badge in the README, `SECURITY.md`. proftpd itself is a Coverity Scan
+  project -- which is precisely why its tip is thin.
+- **Prefer a corpus with deep history**, ideally reaching back before the
+  project adopted modern tooling. The older releases are where the real defects
+  still live, and backdating puts them on the timeline honestly.
+- **Mine the fix history as a real-defect oracle.** A defect present in one
+  release and gone in the next was, in most cases, *fixed by the maintainers* --
+  which is strong independent evidence that it was real. Phase 2 already
+  computes exactly this set (the `fixed` column). Those are the best demo
+  candidates available, and they cost nothing extra to find.
+- **Do not judge a corpus by its tip.** A project can look barren at HEAD and be
+  rich three releases back.

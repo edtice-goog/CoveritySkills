@@ -185,6 +185,23 @@ build in WSL with the idir on a shared path, then analyze and commit natively.
 `cov-build` and `cov-analyze` must be the **same Coverity version**; confirm a
 matching pair exists for both platforms before starting.
 
+**Expect a target-poor environment, and pick the corpus accordingly.** Any
+project mature enough to be a credible demo has probably already fixed the
+defects worth showing -- it runs static analysis, and since roughly 2023 also
+AI review on commits. Those tools remove exactly the short, legible findings
+that demo well, so a well-tended project's tip is the residue nobody chose to
+act on: enriched for false positives, intentional code, and marginal findings.
+In the limit, if every real defect has been fixed, the false-positive rate of
+what remains is 100%.
+
+So prefer a corpus with **deep history reaching back before the project adopted
+modern tooling**, and do not judge a corpus by its tip -- a project can look
+barren at HEAD and be rich three releases back. `references/corpus.md` has the
+signals to check and the measured proftpd numbers, plus the most useful
+consequence: **defects that a later release fixed are the best demo candidates
+available**, because the maintainers fixing them is independent evidence they
+were real. Phase 2 computes that set for free.
+
 See `references/corpus.md` for choosing a corpus and preparing a build tree.
 
 ## Step 2: Select the versions and the story, offline

@@ -34,6 +34,21 @@ Most corpora will not offer all of these. Pick the story the data actually
 supports rather than forcing the data to a predetermined narrative -- a demo
 dataset that has to be explained away is worse than a smaller honest one.
 
+## Prefer defects the project later fixed
+
+The `fixed` column is not just a story ingredient, it is a **real-defect
+oracle**. A finding present in one release and absent in the next was usually
+fixed deliberately, and the maintainers acting on it is independent evidence
+that it was real -- evidence no amount of re-reading the trace can provide.
+
+This matters because a mature project's *surviving* defects are the ones a
+decade of tooling and review declined to fix, which is a population enriched
+for false positives (see `corpus.md`). Selecting demo items from the fixed set
+inverts that bias at no extra cost.
+
+Caveat: a defect can also disappear because the code was restructured or
+deleted, so treat it as a strong prior rather than proof, and still audit it.
+
 ## The legibility rule
 
 **A defect featured in a demo must be understandable in seconds.**
