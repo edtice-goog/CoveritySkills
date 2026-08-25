@@ -187,3 +187,51 @@ one linear chain, and reported 76 defects "fixed" at v1.3.6 -- an artifact of
 comparing the 1.3.6 line's first release against the 1.3.5 line's last. That is
 precisely the flattening rule 29 warns about, reproduced by the analysis tool
 rather than by the commit. `phase2.py --tags` now reports per-stream.
+
+## Phase 3: the real commit sweep
+
+Reset to the key-only backup, five streams created, 24 backdated commits in
+global date order. Every commit passed the earlier-dates-unchanged invariant.
+
+```
+[2015-05-27] v1.3.5a -> proftpd-1.3.5   176 newly-originated CID(s)
+[2017-04-09] v1.3.5e -> proftpd-1.3.5     1
+[2017-04-09] v1.3.6  -> proftpd-1.3.6    32   <- same date, different stream
+[2020-07-20] v1.3.6e -> proftpd-1.3.6     0
+[2020-07-20] v1.3.7  -> proftpd-1.3.7     6   <- same date, different stream
+[2025-03-14] v1.3.8d -> proftpd-1.3.8     0
+[2025-03-14] v1.3.9  -> proftpd-1.3.9     1
+```
+
+Final state: 24 snapshots, 222 CIDs, five streams.
+
+| stream | snapshots | first | last |
+|---|---|---|---|
+| proftpd-1.3.5 | 5 | 2015-05-27 | 2017-04-09 |
+| proftpd-1.3.6 | 6 | 2017-04-09 | 2020-07-20 |
+| proftpd-1.3.7 | 7 | 2020-07-20 | 2022-12-04 |
+| proftpd-1.3.8 | 5 | 2022-12-04 | 2025-03-14 |
+| proftpd-1.3.9 | 1 | 2025-03-14 | 2025-03-14 |
+
+**The committed first-detected distribution matched the Phase 2 projection
+exactly, line for line.** That is the strongest available evidence for the
+architecture in this skill: offline merge-key algebra predicts the outcome of
+the irreversible phase precisely enough to plan against, so the one-shot commit
+holds no surprises.
+
+Note the same-date, different-stream pairs (`v1.3.5e`/`v1.3.6`,
+`v1.3.6e`/`v1.3.7`, `v1.3.7f`/`v1.3.8`, `v1.3.8d`/`v1.3.9`). Committed into one
+stream these would have read as fix-then-reintroduce churn; as separate streams
+they are simply two lines shipping on the same day, which is what happened.
+
+### Operational notes from the run
+
+- `cov-admin-db restore` requires the database **up** and the application
+  **down**: `cov-im-ctl maintenance` starts the database alone. Plain `stop`
+  takes the database down too, and restore then fails.
+- The restore point earned itself twice over. The backup taken *after* auth-key
+  creation meant the key survived the reset; a factory `empty.bak` would have
+  deleted it.
+- Check who else is using the instance before restoring. This run found four
+  snapshots from a concurrent session's analyzer-comparison calibration, which
+  the reset would have destroyed silently; they were backed up first.

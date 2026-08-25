@@ -507,22 +507,42 @@ what is wrong, rather than surfacing halfway through a capture.
 ### Coverity Scan projects: manual only, and here is why
 
 Open-source projects on Coverity Scan follow an older convention that has not
-been updated, and it puts **nothing usable in the repository**. Examined:
-proftpd's entire in-repo Coverity footprint is a single modeling file
-(`contrib/dist/coverity/modeling.c`), there is no `coverity.yaml`, and **none
-of its four GitHub workflows mentions Coverity at all**. The configuration --
-project, stream, token -- lives on the Scan service.
+been updated. Under it the configuration lived in **`.travis.yml`**, as an
+`addons.coverity_scan` block plus an encrypted `COVERITY_SCAN_TOKEN`:
 
-So a Scan-style project is not merely inconvenient to detect, it is **genuinely
-undetectable from the checkout**. That is the argument against probing at
-startup: there is nothing reliable to find, and looking would cost every
-session time for an answer that does not exist.
+```yaml
+env:
+  global:
+    # encrypted COVERITY_SCAN_TOKEN, via "travis encrypt"
+    - secure: "cn1+7McUqDa+GLXnLqD/..."
+addons:
+  coverity_scan:
+    project:
+      name: ...
+```
 
-The session-start hook therefore checks for `coverity.yaml` and nothing else.
-A Scan project stays silent, which is correct. **To use the skill there, the
-user invokes it manually and supplies `--stream` and `--url`** -- the same
-override path, with the same destination warning, because nothing was
-cross-checked against the project.
+That is detectable in principle. What makes it unusable in practice is that the
+mechanism died with Travis. proftpd is the worked case: it carried exactly that
+block, then **deleted `.travis.yml` wholesale** when it moved to GitHub Actions
+(*"Now that we've switched to GitHub Actions, we can remove the old Travis CI
+configuration"*). Its current checkout retains a single modeling file,
+`contrib/dist/coverity/modeling.c`, and **none of its four workflows mentions
+Coverity at all**.
+
+So the honest position is narrower than "Scan config is never in the repo":
+
+- a project *still* on Travis-based Scan has a findable `addons.coverity_scan`
+- a project that has moved on, as most have, leaves **nothing reliable behind**
+
+Probing for the second case means searching for something that is usually
+absent, on every session, in every repository. That is the argument against it:
+not that it is slow, but that it is mostly a search for nothing.
+
+The session-start hook therefore checks `coverity.yaml` and nothing else. A
+Scan project stays silent, which is correct. **To use the skill there, invoke
+it manually with `--stream` and `--url`** -- the same override path, with the
+same destination warning, because nothing was cross-checked against the
+project.
 
 Commercial users are the expected audience and should have a `coverity.yaml`
 regardless: the GitHub action depends on it. A project still on the older
