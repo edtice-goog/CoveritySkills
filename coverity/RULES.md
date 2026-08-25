@@ -457,6 +457,34 @@ is precisely the disagreement the three-method adjudication exists to resolve,
 and treating Method B as decisive on its own would have failed a perfect
 capture.
 
+**The existence test now has a measured true positive to sit against.** Two
+sources, one compiled by configured `gcc` and one by a renamed copy of the
+same compiler (`tools/mycc.exe`, matching none of `--gcc`'s globs), both
+driven by `gmake`. The file carried **both kinds of entry at once**:
+
+| Entry | Exists? | Reality |
+|---|---|---|
+| `<build-cwd>\gcc` | no | artifact — gcc *was* configured and its TU captured |
+| `<build-cwd>\tools\mycc.exe` | yes | genuine hole — its source is absent from the emit |
+
+`cov-build` reported `Emitted 1 C/C++ compilation units (100%) successfully`
+while half the product was missing. The existence test sorted the two
+correctly, and the adjudication graded `SHORTFALL` (2/1/1/1) naming
+`src/unconfigured.c`.
+
+**Read the file in text mode, and strip `\r`.** It is written with CRLF line
+endings. A shell loop over it (`while read -r line; do [ -e "$line" ]`) tests
+a path with a trailing carriage return, so **every entry looks non-existent**
+— including the real one. That failure is silent and points the wrong way:
+a genuine hole gets dismissed as an artifact. Python's text-mode read plus
+`.strip()` handles it; a hand-rolled gate very likely does not.
+
+**Do not expect `coverity list` to flag the miss.** In the same run it
+reported `FAILED: 0` and folded the uncaptured source into `IGNORED: 17`,
+with no per-file row — indistinguishable from a README. So Method A saw a
+gap in the *count* but could not name the cause, and Method B's existing
+entry is what identified it. Neither method alone was sufficient.
+
 Source: verified against 2026.6.0 — both capture paths, before and after
 analysis, including a clean CLI capture that produced a phantom entry; and
 against a 2024.12.1 `cov-build` idir (proftpd), which likewise carried only

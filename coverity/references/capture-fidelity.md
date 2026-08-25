@@ -88,9 +88,20 @@ Capture summary:
 
 `IGNORED` is normally large and normally benign -- it counts every README,
 build script, and unsupported-language file in the tree. Do not report it as
-a miss without partitioning it. `INCOMPLETE` and `FAILED` are the numbers
-that matter, and for C/C++ `FAILED` most often means *the build system never
-compiled the file*, not that Coverity choked on it.
+a miss without partitioning it.
+
+**But `IGNORED` is also where real misses go.** Measured: a source whose
+compiler was unconfigured was reported as `FAILED: 0`, `IGNORED: 17`, with no
+per-file row -- indistinguishable from a README. The same happens to sources
+an incremental build never compiled. So `IGNORED` is simultaneously mostly
+noise and the hiding place for the two most common capture failures, which is
+why it must be partitioned against Method C rather than skimmed.
+
+`INCOMPLETE` is the one count here that is always worth reading directly: it
+is the documented function-level signal (see rule 34). `FAILED` is worth
+reading too, but do not wait for it -- for C/C++ it means the build system
+compiled the file and Coverity could not understand any of it, which is rarer
+than the two failures above, and neither of those increments it.
 
 The command also prints three diagnostic sections that the command reference
 does not document. Each is a genuine signal:
@@ -355,6 +366,25 @@ So: **check whether each named path exists on disk.** A phantom path is an
 artifact. A real path is a candidate hole, and even then confirm against
 Method A before reporting it -- a compiler-shaped binary that compiled nothing
 product-relevant is benign.
+
+The test has a measured true positive. Two sources, one compiled by configured
+`gcc` and one by a renamed copy of it (`tools/mycc.exe`, matching none of
+`--gcc`'s globs), both driven by `gmake`. One file, both kinds of entry:
+
+| Entry | Exists? | Reality |
+|---|---|---|
+| `<build-cwd>\gcc` | no | artifact -- gcc was configured, its TU captured |
+| `<build-cwd>	ools\mycc.exe` | yes | genuine hole -- its source absent from the emit |
+
+`cov-build` printed `Emitted 1 C/C++ compilation units (100%) successfully`
+with half the product missing.
+
+**Read the file in text mode and strip `
+`.** It is written CRLF. A shell
+loop (`while read -r line; do [ -e "$line" ]`) tests a path with a trailing
+carriage return and reports **every** entry as non-existent -- including the
+real one. The failure is silent and points the wrong way, dismissing a genuine
+hole as an artifact.
 
 Reading Method B as decisive on its own would have failed a perfect capture
 here. This is exactly the disagreement the adjudication step exists to

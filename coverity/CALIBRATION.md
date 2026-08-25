@@ -309,6 +309,35 @@ scan`, duplicate or filtered translation units, and a genuine partial parse.
 Until pinned, **the absence of these files is uninformative** and must not be
 reported as evidence that nothing was ignored, duplicated, or filtered.
 
+- **Rule 14 -- the unconfigured-compiler true positive, beside the phantom.**
+  Two include-free C sources; `cov-configure --gcc` only; `gmake` compiling
+  `src/configured.c` with `gcc` and `src/unconfigured.c` with
+  `tools/mycc.exe`, a byte copy of the same gcc renamed so it matches none of
+  `--gcc`'s globs (`*-g++ *-gcc ar g++ g++-* gcc gcc-* ld`). Nothing outside
+  the scratch directory was modified; the copy needs `-B <libexec>` to find
+  `cc1`, and include-free sources to avoid needing system header paths.
+  - `cov-build` reported **`Emitted 1 C/C++ compilation units (100%)
+    successfully`** with half the product uncaptured. The percentage is
+    measured against what it *intercepted*, so an unconfigured compiler
+    shrinks the denominator instead of lowering the rate.
+  - `unconfigured-compilers` carried **both kinds of entry at once**:
+    `<build-cwd>\gcc` (does not exist -- artifact; gcc *was* configured and
+    its TU captured) and `<build-cwd>	ools\mycc.exe` (exists -- the real
+    hole). The existence test sorted them correctly.
+  - **The file is CRLF.** A shell existence loop (`while read -r line; do
+    [ -e "$line" ]`) tests a path with a trailing `` and reports *every*
+    entry as non-existent, including the true positive -- silently converting
+    a real hole into a dismissed artifact. Caught only because the shell check
+    and the tool disagreed. `capture_fidelity.py` reads text-mode and strips,
+    so it was unaffected.
+  - **`coverity list` did not flag the miss**: `FAILED: 0`, and the uncaptured
+    source folded into `IGNORED: 17` with no per-file row -- indistinguishable
+    from a README, exactly as in the rule 9 vacuous-capture runs. Method A saw
+    a gap in the count; only Method B named the cause. Neither alone
+    sufficed.
+  - Adjudicated `SHORTFALL` (2/1/1/1), naming `src/unconfigured.c`, the one
+    existing unconfigured compiler, and the phantom separately.
+
 ## Not yet calibrated -- the priority queue
 
 The adjudication table in `references/capture-fidelity.md` is reasoned from
@@ -316,13 +345,11 @@ mechanism, not measured. Each row below should be produced deliberately and
 the three methods' actual output recorded, in the style of
 `coverity-build-fidelity/references/worked-example-zlib.md`:
 
-1. **Unconfigured compiler.** Capture a build using a renamed/wrapper
-   compiler with no matching config. Confirm `unconfigured-compilers` names
-   it and the TUs are absent. *(Expected: `SHORTFALL` + method B non-empty.)*
-   Now more urgent than when first queued: a clean CLI capture has been seen
-   producing a **phantom** entry, so the true-positive shape needs measuring
-   to tell the two apart reliably. The existence check is a heuristic until
-   then.
+1. ~~**Unconfigured compiler.**~~ **DONE** -- see the true-positive entry
+   above. The existence check is no longer a heuristic without evidence: a
+   single run produced a phantom and a true positive in the same file and
+   sorted them correctly. It also turned up the CRLF trap, which is the more
+   dangerous half of the finding.
 2. ~~**Vacuous capture.**~~ **DONE** -- see the rule 9 entry above and
    `references/worked-example-vacuous-capture.md`. Both the no-op build and
    the partial build were reproduced on `cov-build` and adjudicated against a

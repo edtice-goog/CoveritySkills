@@ -702,10 +702,17 @@ def cmd_adjudicate(args):
             "path drift. Distrust the idir until this is explained."
             % len(notfound))
     elif n_missing and b.get("unconfigured_compilers_existing", unconf):
+        n_real = len(b.get("unconfigured_compilers_existing", unconf))
+        n_ghost = len(b.get("unconfigured_compilers_phantom", []))
         grade, why = "SHORTFALL", (
             "%d expected source(s) not captured, and %d unconfigured "
-            "compiler(s) observed. Route to "
-            "coverity-compiler-configuration." % (n_missing, len(unconf)))
+            "compiler(s) that exist on disk. Route to "
+            "coverity-compiler-configuration.%s"
+            % (n_missing, n_real,
+               " (%d further entr%s named a path that does not exist and "
+               "%s disregarded.)" % (n_ghost, "y" if n_ghost == 1 else "ies",
+                                     "was" if n_ghost == 1 else "were")
+               if n_ghost else ""))
     elif n_missing:
         grade, why = "SHORTFALL", (
             "%d expected source(s) not captured with no unconfigured "
