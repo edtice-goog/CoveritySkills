@@ -23,6 +23,26 @@ one asks what is *about* to be analyzed, this one asks what *was*.
 
 Paths are compared after mapping the capture root onto the working tree, since
 an imported idir records another machine's roots.
+
+PROVISIONAL -- THIS CHECK USES A PROXY, AND THE PROXY IS KNOWN TO BE WRONG
+=========================================================================
+Measured 2026-08-25: the JSON `file` field is the location of the source
+*text*, NOT the translation unit a model is attributed to. Coverity keys models
+to the primary source file. On an FFmpeg idir, 205 of 2,252 distinct `file`
+values were headers holding `static inline` definitions, while all 1,989
+implementing TUs resolved to `.c` primaries -- zero headers.
+
+So "the file at this path is missing" is not the same question as "the TU this
+model came from is gone". It happened to coincide for the snowdsp.c case that
+validated this tool, because there the text location and the TU primary were the
+same file. It will NOT coincide for a header-defined function.
+
+The correct source exists: analyze with `--enable-callgraph-metrics`, read the
+`TU` column of `output/callgraph-metrics.csv`, and resolve it through
+`cov-manage-emit list-json` to a `primaryFilename`. Rewrite pending.
+
+Until then treat GHOST verdicts as INDICATIVE, not authoritative, and confirm
+any finding against the TU column before acting on it.
 """
 import argparse, gzip, json, os, posixpath, subprocess, sys, collections
 
@@ -103,6 +123,9 @@ def main():
         missing[s] = n
 
     print("MODEL PROVENANCE  (%s)" % a.dir)
+    print("  [PROVISIONAL] this checks the source TEXT location, not the TU a")
+    print("                model is attributed to. Confirm findings against the")
+    print("                TU column of callgraph-metrics.csv. See docstring.")
     print("  functions in callgraph      : %d" % len(fns))
     print("  with an implementation      : %d" % len(impl))
     print("  distinct source files       : %d" % len(srcs))
