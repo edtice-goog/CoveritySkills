@@ -455,6 +455,44 @@ download, and analysis all wait for the user to choose.
 300 MB; downloading one on every session start would be far worse than the
 problem it solves.
 
+## Step 1 of any reuse decision: is it worth it?
+
+Before proposing anything, find out what a full run actually costs. **The
+project already knows.** Every snapshot committed to Coverity Connect records
+its own `buildTime` and `analysisTime`, plus the translation-unit count and the
+exact commands used. On a well-run pipeline that history is a side effect of
+post-merge CI, so the estimate is free and beats any guess from lines of code.
+
+`coverity.yaml` supplies the connection: `commit.connect.url` and
+`commit.connect.stream`.
+
+```bash
+python3 tools/estimate_from_connect.py --url <connect-url> --stream <stream>         --auth-key-file <key> [--insecure]
+```
+
+It lists the stream's snapshots, reads each one's timings, drops outliers by
+median-absolute-deviation (robust at the handful of snapshots a stream
+actually has, where mean-and-stddev is skewed by the outlier it is meant to
+find), and reports a median-based estimate with a recommendation.
+
+Measured example -- proftpd, three snapshots: capture 5m36s / 6m17s / 5m17s,
+analysis 74s / 56s / 69s, 90 TUs each. Estimate **6m 45s**, and the honest
+recommendation at that size is *do not bother* -- a fresh capture keeps rule
+8's guarantees and costs little. The apparatus in part B earns its keep when
+this number runs to tens of minutes or hours.
+
+**Take the host from the user, never from the auth key.** The tool prints a
+warning when the key's `comments.host` disagrees with the URL supplied, and
+uses the supplied one (rule 28).
+
+Interface notes: `GET /api/v2/snapshots/<id>` is REST and returns clean JSON.
+Listing a stream's snapshot ids still goes through SOAP
+(`getSnapshotsForStream`) because the documented REST route
+`/api/v2/streams/stream/snapshots` returns 400 for every parameter name tried
+-- the route exists, the parameter is undetermined. The swagger UI at
+`/swagger/cim/index.html` would settle it but requires a browser session;
+basic auth returns the sign-in page. Open item.
+
 ---
 
 # B. Reuse: the build is too slow to repeat
