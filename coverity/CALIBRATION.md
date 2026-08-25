@@ -457,13 +457,32 @@ the three methods' actual output recorded, in the style of
    empty. Not a path-style artifact: native-backslash, forward-slash, and
    cwd-default `--project-dir` all behaved identically. Distinct from the
    genuine case, which this project reproduced separately by pointing
-   `--project-dir` at a renamed root. A `coverity capture` comparison was
-   attempted and did not settle it -- on that project the CLI failed to find
-   `make`, fell back to buildless capture, and emitted nothing (`No sources
-   were recognized in the project directory`), so there was no captured set
-   to classify. Until pinned, **that section is not a reliable "outside the
-   project" signal on a `cov-build` idir**, and the adjudicator's
-   project-directory caveat will fire on healthy captures.
+   `--project-dir` at a renamed root.
+
+   **SETTLED: the discriminator is the capture path.** The `coverity capture`
+   comparison that failed before now exists -- a CLI capture driven by an
+   explicit `-- gmake` build command, which emitted 3 of 3 sources. Same
+   `coverity list --all` invocation against each:
+
+   | Idir | Module section | Captured files filed under |
+   |---|---|---|
+   | `coverity capture` | populated (`src/a.c`, `src/main.c`) | nothing -- *outside* was empty |
+   | `cov-build` (Makefile present) | **present but empty** | *outside of the project directory* |
+   | `cov-build` (no build manifest) | absent | *outside of the project directory* |
+
+   So it is not module attribution either: the middle row has a Makefile that
+   `coverity list` names as a module and still files every captured file as
+   outside. Likely mechanism: the CLI records a project root in
+   `coverity-cli/strip-path` at capture time and `cov-build` records none, so
+   absolute captured paths are never related to `--project-dir`.
+
+   Two consequences, both measured: the *Captured files not found on disk*
+   detector never fires on a `cov-build` idir (see the stale-source entry
+   above), and the adjudicator's project-directory caveat fired on healthy
+   captures. The caveat now recognises the all-captured-files-outside pattern
+   on a `cov-build` idir and reports it as normal presentation, while still
+   saying that the counts are not tree-comparable and that staleness cannot
+   be detected from this run.
 
 10. **Rule 33: which check actually rejects a timestamp-mangled idir.**
     Needs a Coverity Connect instance. Probed offline and *not* settled:

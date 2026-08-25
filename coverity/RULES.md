@@ -1029,10 +1029,29 @@ is no reason to clear the cache before a scan. Handling wrapped and cached
 builds is table stakes for a commercial analyzer; assume the product does the
 right thing here rather than inventing a verification ritual for it.
 
-The check that *is* worth doing is the ordinary one: after capture, confirm
-`scan-transparency/unconfigured-compilers` is empty (rule 14) and that the
-compilation-unit count matches the build. That catches a missing prefix
-configuration, which is the actual failure mode.
+**`unconfigured-compilers` does NOT catch a missing prefix configuration.**
+Measured on 2026.6.0 with `--gcc` only and `CC = ccache gcc`: the file was
+**empty** on every run, including ones that captured nothing at all. `ccache`
+ran as the compiler driver, was unconfigured, and was never named. So Method B
+is blind to exactly the failure this rule is about, and an empty file is not
+evidence that the wrapper was handled.
+
+What the unconfigured wrapper actually looks like, same project both ways:
+
+| Cache state | Result |
+|---|---|
+| fully warm (2/2 hits) | **0 TUs**, `[WARNING] No files were emitted…`, `successes = 0`. Loud |
+| partially warm (1 hit, 1 miss) | `Emitted 1 C/C++ compilation units (100%) successfully`, "completed successfully", `successes = 1 / failures = 0`, **no warning** — and only the cache *miss* was captured |
+
+The second row is the one that reaches a report: a 50% capture presented as
+100% success, with Method B clean and every per-TU field healthy. Only an
+independent expectation catches it, which is why the check is three methods
+and not one. The adjudication graded it `SHORTFALL` (2/1/1/1) and named
+compiler-cache hits among the causes.
+
+So the check that is worth doing is the compilation-unit count against an
+expectation formed independently of the idir — Method C — not a glance at
+`unconfigured-compilers`.
 
 Source: `prefix` is documented by `cov-configure --list-compiler-types` as
 "Prefix to a compiler (e.g. ccache)", and the configuration above was generated

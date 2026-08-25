@@ -840,12 +840,29 @@ def cmd_adjudicate(args):
                  "directory is not a clean result.")
         L.append("")
     if outside:
-        L.append("> %d captured file(s) lie outside the project directory, so "
-                 "the project-directory denominator did not cover the whole "
-                 "captured set: the SUCCEEDED/IGNORED counts below are not "
-                 "directly comparable to the tree. Check --project-dir, an "
-                 "out-of-tree build, or an idir captured under another root."
-                 % len(outside))
+        # On a cov-build idir, `coverity list` files EVERY captured file under
+        # this heading and leaves the module section empty -- measured, and
+        # independent of path style.  Treating that as a signal fires on every
+        # healthy cov-build capture, so say what it means instead.
+        cov_build_idir = b.get("capture_path") != "coverity-cli"
+        if cov_build_idir and len(outside) >= n_cap > 0:
+            L.append("> All %d captured file(s) are filed under *outside of "
+                     "the project directory*. On a `cov-build` intermediate "
+                     "directory that is the normal presentation, not a "
+                     "finding: the module section is left empty and every "
+                     "captured file lands here regardless of where it is. It "
+                     "does mean two things, though -- the "
+                     "`SUCCEEDED`/`IGNORED` counts are not comparable to the "
+                     "tree, and *Captured files not found on disk* will not "
+                     "fire, so this run cannot detect a stale idir."
+                     % len(outside))
+        else:
+            L.append("> %d captured file(s) lie outside the project "
+                     "directory, so the project-directory denominator did not "
+                     "cover the whole captured set: the SUCCEEDED/IGNORED "
+                     "counts below are not directly comparable to the tree. "
+                     "Check --project-dir, an out-of-tree build, or an idir "
+                     "captured under another root." % len(outside))
         L.append("")
     for title, rows in (("Expected but not captured", sorted(missing)),
                         ("Captured but not expected", sorted(surplus)),
