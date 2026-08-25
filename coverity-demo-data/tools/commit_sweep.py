@@ -146,15 +146,14 @@ def main():
     tags = read_tags(args.tags, args.stream)
     root = pathlib.Path(args.idirs_root)
 
-    # --strip-path only matches with the trailing separator. Given
-    # "/home/me/demo/proj" it strips NOTHING, silently -- no error, no warning,
-    # just every path in Connect prefixed with a build directory nobody wants
-    # to see in a demo. Normalise rather than trust the caller.
+    # A --strip-path prefix that does not match anything is a SILENT no-op:
+    # no error, no warning, just full build paths in Connect. The prefix can
+    # also be rewritten before cov-commit-defects sees it -- MSYS/Git Bash
+    # rewrites Unix-looking absolute paths into Windows paths, so
+    # "/home/me/demo/proj" arrives as "C:/Program Files/Git/home/me/demo/proj".
+    # Set MSYS_NO_PATHCONV=1 there. Either way, verify after the first commit
+    # rather than trusting the argument.
     strip = args.strip_path
-    if strip and not strip.endswith("/"):
-        strip += "/"
-        print(f"[note] --strip-path normalised to {strip!r} "
-              f"(it is a silent no-op without the trailing separator)")
 
     # Fail before touching Connect if any idir is missing or unanalyzed.
     missing = [t for t, _, _ in tags if not (root / t).is_dir()]

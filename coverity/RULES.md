@@ -653,8 +653,15 @@ acceptable if it is falsifiable, so state all three:
 
 No location, no dismissal: report the finding as **unresolved** instead.
 `unresolved` is a legitimate outcome and far better than a confident wrong
-call. The asymmetry is deliberate — wrongly dismissing a real defect costs more
-than wrongly keeping a false one.
+call. Wrongly dismissing a real defect costs more than wrongly keeping a false
+one, which is why the bar for dismissal is high.
+
+But the burden of *reading the code* is symmetric. An unverified confirmation
+is as unsound as an unverified dismissal: grading a finding real because the
+checker's interprocedural claim sounds plausible, without reading the callee it
+rests on, is a verdict resting on nothing. If the argument depends on code you
+have not read, the answer is `unresolved` in either direction. A caveat
+attached to a confident verdict is not a substitute.
 
 Not every wrong finding is a global invariant. When a checker matched a *shape*
 rather than a path — a COPY_PASTE_ERROR on two deliberate, distinct adjacent
@@ -678,37 +685,42 @@ to read, harder to search, harder to correlate with a repository, and in a
 customer-facing setting it exposes a local directory layout nobody wants on
 screen.
 
-**The trap: the option only matches with the trailing separator, and fails
-silently without it.**
+**The trap: a prefix that does not match is a silent no-op.** No error, no
+warning, no diagnostic of any kind — the commit reports complete success and
+the damage only surfaces later, when someone cannot find a file in the UI. The
+prefix needs no trailing separator; it simply has to match.
+
+The prefix can also be rewritten *before the tool sees it*. Under MSYS/Git Bash
+on Windows, a Unix-looking absolute path is converted to a Windows path, so
 
 ```
---strip-path /home/me/demo/proj     ->  strips NOTHING. No error, no warning.
---strip-path /home/me/demo/proj/    ->  /src/fsio.c
+--strip-path /home/me/demo/proj
 ```
 
-Nothing in the commit output distinguishes the two. The first run looks
-completely successful and the damage is only visible later, when someone tries
-to find a file in the UI.
+arrives as `C:/Program Files/Git/home/me/demo/proj`, matches nothing, and
+strips nothing. Set `MSYS_NO_PATHCONV=1` for such commands. This bites hardest
+in exactly the setup where it is most needed: building under WSL or Linux and
+committing from a Windows shell, where the build root never looks like a
+Windows path.
 
-So verify rather than assume. After the first commit, check that no stored path
-still begins with the prefix:
+So verify rather than assume. After the **first** commit, check that no stored
+path still begins with the build root:
 
 ```sql
 SELECT pathname FROM file_path LIMIT 5;
 ```
 
-Expect `/src/fsio.c`, not `/home/me/demo/proj/src/fsio.c`. Note that the
-stripped form keeps a leading `/`.
+Expect `/src/fsio.c`. The stripped form keeps a leading `/`.
 
 Two related points:
 
 - `cov-format-errors` takes its **own** `--strip-path` for JSON export. Setting
   it at commit does not affect exported reports, and vice versa.
 - Correcting this after the fact means re-committing, so on a backdated dataset
-  it means restoring the database first (rule: first detected is write-once).
-  Get it right on the first commit, or verify early enough that only one commit
-  has to be redone.
+  it means restoring the database first (first detected is write-once). Verify
+  after the first commit, while only one has to be redone.
 
-Source: verified — `coverity-demo-data`. Measured on a 24-snapshot proftpd
-dataset committed without the trailing separator: every path stored in full,
-with no diagnostic of any kind.
+Source: verified — `coverity-demo-data`. A 24-snapshot proftpd dataset
+committed every path in full because Git Bash rewrote the prefix; nothing in
+the commit output indicated it. Confirmed by re-running with
+`MSYS_NO_PATHCONV=1` and no trailing separator, which strips correctly.

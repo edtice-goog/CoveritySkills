@@ -271,9 +271,24 @@ cov-commit-defects --dir <idir> --url <url> --auth-key-file <key> \
 - **`--backdate` takes `yyyymmdd` and nothing else.** `2022-12-04` is rejected
   outright. This is a *different* parser from `--first-detected-after/before`,
   which do accept ISO dates -- do not generalize between them.
-- `--strip-path` the fixed build root so Connect shows `src/fsio.c` rather than
-  a home directory. It works at commit time; note that `cov-format-errors`
-  takes its own separate `--strip-path` for JSON export.
+- `--strip-path` the fixed build root so Connect shows `/src/fsio.c` rather
+  than a home directory (rule 31). **Check after the first commit that it
+  actually took effect** -- a prefix that does not match is a silent no-op with
+  no error or warning, and the argument can be rewritten before the tool sees
+  it (MSYS/Git Bash converts Unix-looking paths to Windows paths; set
+  `MSYS_NO_PATHCONV=1`). This is a live hazard here, because the corpus is
+  typically built under Linux and committed from Windows.
+
+  ```sql
+  SELECT pathname FROM file_path LIMIT 5;   -- expect /src/fsio.c
+  ```
+
+  `commit_sweep.py` runs this check automatically after the first commit and
+  aborts if the build root is still present -- so at most one commit has to be
+  redone. Left unchecked, the whole dataset ships with build paths in it, and
+  fixing it means restoring and re-committing all of them.
+  Note `cov-format-errors` takes its own separate `--strip-path` for JSON
+  export; setting it at commit does not affect exported reports.
 - Never run two commits concurrently, and never commit a newer version first
   "just to check something". Both burn dates irreversibly.
 

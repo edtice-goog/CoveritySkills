@@ -113,6 +113,20 @@ Use these words, in this order of preference when several could apply:
 `unresolved` is a legitimate result and much better than a confident wrong
 call. Prefer it whenever the argument depends on code you did not read.
 
+**The burden is symmetric.** It is tempting to apply the discipline only to
+dismissals, since those are what hide real defects -- but an unverified
+*confirmation* is exactly as unsound. Calling a finding real because the
+checker's interprocedural claim sounds plausible, without reading the callee it
+depends on, produces a true-positive verdict resting on nothing.
+
+This happened in the proftpd audit. An OVERRUN was graded a true positive on
+Coverity's claim that a callee accessed byte 27 of a 16-byte struct, with a
+noted caveat that the callee had not been read. Reading it later showed the
+function switches on a family field set two lines earlier, copies only 16
+bytes, and the finding is a global invariant false positive. **A caveat is not
+a verdict.** If the argument depends on code you have not read, the verdict is
+`unresolved` -- in both directions.
+
 ## For demo data specifically
 
 A finding correctly dismissed as a global invariant is still a **bad demo

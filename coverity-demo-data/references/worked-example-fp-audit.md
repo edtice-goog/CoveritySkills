@@ -3,13 +3,13 @@
 Stratified per-checker sample (rule 26) from the committed corpus tip, 2 per
 checker. Nine triaged against real source read from `git show v1.3.9:<path>`.
 
-**Headline: 3 of 9 are false positives.** All three are checker-correct but
+**Headline: 4 of 9 are false positives.** All three are checker-correct but
 wrong in context, and all three would have been embarrassing on stage.
 
 | # | checker | location | verdict |
 |---|---|---|---|
 | 019 | SIZEOF_MISMATCH | `src/configdb.c:933` | **true positive - real bug** |
-| 016 | OVERRUN | `src/netaddr.c:567` | true positive - stack over-read |
+| 016 | OVERRUN | `src/netaddr.c:567` | **FP - global invariant (in-code)** |
 | 017 | REVERSE_INULL | `modules/mod_ls.c:1610` | true positive |
 | 001 | CHECKED_RETURN | `modules/mod_core.c:4749` | true positive, low severity |
 | 004 | DEADCODE | `src/stash.c:596` | intentional |
@@ -85,15 +85,40 @@ item found.
 
 ## Also solid
 
-- **016 OVERRUN** `src/netaddr.c:567` -- a 16-byte `struct sockaddr_in` on the
-  stack is passed to a function Coverity says accesses byte offset 27, a
-  12-byte stack over-read. Security-adjacent and legible. *Caveat: I did not
-  read `pr_netaddr_set_sockaddr` itself, so severity is inferred from
-  Coverity's interprocedural claim rather than confirmed. Confirm before
-  demoing.*
 - **001 CHECKED_RETURN** `modules/mod_core.c:4749` -- `pr_inet_set_block(...)`
   return discarded, while the very next line checks `pr_inet_listen(...)`. The
   side-by-side contrast makes it unusually legible for a low-severity finding.
+
+### 016 OVERRUN - `src/netaddr.c:567`
+
+**FP - global invariant, in-code.** Enforced at `src/netaddr.c:566`. Breaks
+only if a caller sets the family to `AF_INET6` while passing a 16-byte
+`sockaddr_in`.
+
+`pr_netaddr_set_sockaddr` is family-aware:
+
+```c
+switch (na->na_family) {
+  case AF_INET:
+    memcpy(&(na->na_addr.v4), addr, sizeof(struct sockaddr_in));    /* 16 */
+  case AF_INET6:
+    memcpy(&(na->na_addr.v6), addr, sizeof(struct sockaddr_in6));   /* 28 */
+```
+
+The line before the reported call is `pr_netaddr_set_family(na, AF_INET)`,
+which sets `na->na_family = AF_INET`, so the 16-byte arm runs against a
+16-byte source. Coverity did not carry `na_family` across the two calls -- it
+is a field of a heap struct written through a setter -- so it considered the
+IPv6 arm and reported an access at byte offset 27. Even an unset family is
+safe: `pcalloc` zeroes the struct, so `default` returns -1 without copying.
+
+**This one was initially graded a true positive, and that was wrong.** The
+first pass inferred severity from Coverity's interprocedural claim without
+reading `pr_netaddr_set_sockaddr`, flagged the gap in a caveat, and still put
+it in the true-positive column. The caveat was not enough: an unverified
+*confirmation* is exactly as unsound as an unverified dismissal, and the
+correct verdict was **unresolved** until the callee had been read. Rule 30's
+burden of proof is symmetric.
 
 ## Do not demo
 
