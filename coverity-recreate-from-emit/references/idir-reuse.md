@@ -57,11 +57,37 @@ still 36% faster. Read the last row for what the technique is actually for --
 
 ### The deployment this is really for
 
-The realistic setup is not a months-old release tag. It is an idir published
-by a **post-merge CI job** -- a GitHub Action that captures and analyzes on
-every merge to the mainline -- so a developer picks up an idir that is hours
-old, with a delta of a handful of files and a build cache that is already
-~99% warm.
+The realistic setup is not a months-old release tag. It is a **reference idir
+published on a cadence**, which a developer picks up and brings current. Two
+cadences matter, and the second is the one usually left out of the discussion.
+
+**Per-merge.** A post-merge CI job captures and analyzes on every merge to the
+mainline. The developer picks up an idir that is hours old, with a delta of a
+handful of files.
+
+**Nightly.** Plenty of large and safety-critical projects cannot build per
+merge -- the build is simply too long. Developers integrate during the day and
+a **nightly build** produces the baseline. The morning idir is up to a day old,
+and the delta is a day of merged work plus whatever the developer has locally.
+
+Do not treat nightly as a legacy compromise. It is current practice on large
+codebases, and it is where this procedure pays best:
+
+- **The nightly job can afford the capture penalty.** Capture costs 2-4x the
+  build, which is intolerable in an inner loop and irrelevant at 2am when
+  nobody is waiting. The expensive half runs where the expense does not matter.
+- **The people affected are the ones who need it most.** If a full build is
+  hours, a developer who rebases in the morning cannot validate anything until
+  after lunch. That is the problem accelerated-build systems were invented for
+  -- ClearCase's *winkin*, reusing derived objects from a shared pool, is the
+  same idea a generation earlier. Hardware has improved; application size has
+  kept pace.
+- **The delta is bounded and known.** One night of merges is a well-defined
+  diff, which is exactly what this procedure needs.
+
+So the reference idir has a natural owner and a natural schedule, and the
+question "where does the reference idir come from?" has an answer that does not
+require anyone to change how they already work.
 
 That is the case to optimise for and the case to quote numbers from. A large
 delta against an old tag is the worst case, useful mainly for finding the
