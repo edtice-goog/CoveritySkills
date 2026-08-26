@@ -788,3 +788,6 @@ for that permission specifically rather than full commit rights.
 - `references/corporate-tls.md` -- TLS-inspecting proxies: the four trust
   stores, why Go and the JVM fail differently, and how to fix both without
   modifying the Coverity install or the system trust store.
+- `references/target-state.md` -- bringing an idir current **without knowing
+  its provenance**: extract-files, what the recorded hash is and is not, and why
+  this removes Gate 2 but not Gate 1.
