@@ -435,6 +435,103 @@ not include `Time taken by analysis`, so the value survived only because
 - Log analysis stdout to a file per stage; it carries figures the summary may
   no longer hold.
 
+## Measured: capture cost and incremental analysis, LLVM and FFmpeg, 2026-08-26
+
+Hardware and precision caveats in the timing-precision section above. Ratios to
+one decimal place.
+
+### Capture cost: C/B = 2.2 on LLVM
+
+LLVM + clang, X86 only, Release, gcc 13.3.0, `-j8`, 3,558 C++ TUs, quiet box.
+
+| | wall | vs plain build |
+|---|---|---|
+| plain `ninja` build (B) | 6,256 s | 1.0 |
+| `cov-build` capture (C) | 13,494 s | **2.2** |
+
+The plain build was **97.6% compilation** (linking and archiving under 2.5%),
+at 8.1x average parallelism against `-j8`, so this is close to a pure
+frontend-vs-frontend comparison. **Only 10 compiler config directories** were
+probed, so compiler probing is negligible here -- which leaves it available as
+an explanation for other projects rather than this one.
+
+### The capture ratio is a function of TU size
+
+The single most useful result. Per-edge, over 3,558 compile edges present in
+both builds:
+
+| plain TU cost | count | plain s | capture s | ratio |
+|---|---|---|---|---|
+| 0-1 s | 119 | 51 | 577 | **11.3** |
+| 1-3 s | 450 | 903 | 3,514 | 3.9 |
+| 3-10 s | 1,371 | 8,545 | 24,565 | 2.9 |
+| 10-30 s | 1,204 | 21,189 | 48,932 | 2.3 |
+| >30 s | 368 | 18,716 | 29,009 | **1.5** |
+| all | 3,558 | 49,255 | 107,015 | **2.2** |
+
+Monotonic over two orders of magnitude. Small TUs cost ~11x to capture, large
+ones ~1.5x. Consistent with a substantial per-translation-unit cost that the
+compiler amortises and Coverity repeats -- the repository owner's observation
+that gcc spawns one `cc1plus` per compilation line while Coverity appears to
+launch one `cov-emit` per file.
+
+This explains, without either measurement being wrong, why the Linux kernel
+shows **3.8** (many small C files) and LLVM shows **2.2** (huge C++ TUs). It
+also means **a project can predict its own capture ratio from its TU size
+distribution**, which `.ninja_log` gives for free.
+
+Do **not** over-model it: a least-squares fit gives `capture = 1.2 x plain +
+13.2 s`, but the intercept is dominated by large TUs and back-solving from the
+buckets gives ~4-5 s for sub-second TUs. The bucket table is the artifact; the
+linear fit is not.
+
+### Incremental analysis: ~24x on FFmpeg
+
+Three arms, one idir, one variable. FFmpeg, 2,810 files, ~27,000 functions.
+
+| arm | wall | `analysis binary changed` |
+|---|---|---|
+| WARMUP (win64-analyzed idir, re-analyzed by linux64) | 863 s | **1** |
+| INCREMENTAL (same binary, nothing changed) | **35 s** | 0 |
+| FULL (`--force`) | 832 s | -- |
+
+- **Incremental is ~24x faster than full.**
+- **The cross-binary penalty equals a full analysis**: warmup 863 s vs force
+  832 s, within 4%. Gate 0 is now quantified, not merely inferred.
+- **The warmup arm was methodologically necessary.** Without it the experiment
+  compares warmup to force -- 863 vs 832, a ratio of **1.0** -- and concludes
+  incremental analysis does nothing. The first run under a new binary is forced
+  full, so it must be spent before measuring.
+
+### Incremental analysis does not show up in summary.txt
+
+LLVM T1 (first) and T2 (immediate re-analysis, zero changes) reported
+**identical** scope:
+
+```
+                   T1          T2
+Files analyzed     7172        7172
+Functions analyzed 1657265     1657265
+Paths analyzed     25836887    25836887
+Defects            9868        9868
+Time taken         18:22:16    01:11:26
+```
+
+**"Functions analyzed" describes the idir's scope, not work performed.** You
+cannot verify that incremental analysis engaged by reading the summary. The
+available signals are elapsed time and the *absence* of the binary-changed
+notice.
+
+T1's time is **contaminated** (host slept; see the wall-clock section) --
+reconstructed compute ~4.5 h. T2 at 4,292 s is clean, and its Coverity timer
+(01:11:26 = 4,286 s) agrees with the external clock to within 6 s, which is
+what honest agreement looks like.
+
+**Open:** LLVM's reconstructed incremental speedup is ~3.8x against FFmpeg's
+24x. Hypothesis, untested: the fixed cost of loading and walking the callgraph
+dominates at scale -- 1.66 M functions against 27 K. A clean `--force` run on
+the LLVM idir is queued to settle it.
+
 ## Limits of the evidence
 
 These are the boundaries of what has been measured, kept here so a claim's
