@@ -390,6 +390,51 @@ physical cores** (16 logical, SMT), a 15-28W mobile part that thermally
 throttles under sustained all-core load. WSL2 guest with 24GB RAM after the
 2026-08-25 reconfiguration. Only the ratios travel; absolute times do not.
 
+## Wall clock is not measurement on a machine that can sleep
+
+Learned the expensive way, 2026-08-25/26. Two independent timers agreed with
+each other and both were wrong.
+
+The LLVM first-analysis stage began at 21:13 and the host slept overnight.
+
+| source | reported | reality |
+|---|---|---|
+| driver's `date +%s` delta | 66,145 s (18.4 h) | calendar time |
+| Coverity's `Time taken by analysis` | **18:22:16** | calendar time |
+| reconstructed compute | **~4.5 h** | actual work |
+
+**`Time taken by analysis` in `summary.txt` is wall-clock and is corrupted by
+host suspension exactly as an external timer is.** It is not a safe fallback.
+Agreement between the two proved only that both measured the same wrong thing.
+
+Reconstruction used suspension-immune sources: guest `uptime` (which does not
+advance while suspended) minus the daytime stages, cross-checked against
+cumulative CPU time from `/proc/<pid>/stat` -- 30.1 CPU-hours, implying ~9.6
+cores busy, consistent with 16 workers on 8 SMT cores.
+
+**Rules adopted:**
+
+- For any run that may span an unattended window, record **CPU time**
+  (`utime+stime+cutime+cstime`) alongside wall clock. CPU time cannot advance
+  while suspended.
+- Prefer to schedule timed stages when someone is awake, or on a host that will
+  not idle. A measurement that needs an asterisk is worth less than a shorter
+  one that does not.
+- Treat agreement between two wall-clock sources as **no evidence at all** of
+  validity when both derive from the same clock.
+
+### A second, avoidable loss: the summary was overwritten
+
+The first-analysis figures were nearly lost outright. `summary.txt` is
+**rewritten by the next analysis of the same idir**, and the driver's grep did
+not include `Time taken by analysis`, so the value survived only because
+`cov-analyze` also prints it to stdout, which was being logged.
+
+- **Copy `output/summary.txt` aside the moment a stage finishes.** Do not
+  assume it will still be there.
+- Log analysis stdout to a file per stage; it carries figures the summary may
+  no longer hold.
+
 ## Limits of the evidence
 
 These are the boundaries of what has been measured, kept here so a claim's
