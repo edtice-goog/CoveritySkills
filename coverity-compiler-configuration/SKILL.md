@@ -216,6 +216,62 @@ done
 Repeated `cov-configure` calls against the same `--config` accumulate; each
 adds an `<include>`.
 
+## Wrappers: configure the prefix, never disable the wrapper
+
+`ccache`, `distcc`, `sccache`, `icecc`, and bespoke launcher scripts are what
+the build actually invokes — and build systems add them without being asked.
+CMake wires ccache in as a compiler launcher whenever a project asks for it
+and the binary is on `PATH`; pytorch does this out of the box, so a stock
+`cmake && ninja` build of it routes every compile through the wrapper.
+Coverity has a comptype for exactly this case:
+
+```bash
+cov-configure --config <cfg>/coverity_config.xml --template \
+  --compiler ccache --comptype prefix
+```
+
+`prefix` tells cov-translate that a `ccache ...` invocation *wraps* a
+compiler command line: the wrapper is stripped and the wrapped invocation is
+matched against the compiler configurations as usual. The prefix entry is in
+addition to the wrapped compilers' own entries, not a replacement for them.
+It generates `template-prefix-config-N/` — named for the *comptype*, not the
+compiler — and a capture that saw through the wrapper records
+`prefix-config-0` under `emit/<host>/config/<md5>/`.
+
+Confirm the comptype name against your installation (the umbrella skill's
+rule 4): `cov-configure --list-compiler-types` lists
+
+```
+prefix,<no-def-name>,C,FAMILY HEAD,Prefix to a compiler (e.g. ccache)
+```
+
+(confirmed on 2025.9.0, linux64-2025.12.2, and win64-2026.6.0).
+
+**Do not "solve" a wrapper by disabling it** — `CCACHE_DISABLE=1`, `CCACHE=`
+on the make line, or stripping the launcher from the build files. The
+umbrella skill's rule 32 owns the full argument; the short form: it changes
+the build under capture (removing a cache the team added deliberately — the
+exact perturbation `coverity-build-fidelity` exists to detect, imposed by
+hand), it turns routine capture intolerably slow on exactly the trees big
+enough to need a cache, and the "fix" does not transfer — CI and every
+colleague's machine still have the wrapper, while the next reader inherits
+cache-disabling as if it were a Coverity requirement.
+
+Nor is a warm cache a problem once the prefix is configured — capture drives
+`cov-emit` from the intercepted *invocation*, not from watching the real
+compiler run. Measured (rule 32's calibration entry, 2026.6.0): with the
+prefix configured and every compile a cache hit — the compiler never
+executed — capture was complete (2 of 2, adjudicated `CONSISTENT`). The same
+project with the wrapper *unconfigured* captured 0 of 2 fully warm, and,
+worse, 1 of 2 partially warm while reporting `Emitted 1 (100%) successfully`
+with no warning: only the cache miss was captured, because a miss execs the
+real compiler as a child that `cov-build` intercepts, and a hit execs
+nothing. A cold cache therefore makes an unconfigured wrapper *look* fine —
+corroborated at scale on a pytorch capture, where a cold-cache build with
+unconfigured ccache captured every TU — while the first warm rebuild
+silently drops to rule 9's partial-build shape, with the cache as the
+"nothing to do" agent.
+
 ## Verify after the build, not before
 
 Configuration correctness shows up in the capture, so check there:
@@ -224,9 +280,12 @@ Configuration correctness shows up in the capture, so check there:
   build"** near the end, and writes the same finding to
   `<idir>/scan-transparency/unconfigured-compilers`. Anything named there was
   invoked but not configured, and its translation units are missing from the
-  emit. An **empty** file means no compiler-shaped binary escaped
-  configuration; a **missing** `scan-transparency/` directory means the check
-  did not run, which is not the same as passing.
+  emit. An **empty** file is a real result for ordinary compilers — but it
+  does **not** clear wrappers: measured (rule 32's calibration entry), an
+  unconfigured ccache driving every compile was never named there, including
+  in a run that captured nothing. Reconcile wrapper handling against the
+  emitted-TU count, not this file. A **missing** `scan-transparency/`
+  directory means the check did not run, which is not the same as passing.
 - Compare emitted translation units against what the build actually compiled.
   Do not trust the headline percentage: the denominator includes the build
   system's own throwaway compilations (CMake `TryCompile`, `CompilerId`,
@@ -256,8 +315,12 @@ proving that wrapping the build in `cov-build` did not change its output.
    `arm-none-eabi-gcc`, not `gcc`.
 5. **Reusing a config directory after fixing the flags.** Stale probed configs
    persist; start fresh.
-6. **Assuming a wrapper is transparent.** `ccache`, `distcc`, `sccache` and
-   bespoke wrapper scripts are what the build actually invokes; they need
-   configuring or bypassing.
+6. **Assuming a wrapper is transparent — or disabling it instead of
+   configuring it.** `ccache`, `distcc`, `sccache` and bespoke wrapper
+   scripts are what the build actually invokes; configure them with
+   `--comptype prefix` (see "Wrappers" above; the umbrella skill's rule 32
+   has the measured behaviour). Disabling the cache changes the build under
+   capture, forces full recompiles, and an unconfigured wrapper only appears
+   to work while the cache is cold.
 7. **Treating `< 100%` capture as failure.** Reconcile against product
    translation units first.

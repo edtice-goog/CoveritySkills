@@ -409,7 +409,8 @@ failure list.*
   keep the idir rather than extracting only the JSON.
 - **Compiler wrappers.** `ccache`, `distcc`, and bespoke shell scripts appear
   in the recorded translate argv as what the build actually invoked, and must
-  be configured or bypassed on the replay side (rule 5).
+  be configured on the replay side too — as prefix compilers, never by
+  disabling the wrapper (rule 32).
 - **`-include` of build-time files**, and response files, which may have been
   temporary.
 - **A sysroot that upgraded underneath you.** Same `--sys_include` path, newer
