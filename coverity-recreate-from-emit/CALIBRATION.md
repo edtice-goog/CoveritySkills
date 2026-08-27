@@ -611,17 +611,21 @@ them.
 
 Consequences:
 
-- Do **not** quote "an order of magnitude" as a general incremental figure. It
-  holds for a small C project and does not hold for the kernel. Estimate from
-  the project's own callgraph size.
-- The "capture is the long pole, analysis is incremental" framing is sound at
-  FFmpeg scale and **weakens as projects grow**. At LLVM scale capture is
-  13,494 s and a no-op re-analysis is 4,292 s -- a third of it, not a rounding
-  error. Report both halves; do not let the capture saving stand for the whole.
-- Reuse pays most where the **callgraph is small enough that re-analysis is
-  cheap**, which is a different axis from "the build is slow". A project can
-  have both a slow build and a large callgraph, and get less from this than the
-  capture numbers alone suggest.
+- Do **not** quote a general incremental multiplier. It ranged from 24x to 2.7x
+  across three subjects on 2026.6.x. Whatever explains that spread, quoting one
+  number as typical is not supportable from this evidence.
+- **Do not attribute the spread to callgraph size.** That was the working
+  hypothesis and it is not established -- one of the three points is suspected
+  of being a version regression, which would undercut the trend it appeared to
+  support.
+- **Report both halves.** Whatever the analysis figure turns out to be, do not
+  let a capture saving stand for the whole improvement. At LLVM scale capture
+  was 13,494 s and a no-op re-analysis 4,292 s -- a third of it, not a rounding
+  error, and a user quoted only the capture number would be misled.
+- **Tell users to measure it themselves.** It is cheap -- analyze twice, compare
+  -- and it is the only figure that is true for their project, their version and
+  their checker configuration. This is more useful than any number this file
+  could carry, and it does not go stale.
 
 **Report the estimate; do not pronounce on acceptability.** Whether a given
 total is fast enough for a pre-commit hook, a pull-request gate, or only for a
