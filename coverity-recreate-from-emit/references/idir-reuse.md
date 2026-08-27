@@ -156,11 +156,17 @@ The Linux kernel numbers show the same result passing one bar and failing the
 other. Clean build **4 m 34 s**, full capture **17 m 34 s**, reuse **5 m 42 s**
 -- a 3.1x capture saving at 1.2x the clean build.
 
-- **As a PR check**: a good outcome. It replaces a 17-minute stage with a
-  6-minute one, on a machine nobody is sitting in front of.
-- **On the desktop**: still too slow. Nobody working on code runs a clean
-  build; they run an **incremental** one measured in seconds, and 5 m 42 s
-  stands between them and a commit they already believe in.
+- **As a PR check**: it replaces a 17-minute stage with a 6-minute one, on a
+  machine nobody is sitting in front of.
+- **On the desktop**: it is measured against a different baseline entirely --
+  the developer's incremental build, which is seconds, not the clean build.
+
+**Report both ratios and let the reader judge.** Whether 5 m 42 s is acceptable
+in front of a developer is not a question this skill can answer: it depends on
+the team, the codebase, and where in the SSDLC the check sits. A team for whom
+the full 17 minutes was impossible may find 6 routine; another may conclude the
+check belongs at merge time instead. Supply the numbers and the mechanism; the
+judgement is theirs.
 
 A common shape of work, though not everyone's: write code to confirm the
 strategy without worrying about edge cases; go back and clean it up; then, when

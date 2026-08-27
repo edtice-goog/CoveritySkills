@@ -611,18 +611,34 @@ them.
 Consequences:
 
 - Do **not** quote "an order of magnitude" as a general incremental figure. It
-  holds for a small C project and is false for the kernel.
-- At kernel scale a no-change re-analysis costs **6m36s**, before any capture.
-  That alone fails the desktop/inner-loop bar, regardless of how fast capture
-  becomes.
+  holds for a small C project and does not hold for the kernel. Estimate from
+  the project's own callgraph size.
 - The "capture is the long pole, analysis is incremental" framing is sound at
   FFmpeg scale and **weakens as projects grow**. At LLVM scale capture is
   13,494 s and a no-op re-analysis is 4,292 s -- a third of it, not a rounding
-  error.
-- Reuse therefore pays most where the **callgraph is small enough that
-  re-analysis is genuinely cheap**, which is not the same axis as "the build is
-  slow". A project can have a slow build and a large callgraph, and get less
-  from this than the capture numbers alone suggest.
+  error. Report both halves; do not let the capture saving stand for the whole.
+- Reuse pays most where the **callgraph is small enough that re-analysis is
+  cheap**, which is a different axis from "the build is slow". A project can
+  have both a slow build and a large callgraph, and get less from this than the
+  capture numbers alone suggest.
+
+**Report the estimate; do not pronounce on acceptability.** Whether a given
+total is fast enough for a pre-commit hook, a pull-request gate, or only for a
+later stage of the SSDLC depends on the team, the codebase and the process --
+none of which this skill can see. The useful output is the *relative*
+improvement plus both absolute halves, so the reader can decide.
+
+Worked example, the kernel, using measured numbers:
+
+| | capture | analysis | total |
+|---|---|---|---|
+| full rebuild + full analysis | 17m34s | ~20m | **~37 min** |
+| reuse + incremental analysis | 5m42s | 6m36s | **~12 min** |
+
+Roughly **3x on total time**. A team for whom 37 minutes was impossible may
+find 12 minutes routine; another may need it under a minute and conclude this
+belongs later in the pipeline. Both are legitimate readings of the same
+measurement, and the skill's job is to supply the measurement.
 
 ### Kernel run details
 
