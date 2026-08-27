@@ -694,6 +694,77 @@ configuration, not a discrepancy -- the shipped run used `--all --rule
 defaults (631). Notably the *times* are close despite 41 more checkers, so
 checker count is not the dominant cost.
 
+## CORRECTNESS: reuse produced identical results to a fresh capture
+
+The result the technique stands or falls on, measured 2026-08-27. Speed is
+irrelevant if the answer differs.
+
+**The test**, as specified by the repository owner: analyze an older tag, pull
+the idir forward to a later commit, analyze again -- then independently
+full-build and analyze the later tag, and check the two agree.
+
+Subject: **proftpd v1.3.8 -> v1.3.9**, a real release delta of **443 files, 186
+of them `.c`** against a 90-TU emit. Not a token edit. All three arms ran in the
+**same directory**, so capture paths were identical and path normalization was
+removed as a variable.
+
+| arm | files | functions | defects |
+|---|---|---|---|
+| 1. full capture + analyze at v1.3.8 (reference) | 149 | 2,088 | 148 |
+| 2. rolled to v1.3.9, **idir reused**, incremental capture | 149 | 2,102 | **147** |
+| 3. independent clean capture + analyze at v1.3.9 (oracle) | 149 | 2,102 | **147** |
+
+```
+in both: 147    only in reused: 0    only in oracle: 0
+VERDICT: IDENTICAL
+```
+
+Arm 1's 148 defects independently reproduces a figure recorded in an earlier,
+unrelated session ("proftpd v1.3.8: 148 occurrences"), from a fresh clone,
+configure and capture.
+
+### The staleness gate flipped correctly
+
+Same tool, same idir, either side of the incremental capture:
+
+```
+BEFORE:  OK 34   STALE 56   -> STALE,   do not analyze   (rc 1)
+AFTER :  OK 90   STALE  0   -> CURRENT, safe to analyze  (rc 0)
+```
+
+The capture re-emitted exactly the 56 stale TUs and left the other 34 alone.
+Zero false `ORPHAN`, zero false `PATH_DIVERGED`.
+
+### Every guard fired, and one caught a real error
+
+- **TU floor**: 90 TUs in all three arms.
+- **Build-log scan**: zero `exited with code` / `make: ***`.
+- **Parse cross-check**: 147 parsed against 147 in `summary.txt`, both sides.
+- **Self-test**: removing one finding was DETECTED -- the oracle demonstrated
+  it could disagree before it was allowed to agree.
+- **The TU floor caught my own error.** The first run omitted `--config` from
+  `cov-build`. The build exited 0, logged no failures, and captured **zero
+  TUs**; nothing in the output said anything was wrong. Rule 1 is not optional,
+  and a percentage of nothing is still 100%.
+
+### What this does NOT establish
+
+Scope honestly:
+
+- **C, not C++.** proftpd is C. Header-carried code and template instantiation
+  are the interesting cases and are untested here.
+- **Small.** 90 TUs. Nothing about behaviour at LLVM or Chromium scale.
+- **One build system.** autoconf/make. Not ninja, not MSBuild.
+- **No path divergence.** All arms shared a directory *deliberately*. The
+  imported-idir case, where the reference records another machine's roots, is
+  untested by this run.
+- **Fast-forward only.** This is the tag-to-tag case. The *Local update* case
+  -- uncommitted working-tree changes -- is not covered.
+- **One delta, one project.** A single pass, not a distribution.
+
+The C++/scale version is `benchmarks/exp-partb.sh`, which has both arms and has
+not yet run to completion.
+
 ## Limits of the evidence
 
 These are the boundaries of what has been measured, kept here so a claim's
