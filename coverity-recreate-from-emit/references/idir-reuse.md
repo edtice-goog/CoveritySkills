@@ -204,6 +204,48 @@ a clean capture on a fast machine. Hardware does not fix a workflow problem: a
 17-minute capture on a 4x faster box is still four minutes, and four minutes is
 still too long to sit in front of.
 
+### Estimating the analysis half: predict a range, then measure
+
+Capture is only half the cost. Give the user a defensible estimate of the
+analysis half **before** committing them to the work, then replace the estimate
+with a measurement if they decide to proceed.
+
+**The prediction.** A re-analysis of a reused idir will *most likely* take
+**one third to one tenth** of a full analysis of the same project -- a 3x to
+10x speedup. State it as a range and as a likelihood, not as a number.
+
+```
+full analysis of this project:      T_full   (measure once, or take it from CI)
+predicted re-analysis:              T_full/10  ..  T_full/3
+predicted total per iteration:      incremental capture + that range
+```
+
+**Then let the user decide, and only then measure.** If the predicted total is
+not worth pursuing for their workflow, stop -- the estimate has done its job
+and cost minutes. If it is worth pursuing, **measure it on the actual code**,
+because the prediction is a prior and their project is the evidence:
+
+```bash
+# T_full: full analysis
+cov-analyze --dir <idir> --force
+
+# T_incr: immediate re-analysis, nothing changed
+cov-analyze --dir <idir>
+```
+
+The second run must use the **same analysis binary** as the first, or the cache
+is discarded and you measure two full analyses (Gate 0). Report `T_full/T_incr`
+and the absolute figures.
+
+**Why a range rather than a figure.** Measured across three subjects on
+2026.6.x, the ratio spanned **24x, 3.0x and 2.7x**. That spread is not
+explained -- one point is suspected of being a version-specific regression --
+so any single multiplier quoted as typical would be misleading. The 3x-10x band
+is a working prior, and it is worth exactly as much as a prior: it decides
+whether to spend an hour finding out, not what to put in a report.
+
+Report the measured number, never the predicted one, once you have it.
+
 ### The break-even point
 
 The saving is proportional to how *small* the delta is. Past some fraction of
