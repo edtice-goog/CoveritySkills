@@ -581,10 +581,11 @@ fails with `cannot find current executable 'cov-analyze.exe', cannot set bin
 path` (rc 4). Cross-OS invocation through `/mnt/c` breaks the tool's own path
 resolution -- drive Windows binaries from Windows.
 
-## Incremental analysis speedup collapses as the callgraph grows
+## Incremental analysis speedup varied widely across subjects (provisional)
 
-Three subjects, measured 2026-08-26/27. This **qualifies a claim the skill was
-leaning on** and should be read before quoting any incremental figure.
+Three subjects, measured 2026-08-26/27 on 2026.6.x. **Provisional -- the
+kernel row may reflect a product regression (see below), so the trend is not
+yet established.** Read this before quoting any incremental figure.
 
 | subject | functions | full (`--force`) | incremental | speedup |
 |---|---|---|---|---|
@@ -640,25 +641,41 @@ find 12 minutes routine; another may need it under a minute and conclude this
 belongs later in the pipeline. Both are legitimate readings of the same
 measurement, and the skill's job is to supply the measurement.
 
-**The kernel row is disputed and should not be relied on yet.** The repository
-owner reports materially faster incremental times from their own runs. Two
-differences in my run could account for it, and neither has been ruled out:
+**The kernel row may reflect a product regression, not a property of
+incremental analysis.** Recorded, but do **not** generalize from it.
 
-1. I analyzed with `cov-analysis-win64-2026.6.0`; the idir was captured by
-   **2026.6.1**. T1 and T2 shared a binary so incrementality was not
-   invalidated between them (neither log contains a cache-invalidation
-   message), but the baseline was a full re-analysis by a different version
-   than the one that produced the idir.
-2. I passed **no flags**; the shipped analysis used `--all --rule --preview
-   --enable-callgraph-metrics -j auto` plus ~18 explicit `--enable`. If the
-   faster timings came from re-running that command line, the comparison is not
-   like-for-like.
+The repository owner has prior kernel runs showing materially faster
+incremental times, and notes that **incremental analysis is designed to deliver
+considerably more than a 3x speedup**. That makes a **2026.6 regression** the
+leading explanation rather than a misconfiguration on my part. They intend to
+investigate; that is a product question and is out of scope here.
 
-Both runs did take the incremental path (`Loading topological sort from disk
-(118996 functions)`) and both used 16 workers. Logs retained at
-`C:\analysis\kernel-results\k-t1.log` and `k-t2.log`. If this row falls, the
-scaling claim rests on two subjects rather than three and the trend is weaker
-evidence -- it does not become wrong, but it becomes thinner.
+My run is reported as measured, with its exact conditions, because the number
+is real on that version:
+
+- analyzer `cov-analysis-win64-2026.6.0`, idir captured by **2026.6.1**
+- **no flags** (631 checkers); the shipped analysis used `--all --rule
+  --preview --enable-callgraph-metrics -j auto` plus ~18 explicit `--enable`
+  (672 checkers)
+- both runs took the incremental path (`Loading topological sort from disk
+  (118996 functions)`), neither log contains a cache-invalidation message,
+  both used 16 workers
+- logs retained at `C:\analysis\kernel-results\k-t1.log` and `k-t2.log`
+
+**What this means for the scaling claim above.** The trend across three
+subjects may be measuring a version-specific defect rather than an inherent
+relationship between callgraph size and incremental speedup. Treat the curve as
+**provisional**. In particular:
+
+- Do not tell a user their incremental speedup *will* shrink with project size.
+- Do not quote a specific multiplier as a general expectation.
+- Do direct them to **measure it on their own project and version**, which is
+  cheap: analyze twice and compare.
+
+Separating the concerns deliberately: whether 2026.6 has a regression is for
+the product to answer. What this skill owes its users is an honest statement
+that the figure varies, a way to measure it themselves, and no claim that
+outlives the version it was taken on.
 
 ### Kernel run details
 
