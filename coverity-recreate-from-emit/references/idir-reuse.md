@@ -306,6 +306,24 @@ heuristic is worth avoiding when a shared mount point would have made it
 unnecessary.
 
 
+### Step 0 for any imported idir: reset the host name
+
+Before any gate, if the idir was captured on a **different machine**, reset its
+host stamp or nothing else will work:
+
+```bash
+cov-manage-emit --dir <reference-idir> reset-host-name
+```
+
+Without it, `cov-manage-emit list-json` reports **zero TUs** -- no error, just
+an empty answer -- and `cov-analyze` exits 2 telling you to run exactly this.
+Measured: a kernel idir went from 0 to 3,779 TUs across that one command. See
+`coverity/references/idir-anatomy.md`.
+
+This is separate from Gate 0. Gate 0 is about the *analysis cache* not
+surviving a platform change; this is about the *emit* not being readable at all
+on a different host. An imported idir routinely needs both dealt with.
+
 ### Gate 1: the build system must track header dependencies
 
 The procedure hands the "what does this change affect?" question to the build

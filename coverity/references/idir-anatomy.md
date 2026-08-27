@@ -212,6 +212,44 @@ functions served by `builtin-models.db`.
 `cov-manage-emit list-json`. Testing the JSON `file` path answers a different
 and weaker question, and gives a wrong answer for any header-defined function.
 
+### The emit is stamped with the capturing host, and that blocks import
+
+`emit/<HOST>/` is not decoration. `<HOST>` is the machine that ran the capture,
+and a **different** machine will refuse to read the idir until it is reset:
+
+```
+Please run
+    cov-manage-emit --dir <intermediate-directory> reset-host-name
+```
+
+Measured 2026-08-27 on a Linux-kernel idir captured on `sig-os003039191` and
+opened on `BD-46312`:
+
+| | before | after |
+|---|---|---|
+| `emit/<HOST>/` | `sig-os003039191` | `BD-46312` |
+| `cov-manage-emit list-json` TUs | **0** | **3779** |
+| `cov-analyze` | **rc 2** | runs |
+
+The fix is one command and takes seconds:
+
+```bash
+cov-manage-emit --dir <idir> reset-host-name
+```
+
+**Two traps worth knowing.**
+
+*It fails quietly in the wrong place.* `list-json` returned **zero TUs** rather
+than an error, so a script that counts TUs sees an empty idir and reports it as
+such. The clear diagnostic appears only when `cov-analyze` runs. If an imported
+idir looks empty, suspect the host stamp before suspecting the capture.
+
+*It is not the same as the analysis-binary check.* That one invalidates the
+incremental **cache** and still produces correct results; this one **blocks
+reading the emit at all**. An idir moved between machines may need both
+addressed: `reset-host-name` to open it, and a full analysis because the cache
+does not travel.
+
 ## Incremental analysis, and the one message that explains a slow run
 
 `cov-analyze` is incremental by default: an idir that already carries analysis
