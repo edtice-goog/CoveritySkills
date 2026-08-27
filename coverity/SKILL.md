@@ -162,8 +162,10 @@ shape of it:
 2. **Method A -- the capture inventory.** Ask Coverity what it has:
    `coverity list`, backed by `cov-manage-emit list-capture-diagnostics`.
 3. **Method B -- scan transparency.** Read `idir/scan-transparency/`, which
-   is derived from watching the build's process tree rather than from the
-   emit database, and is therefore genuinely independent evidence.
+   is written by the capture's own compiler-detection heuristic rather than
+   derived from the emit database, and is therefore genuinely independent
+   evidence -- with measured blind spots of its own (it never names compiler
+   wrappers; rule 32).
 
 Then adjudicate. **Method C must be produced and written down first**, because
 it is the only one of the three that can be contaminated: once you have read

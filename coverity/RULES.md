@@ -1107,9 +1107,17 @@ independent expectation catches it, which is why the check is three methods
 and not one. The adjudication graded it `SHORTFALL` (2/1/1/1) and named
 compiler-cache hits among the causes.
 
-So the check that is worth doing is the compilation-unit count against an
-expectation formed independently of the idir — Method C — not a glance at
-`unconfigured-compilers`.
+So no single signal can answer "were there unconfigured compilers?", and
+the wrapper case is where substituting one signal for another goes wrong in
+both directions. `unconfigured-compilers` is a deterministic heuristic whose
+mechanism is undocumented, with measured blind spots (wrappers here; the
+phantom and true-positive entries in rule 14). The emit-side diagnostics
+(`coverity list`, `cov-manage-emit list-capture-diagnostics`) see only what
+reached the emit. An independent expectation of what should have compiled
+sees neither. Run all three **independently** — never letting one stand in
+for another — and reconcile per rule 2: an unhandled wrapper then surfaces
+as the specific disagreement *Method B clean while Methods A and C fall
+short*, and the adjudication, not any single method, renders the verdict.
 
 Source: measured — the three-way cache-state comparison and the empty
 `unconfigured-compilers` result are the rule 32 entry in `CALIBRATION.md`

@@ -283,9 +283,14 @@ Configuration correctness shows up in the capture, so check there:
   emit. An **empty** file is a real result for ordinary compilers — but it
   does **not** clear wrappers: measured (rule 32's calibration entry), an
   unconfigured ccache driving every compile was never named there, including
-  in a run that captured nothing. Reconcile wrapper handling against the
-  emitted-TU count, not this file. A **missing** `scan-transparency/`
-  directory means the check did not run, which is not the same as passing.
+  in a run that captured nothing. So never let this file alone close the
+  question: it is one of the three independent signals in the umbrella
+  skill's capture-fidelity check — alongside the emit inventory and an
+  independently-formed expectation — and an unhandled wrapper surfaces as
+  their *disagreement* (this file clean, the other two short), resolved by
+  the adjudication rather than by any single signal. A **missing**
+  `scan-transparency/` directory means the check did not run, which is not
+  the same as passing.
 - Compare emitted translation units against what the build actually compiled.
   Do not trust the headline percentage: the denominator includes the build
   system's own throwaway compilations (CMake `TryCompile`, `CompilerId`,
