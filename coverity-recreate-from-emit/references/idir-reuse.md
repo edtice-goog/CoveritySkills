@@ -764,6 +764,36 @@ The technique is only trustworthy because it can be checked. Build the same
 working tree with a **full clean capture** and compare -- once, when
 calibrating on a new project or build system, not on every iteration.
 
+**Use `tools/compare_analyses.py`; do not hand-roll this.**
+
+```bash
+python3 tools/compare_analyses.py --a <reused-idir> --b <oracle-idir> --self-test
+```
+
+It keys each `<error>` on `(checker, subtype, normalized file, function,
+event-shape)`, normalizes capture roots, and prints what is in one side and not
+the other. Comparing `summary.txt` **totals is not sufficient** -- a defect
+appearing in one place while another vanishes leaves the total unchanged, and
+that is precisely the error this procedure could introduce.
+
+Two traps that make a hand-written comparison worse than none, both measured:
+
+- **`output/<CHECKER>.errors.xml` is not well-formed XML.** It is a
+  *concatenation* of `<error>` elements with no single root, so a standard XML
+  parser fails with `junk after document element` on nearly every file. Wrap
+  the content in a synthetic root before parsing.
+- **A non-empty result is not proof the parse worked.** With the broken parser
+  above, only files containing a *single* `<error>` parsed -- accidentally
+  well-formed -- yielding **5 defects out of 1,209** and a confident
+  `IDENTICAL`. A small non-empty set clears a naive "did we get anything?"
+  check and is more dangerous than an empty one. `compare_analyses.py`
+  therefore cross-checks its parse count against `Defect occurrences found` in
+  `summary.txt` and **refuses to render a verdict** if they disagree.
+
+Always pass `--self-test`. It removes one real finding and asserts the
+comparison notices; a verdict from an oracle that has not demonstrated it can
+disagree is worth nothing.
+
 Measured on the proftpd fast path, reference idir vs surgically updated vs
 full recapture of the working tree:
 

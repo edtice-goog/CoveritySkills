@@ -55,9 +55,18 @@ python3 /mnt/c/Data/CoveritySkills/coverity-recreate-from-emit/tools/model_prove
   --dir /home/etice/llvm-idir-reuse --tree $SRC > $R/R-provenance.log 2>&1
 tail -12 $R/R-provenance.log | sed "s/^/        /" | tee -a $R/RESULTS.txt
 
-say "=== [6] REUSED vs ORACLE"
+say "=== [6] REUSED vs ORACLE -- the question that decides whether this works"
 echo "      reused:" | tee -a $R/RESULTS.txt; sums /home/etice/llvm-idir-reuse | tee -a $R/RESULTS.txt
 echo "      oracle:" | tee -a $R/RESULTS.txt; sums /home/etice/llvm-idir-timed | tee -a $R/RESULTS.txt
+# Summary totals are NOT the verdict: a defect appearing in one place while
+# another vanishes leaves the total unchanged. Compare the defect SETS.
+say "    defect-set comparison (--self-test proves the oracle can disagree)"
+python3 /mnt/c/Data/CoveritySkills/coverity-recreate-from-emit/tools/compare_analyses.py \
+    --a /home/etice/llvm-idir-reuse --b /home/etice/llvm-idir-timed --self-test \
+    > $R/R-compare.log 2>&1
+rcc=$?
+say "    compare rc=$rcc  (0=identical 1=different 2=REFUSED/unsound)"
+tail -30 $R/R-compare.log | sed "s/^/        /" | tee -a $R/RESULTS.txt
 
 ########## ARM 2 -- the desktop cohort, the harder bar
 say "=== [7] INNER LOOP: 3 edited files, vs the incremental build"
