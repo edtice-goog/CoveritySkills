@@ -532,6 +532,55 @@ what honest agreement looks like.
 dominates at scale -- 1.66 M functions against 27 K. A clean `--force` run on
 the LLVM idir is queued to settle it.
 
+## `df` inside WSL does not measure available space
+
+Cost a multi-hour run on 2026-08-26/27. Recorded because the number looks
+authoritative and is checked reflexively.
+
+A WSL2 guest's root filesystem lives in a **sparse `ext4.vhdx` on the host
+drive**. `df` reports the vhdx's *virtual* size -- 1 TB here -- not the host's
+free space. The guest cannot see the host disk at all.
+
+Observed at the moment WSL failed to start:
+
+```
+df -h / inside WSL :  830 GB free      <- virtual, meaningless
+C: actual free     :  2.69 GB          <- the real constraint
+ext4.vhdx          :  167.8 GB
+```
+
+The failure mode is not a clean "disk full" error. It was
+`Wsl/Service/CreateInstance/E_FAIL, error code 6` on **every** subsequent
+`wsl` invocation, with all running work killed. Diagnosing it from inside the
+guest is impossible, because the guest is what stopped starting.
+
+**Two rules:**
+
+1. When sizing work on WSL, check the **host** drive
+   (`Get-PSDrive C`), never `df` inside the guest. Budget against host free
+   space minus a safety margin.
+2. **Deleting files inside the guest returns nothing to the host.** The vhdx
+   does not shrink on its own. Reclaiming requires compaction, which needs
+   elevation:
+
+   ```
+   wsl --shutdown
+   diskpart> select vdisk file="<path>\ext4.vhdx"
+             attach vdisk readonly
+             compact vdisk
+             detach vdisk
+   ```
+
+   Do **not** use `wsl --manage <distro> --set-sparse true --allow-unsafe` as a
+   shortcut. WSL disables that path by default for **potential data
+   corruption**, and an idir is exactly the kind of large artifact you cannot
+   cheaply rebuild.
+
+Related trap, same session: a Windows Coverity binary invoked *from inside WSL*
+fails with `cannot find current executable 'cov-analyze.exe', cannot set bin
+path` (rc 4). Cross-OS invocation through `/mnt/c` breaks the tool's own path
+resolution -- drive Windows binaries from Windows.
+
 ## Limits of the evidence
 
 These are the boundaries of what has been measured, kept here so a claim's
