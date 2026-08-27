@@ -212,43 +212,58 @@ functions served by `builtin-models.db`.
 `cov-manage-emit list-json`. Testing the JSON `file` path answers a different
 and weaker question, and gives a wrong answer for any header-defined function.
 
-### The emit is stamped with the capturing host, and that blocks import
+### `emit/<HOST>/` is for distributed capture, and it surprises single-host users
 
-`emit/<HOST>/` is not decoration. `<HOST>` is the machine that ran the capture,
-and a **different** machine will refuse to read the idir until it is reset:
+Not a stamp, a lock, or a guard. The per-host subdirectory exists so that a
+**distributed build system** -- Electric Cloud and the like -- can run many
+agents capturing **in parallel into one network-mounted intermediate
+directory**. Each agent writes only under its own hostname, so no agent ever
+writes where another might, and Coverity does not have to synchronize writes
+across the fleet. That matters because the alternative is either a locking
+scheme that can be subtly wrong, or one that slows down the build itself --
+and slowing the build is the thing nobody will accept.
 
+At the end of a distributed capture the per-host emits are merged:
+
+```bash
+cov-manage-emit --dir <idir> add-other-hosts
 ```
-Please run
-    cov-manage-emit --dir <intermediate-directory> reset-host-name
-```
 
-Measured 2026-08-27 on a Linux-kernel idir captured on `sig-os003039191` and
+**The consequence for ordinary single-host use.** The tools look under *this*
+machine's hostname. An idir captured elsewhere has its data filed under the
+*capturing* agent's name, so the local tool looks for a directory that is not
+there. Measured 2026-08-27, a kernel idir captured on `sig-os003039191` and
 opened on `BD-46312`:
 
-| | before | after |
+| | before | after `reset-host-name` |
 |---|---|---|
 | `emit/<HOST>/` | `sig-os003039191` | `BD-46312` |
-| `cov-manage-emit list-json` TUs | **0** | **3779** |
+| `cov-manage-emit list-json` | **0 TUs** | **3779 TUs** |
 | `cov-analyze` | **rc 2** | runs |
 
-The fix is one command and takes seconds:
+The fix takes seconds:
 
 ```bash
 cov-manage-emit --dir <idir> reset-host-name
 ```
 
-**Two traps worth knowing.**
+**Why `list-json` returns zero instead of erroring.** Because "this host
+captured nothing" is a *legitimate* state in a distributed build -- an agent
+that was assigned no work has an empty emit of its own. The tool is answering
+correctly for the feature it was designed around. It only looks like a silent
+failure when you assume one host. So an imported idir that reports **0 TUs is
+far more likely to have a hostname mismatch than an empty capture**; check that
+before suspecting the capture. `cov-analyze` is the command that names the
+problem outright.
 
-*It fails quietly in the wrong place.* `list-json` returned **zero TUs** rather
-than an error, so a script that counts TUs sees an empty idir and reports it as
-such. The clear diagnostic appears only when `cov-analyze` runs. If an imported
-idir looks empty, suspect the host stamp before suspecting the capture.
+This is a clean example of an advanced capability complicating the simple case:
+the design is right for parallel capture at scale, and it produces a confusing
+zero for the developer who just copied an idir from a colleague.
 
-*It is not the same as the analysis-binary check.* That one invalidates the
-incremental **cache** and still produces correct results; this one **blocks
-reading the emit at all**. An idir moved between machines may need both
-addressed: `reset-host-name` to open it, and a full analysis because the cache
-does not travel.
+**Not the same as the analysis-binary check.** That invalidates the incremental
+*cache* -- results stay correct, they just cost full price. This one prevents
+the emit from being read at all. An idir moved between machines routinely needs
+both dealt with.
 
 ## Incremental analysis, and the one message that explains a slow run
 

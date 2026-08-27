@@ -316,13 +316,22 @@ cov-manage-emit --dir <reference-idir> reset-host-name
 ```
 
 Without it, `cov-manage-emit list-json` reports **zero TUs** -- no error, just
-an empty answer -- and `cov-analyze` exits 2 telling you to run exactly this.
-Measured: a kernel idir went from 0 to 3,779 TUs across that one command. See
+an empty answer -- and `cov-analyze` exits 2 naming this command. Measured: a
+kernel idir went from 0 to 3,779 TUs across it.
+
+The zero is not a bug. `emit/<HOST>/` exists so a **distributed** build can have
+many agents capturing in parallel into one network-mounted idir without
+synchronizing writes, and "this host captured nothing" is a legitimate answer
+there. The tools look under *your* hostname; an imported idir has its data
+filed under the capturing agent's. Full explanation in
 `coverity/references/idir-anatomy.md`.
 
+Practical rule: **an imported idir reporting 0 TUs almost certainly has a
+hostname mismatch, not an empty capture.** Check that first.
+
 This is separate from Gate 0. Gate 0 is about the *analysis cache* not
-surviving a platform change; this is about the *emit* not being readable at all
-on a different host. An imported idir routinely needs both dealt with.
+surviving a platform change -- correct results, full price. This is about the
+emit not being readable at all. An imported idir routinely needs both.
 
 ### Gate 1: the build system must track header dependencies
 
