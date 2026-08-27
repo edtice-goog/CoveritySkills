@@ -589,7 +589,7 @@ leaning on** and should be read before quoting any incremental figure.
 | subject | functions | full (`--force`) | incremental | speedup |
 |---|---|---|---|---|
 | FFmpeg | 27,008 | 832 s | 35 s | **24x** |
-| Linux kernel | 82,675 | 1,176 s | 396 s | **3.0x** |
+| Linux kernel | 82,675 | 1,176 s | 396 s | **3.0x** *(disputed -- see below)* |
 | LLVM + clang | 1,657,265 | 11,655 s | 4,292 s | **2.7x** |
 
 Per-function cost shows the mechanism:
@@ -639,6 +639,26 @@ Roughly **3x on total time**. A team for whom 37 minutes was impossible may
 find 12 minutes routine; another may need it under a minute and conclude this
 belongs later in the pipeline. Both are legitimate readings of the same
 measurement, and the skill's job is to supply the measurement.
+
+**The kernel row is disputed and should not be relied on yet.** The repository
+owner reports materially faster incremental times from their own runs. Two
+differences in my run could account for it, and neither has been ruled out:
+
+1. I analyzed with `cov-analysis-win64-2026.6.0`; the idir was captured by
+   **2026.6.1**. T1 and T2 shared a binary so incrementality was not
+   invalidated between them (neither log contains a cache-invalidation
+   message), but the baseline was a full re-analysis by a different version
+   than the one that produced the idir.
+2. I passed **no flags**; the shipped analysis used `--all --rule --preview
+   --enable-callgraph-metrics -j auto` plus ~18 explicit `--enable`. If the
+   faster timings came from re-running that command line, the comparison is not
+   like-for-like.
+
+Both runs did take the incremental path (`Loading topological sort from disk
+(118996 functions)`) and both used 16 workers. Logs retained at
+`C:\analysis\kernel-results\k-t1.log` and `k-t2.log`. If this row falls, the
+scaling claim rests on two subjects rather than three and the trend is weaker
+evidence -- it does not become wrong, but it becomes thinner.
 
 ### Kernel run details
 
