@@ -145,16 +145,28 @@ coverity-recreate-from-emit/
 ├── references/
 │   ├── transformation-probe.md       # the method, the normalization set, why the control
 │   ├── invocation-anatomy.md         # what list-capture-invocations contains
-│   ├── idir-reuse.md                 # reuse: gates, routing, stale-TU rule
-│   ├── triage-verdicts.md            # global invariants, heuristic misfires,
-│   │                                 #   and how to make a dismissal falsifiable
-│   ├── worked-example-proftpd.md     # the calibration session, with the numbers
-│   └── worked-example-fp-audit.md    # a real triage pass: 3 of 9 sampled
-│                                     #   defects were false positives
-└── tools/
-    └── emit_probe.py                 # pure stdlib; identify / extract / probe /
-                                      #   delta / replay / reconcile
+│   ├── idir-reuse.md                 # reuse: three gates, routing, stale-TU rule,
+│   │                                 #   capture cost, and the two cohort yardsticks
+│   ├── target-state.md               # bringing an idir current WITHOUT known
+│   │                                 #   provenance: extract-files, what the
+│   │                                 #   recorded hash is and is not
+│   ├── corporate-tls.md              # TLS-inspecting proxies: four trust stores,
+│   │                                 #   and the two that fail silently
+│   └── worked-example-proftpd.md     # the calibration session, with the numbers
+├── tools/
+│   ├── emit_probe.py                 # identify / extract / probe / delta /
+│   │                                 #   replay / reconcile
+│   ├── staleness.py                  # pre-analysis gate: OK / STALE / ORPHAN / ...
+│   ├── model_provenance.py           # post-analysis: where models came from
+│   │                                 #   (PROVISIONAL - see its docstring)
+│   ├── build_targets.py              # detect and strip build targets in one idir
+│   ├── check_prerequisites.py        # the coverity.yaml gate
+│   └── estimate_from_connect.py      # cost estimate from snapshot history
+└── benchmarks/                       # the harness that produced CALIBRATION's
+                                      #   numbers, and the traps it encodes
 ```
+
+All tools are pure standard library.
 
 Status (A): **validated end to end** — probe, control, replay, reconciliation
 and analysis, against a real archived idir written fifteen months earlier by a
