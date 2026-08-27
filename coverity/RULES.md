@@ -1087,12 +1087,18 @@ wrapper was seen through. **The failure mode is the missing prefix
 configuration, not the cache** — which is exactly why clearing the cache is
 the wrong fix, and why it would have "worked" for the wrong reason.
 
-**`unconfigured-compilers` does NOT catch a missing prefix configuration.**
-Measured on 2026.6.0 with `--gcc` only and `CC = ccache gcc`: the file was
-**empty** on every run, including ones that captured nothing at all. `ccache`
-ran as the compiler driver, was unconfigured, and was never named. So Method B
-is blind to exactly the failure this rule is about, and an empty file is not
-evidence that the wrapper was handled.
+**`unconfigured-compilers` is not guaranteed to catch a missing prefix
+configuration.** Measured on 2026.6.0 with `--gcc` only and `CC = ccache
+gcc` under gmake: the file was **empty** on every run, including ones that
+captured nothing at all — `ccache` ran as the compiler driver, was
+unconfigured, and was never named. Measured on 2025.12.2 with ninja invoking
+`/usr/bin/ccache /usr/bin/clang++` by full path: the file's sole entry was
+`/usr/bin/ccache`. Which behaviour you get is not predictable from
+documentation (candidate variables: invocation by bare name vs full path,
+build tool, version — unresolved), so use the asymmetry: a named wrapper is
+a genuine signal to act on; an **empty file is not evidence the wrapper was
+handled**, and only the three-method reconciliation below can close the
+question.
 
 What the unconfigured wrapper actually looks like, same project both ways:
 

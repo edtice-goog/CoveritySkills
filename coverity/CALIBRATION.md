@@ -425,6 +425,18 @@ reported as evidence that nothing was ignored, duplicated, or filtered.
     the wrapper was seen through. The failure mode is the missing prefix
     configuration, not the cache -- so clearing the cache would have
     "worked" for the wrong reason.
+  - **Counter-measurement: the Method B blindness is not universal.**
+    linux64-2025.12.2, pytorch v2.13.0 under ninja, CMake's ccache launcher
+    invoking `/usr/bin/ccache /usr/bin/clang++ ...` by full path, ccache
+    unconfigured, cache cold, ~1700 compile commands:
+    `unconfigured-compilers` contained exactly one line, `/usr/bin/ccache`,
+    and capture proceeded anyway via the wrapper's child compiler processes
+    (all cache misses). So the same file that stayed empty above named the
+    wrapper here. Setup differences that could explain it -- full-path vs
+    bare-name invocation, ninja vs gmake, 2025.12.2 vs 2026.6.0 -- were not
+    isolated. The documented takeaway is the asymmetry only: a named
+    wrapper is a genuine signal; an empty file proves nothing about
+    wrappers.
 
 - **Rule 33 -- the commit-side staleness check, measured live.** Coverity
   Connect at `http://localhost:8080` (HTTP, port 8080 -- the target the user
@@ -503,13 +515,14 @@ the three methods' actual output recorded, in the style of
    gives status `Failed` with 12 code lines -- the only sighting of `Failed`
    in any run so far. Method B stayed silent.
 5. ~~**Compiler cache.**~~ **DONE** -- see the ccache entry above. Method B
-   does **not** notice: `unconfigured-compilers` was empty on every run,
+   did **not** notice there: `unconfigured-compilers` was empty on every run,
    including one that captured nothing. The rule 32 claim that a warm cache
-   is harmless once the prefix is configured is now measured, not assumed. Lower priority now: the
-   incremental-build measurement above establishes the *shape* of a
-   build-never-compiled-it hole (silent, 100%, `failures = 0`). What remains
-   specific to `ccache` is whether the wrapper additionally appears in
-   `unconfigured-compilers`.
+   is harmless once the prefix is configured is now measured, not assumed.
+   The residual question -- whether the wrapper can also *appear* in
+   `unconfigured-compilers` -- is now answered **yes, sometimes**: see the
+   counter-measurement bullet in the ccache entry (2025.12.2, ninja,
+   full-path invocation named `/usr/bin/ccache`). Which setup variable
+   controls it remains unisolated.
 
 6. ~~**Stale idir.**~~ **DONE** -- see the stale-source entry above. It
    populates on a CLI-captured idir and does **not** on a `cov-build` one,

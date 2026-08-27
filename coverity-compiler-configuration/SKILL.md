@@ -283,7 +283,9 @@ Configuration correctness shows up in the capture, so check there:
   emit. An **empty** file is a real result for ordinary compilers — but it
   does **not** clear wrappers: measured (rule 32's calibration entry), an
   unconfigured ccache driving every compile was never named there, including
-  in a run that captured nothing. So never let this file alone close the
+  in a run that captured nothing — though on another setup the same file
+  *did* name the wrapper, so a named wrapper is a real signal even if its
+  absence proves nothing (rule 32). So never let this file alone close the
   question: it is one of the three independent signals in the umbrella
   skill's capture-fidelity check — alongside the emit inventory and an
   independently-formed expectation — and an unhandled wrapper surfaces as

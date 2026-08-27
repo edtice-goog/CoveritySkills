@@ -45,7 +45,7 @@ adjudicates:
 | | Method | Evidence base | Blind to |
 |---|---|---|---|
 | A | `coverity list` / `cov-manage-emit` | the emit database | anything the build never attempted |
-| B | `idir/scan-transparency/` | the capture's own compiler-detection heuristic | anything configured that then failed to parse — and compiler wrappers, which it never names |
+| B | `idir/scan-transparency/` | the capture's own compiler-detection heuristic | anything configured that then failed to parse — and compiler wrappers, which it is not guaranteed to name |
 | C | model inference | source tree + build system | what actually happened at runtime |
 
 **Method C is produced and frozen first, before the intermediate directory is

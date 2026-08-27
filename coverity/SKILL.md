@@ -164,8 +164,8 @@ shape of it:
 3. **Method B -- scan transparency.** Read `idir/scan-transparency/`, which
    is written by the capture's own compiler-detection heuristic rather than
    derived from the emit database, and is therefore genuinely independent
-   evidence -- with measured blind spots of its own (it never names compiler
-   wrappers; rule 32).
+   evidence -- with measured blind spots of its own (it is not guaranteed to
+   name compiler wrappers; rule 32).
 
 Then adjudicate. **Method C must be produced and written down first**, because
 it is the only one of the three that can be contaminated: once you have read

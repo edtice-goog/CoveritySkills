@@ -10,7 +10,7 @@ differently -- which is the entire point of running all three.
 | | Method | Evidence base | Blind to |
 |---|---|---|---|
 | A | `coverity list` / `cov-manage-emit` | the emit database | anything the build never attempted |
-| B | `idir/scan-transparency/` | the capture's own compiler-detection heuristic | anything configured that then failed to parse -- **and compiler wrappers, which it does not name at all** |
+| B | `idir/scan-transparency/` | the capture's own compiler-detection heuristic | anything configured that then failed to parse -- **and compiler wrappers, which it is not guaranteed to name** |
 | C | model inference | source tree + build system | what actually happened at runtime |
 
 No single one is sufficient. A reports triumphantly on an empty idir. B is
@@ -397,22 +397,28 @@ be completely empty and still produce a truthful, informative
 **The mechanism behind it is undocumented — treat its semantics as measured,
 not specified.** It behaves like a deterministic heuristic over observed
 command invocations: it records bare command names resolved against the
-build directory rather than `PATH` (the phantom entries below), and it never
-names an unconfigured wrapper driving every compile (rule 32) — neither of
-which a faithful process-tree record would do. What has been measured about
-it is the authority; do not reason from an assumed implementation.
+build directory rather than `PATH` (the phantom entries below), and its
+treatment of wrappers is inconsistent across setups — measured empty with an
+unconfigured `ccache gcc` under gmake (2026.6.0, rule 32), and measured
+naming `/usr/bin/ccache` as the sole entry when ninja invoked the wrapper by
+full path (2025.12.2, pytorch). Neither behaviour is what a faithful
+process-tree record would produce. What has been measured is the authority;
+do not reason from an assumed implementation.
 
 - Empty file: no compiler-shaped binary escaped configuration. This is a
   positive result, and it is *not* evidence that anything was captured.
   **Nor is it evidence that a wrapper was handled.** Measured: with
   `CC = ccache gcc` and only `--gcc` configured, this file was empty on every
   run -- including one that captured zero TUs. `ccache` ran as the compiler
-  driver, was unconfigured, and was never named. For wrappers
-  (`ccache`, `sccache`, `distcc`, `icecc`) Method B is simply silent. That
-  does not demote Method B to decoration -- it means a clean Method B must
-  never be allowed to close the unconfigured-compiler question on its own.
-  Run A, B, and C independently as always; an unhandled wrapper then
-  surfaces as a specific disagreement -- **B clean while A and C fall
+  driver, was unconfigured, and was never named. Yet the blindness is not
+  universal: on 2025.12.2, a ninja build invoking `/usr/bin/ccache
+  /usr/bin/clang++` by full path produced `/usr/bin/ccache` as the file's
+  sole entry. **The asymmetry is the usable fact: a named wrapper is a
+  genuine signal worth checking; an empty file proves nothing about
+  wrappers.** So a clean Method B must never be allowed to close the
+  unconfigured-compiler question on its own. Run A, B, and C independently
+  as always; an unhandled wrapper then surfaces as a specific
+  disagreement -- **B clean (or naming only the wrapper) while A and C fall
   short** -- and the adjudication, not any single method, renders the
   verdict. See rule 32.
 - Non-empty: each entry is a *candidate* hole -- see the caveat immediately
@@ -575,7 +581,7 @@ Compare the three frozen results. Let **C** be the expected product set,
 | Pattern | Diagnosis | Action |
 |---|---|---|
 | `A` matches `C`, B empty, every `capture-percentage` 100 | Capture is sound | `CONSISTENT` |
-| `A` much smaller than `C`, B empty | **The build did not compile them.** Incremental build with nothing to do, wrong target, a build that failed early and continued — or **cache hits under an unconfigured wrapper**, which B never names (rule 32) | Check the build log for `ccache`/`sccache`/`distcc` first: if present, configure the prefix (rule 32) — cleaning the tree would mask that for exactly one build. Otherwise clean and re-capture. The most common real failure |
+| `A` much smaller than `C`, B empty or naming only a wrapper | **The build did not compile them.** Incremental build with nothing to do, wrong target, a build that failed early and continued — or **cache hits under an unconfigured wrapper**, which B is not guaranteed to name (rule 32) | Check the build log for `ccache`/`sccache`/`distcc` first: if present, configure the prefix (rule 32) — cleaning the tree would mask that for exactly one build. Otherwise clean and re-capture. The most common real failure |
 | `A` much smaller than `C`, B non-empty | Unconfigured compiler | `coverity-compiler-configuration` |
 | `A` near zero while the build reported success, B empty | **Vacuous capture.** A no-op incremental build, a build delegating to a persistent daemon or compile server (MSBuild node reuse, Gradle daemon), a fully warm cache under an unconfigured wrapper (rule 32), or `--record-only` with no `--replay` | `VACUOUS`. Never report as a pass |
 | `A` larger than `C` | Denominator inflation -- build probes, tests, generated or third-party sources | `SURPLUS`. Benign; name the surplus rather than celebrating the count |
