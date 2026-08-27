@@ -581,6 +581,62 @@ fails with `cannot find current executable 'cov-analyze.exe', cannot set bin
 path` (rc 4). Cross-OS invocation through `/mnt/c` breaks the tool's own path
 resolution -- drive Windows binaries from Windows.
 
+## Incremental analysis speedup collapses as the callgraph grows
+
+Three subjects, measured 2026-08-26/27. This **qualifies a claim the skill was
+leaning on** and should be read before quoting any incremental figure.
+
+| subject | functions | full (`--force`) | incremental | speedup |
+|---|---|---|---|---|
+| FFmpeg | 27,008 | 832 s | 35 s | **24x** |
+| Linux kernel | 82,675 | 1,176 s | 396 s | **3.0x** |
+| LLVM + clang | 1,657,265 | 11,655 s | 4,292 s | **2.7x** |
+
+Per-function cost shows the mechanism:
+
+```
+incremental:   1.3 / 4.8 / 2.6 ms per function   <- roughly flat
+full:         30.8 / 14.2 / 7.0 ms per function  <- cheaper at scale
+```
+
+**Full analysis has economies of scale; incremental does not.** The two
+converge, so the ratio between them shrinks as a project grows. Plausibly the
+flat term is loading and walking the callgraph, which incremental must do
+before it can decide what to skip -- untested.
+
+**FFmpeg's 24x is the outlier, not the rule.** Two of three subjects sit near
+3x, and the kernel -- squarely in this skill's target audience -- is one of
+them.
+
+Consequences:
+
+- Do **not** quote "an order of magnitude" as a general incremental figure. It
+  holds for a small C project and is false for the kernel.
+- At kernel scale a no-change re-analysis costs **6m36s**, before any capture.
+  That alone fails the desktop/inner-loop bar, regardless of how fast capture
+  becomes.
+- The "capture is the long pole, analysis is incremental" framing is sound at
+  FFmpeg scale and **weakens as projects grow**. At LLVM scale capture is
+  13,494 s and a no-op re-analysis is 4,292 s -- a third of it, not a rounding
+  error.
+- Reuse therefore pays most where the **callgraph is small enough that
+  re-analysis is genuinely cheap**, which is not the same axis as "the build is
+  slow". A project can have a slow build and a large callgraph, and get less
+  from this than the capture numbers alone suggest.
+
+### Kernel run details
+
+`cov-analysis-win64-2026.6.0`, Windows-native. 3,779 TUs, 5,775 files,
+5,748,189 paths. Coverity's own timer agreed with the external clock (19:31 vs
+1,176 s; 06:25 vs 396 s).
+
+The tarball shipped its own analysis for comparison: **20:12 and 10,583
+defects** against my **19:31 and 6,564**. The difference is checker
+configuration, not a discrepancy -- the shipped run used `--all --rule
+--preview` plus ~18 explicit `--enable` flags (672 checkers) against my
+defaults (631). Notably the *times* are close despite 41 more checkers, so
+checker count is not the dominant cost.
+
 ## Limits of the evidence
 
 These are the boundaries of what has been measured, kept here so a claim's
