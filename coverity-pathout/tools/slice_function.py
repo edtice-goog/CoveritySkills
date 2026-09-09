@@ -195,6 +195,33 @@ def is_anonymous(name):
     return name.startswith("_Z$") or "$U" in name
 
 
+NESTED_RE = re.compile(r"^_ZN((?:\d+[A-Za-z_]\w*)+)E$")
+
+
+def nested_components(name):
+    """`_ZN21PacketCollectorThread9DIRECTIONE` -> ('PacketCollectorThread',
+    'DIRECTION'), for a type or enumerator declared inside a class. Those
+    nodes carry only this Itanium nested name -- there is no `id` on a type
+    node to fall back on -- and the thing has to be declared inside its class
+    and referenced through it. Returns None for anything else, including a
+    function-local `_ZZ...` name and an anonymous `$U` one.
+    """
+    m = NESTED_RE.match(name or "")
+    if not m or is_anonymous(name):
+        return None
+    rest, parts = m.group(1), []
+    while rest:
+        m2 = re.match(r"^(\d+)(.*)$", rest)
+        if not m2:
+            return None
+        n, tail = int(m2.group(1)), m2.group(2)
+        if len(tail) < n:
+            return None
+        parts.append(tail[:n])
+        rest = tail[n:]
+    return tuple(parts) if len(parts) >= 2 else None
+
+
 class Names:
     """Maps emit-side type names to the tags used in the slice."""
 
@@ -234,6 +261,11 @@ class Names:
             local = self._local_of(name)
             t = re.sub(r"[^A-Za-z0-9_]", "_", local)
             self.local_tags.append(("%s::%s" % (self.function_name, local), t))
+        elif nested_components(name):
+            # A nested type is spelled through its class everywhere it is
+            # referenced; the definition itself uses the bare last component
+            # and is emitted inside the class (see render_class).
+            t = "::".join(nested_components(name))
         else:
             t = re.sub(r"[^A-Za-z0-9_]", "_", name.replace("::", "__"))
         self.tags[name] = t
@@ -277,7 +309,11 @@ class Printer:
         if tag in ("enum_type_t", "internal_defined_enum_type_t"):
             return self.enum_spec(t) + " " + inner
         if tag == "typedef_type_t":
-            return t.get("name", "?") + " " + inner
+            nm = t.get("name", "?")
+            # a nested type is referenced through its class, never by the
+            # Itanium name the node carries
+            parts = nested_components(nm)
+            return ("::".join(parts) if parts else nm) + " " + inner
         if tag == "cv_wrapper_type_t":
             flags = (t.get("flags", "") or "").strip()
             target = t.get("target")
@@ -298,7 +334,11 @@ class Printer:
             return self._build(pointed, "&" + inner)
         if tag == "array_type_t":
             count = t.get("element_count")
-            dim = "[%s]" % count if count not in (None, "", "-1", "unknown") else "[]"
+            # A flexible array member (`ULONG startOfPdu[];`) carries the
+            # literal string "<unset>" as its element count, which is not a
+            # sentinel the list below caught -- it went through as the bound
+            # and `[<unset>]` is not an expression.
+            dim = "[%s]" % count if count not in (None, "", "-1", "unknown", "<unset>") else "[]"
             if inner.startswith("*"):
                 inner = "(" + inner + ")"
             return self._build(t.get("element_type"), inner + dim)
@@ -509,6 +549,10 @@ class Slice:
             acc = set()
             for k, f in (cls.get("fields") or []):
                 self.deps(f.get("type"), False, acc)
+            # a member declaration moved into this class body brings its own
+            # dependencies with it, and they are not reachable through fields
+            for ft in (getattr(self, "member_dep_types", {}).get(nm) or []):
+                self.deps(ft, True, acc)
             items[("class", nm)] = acc
         # topological sort, stable by name; cycles broken in name order
         order = []
@@ -549,9 +593,36 @@ class Slice:
                    "#define va_end(ap) __builtin_va_end(ap)\n"
                    "#define va_copy(dst, src) __builtin_va_copy(dst, src)"
                    % ("0" if self.cxx else "((void *)0)"))
+        # C++ members. A nested enum and a static member function are only
+        # declarable inside their class, so partition them out before anything
+        # is rendered: render_class puts them back in the class body.
+        self.nested_members = {}      # class name -> [declaration text]
+        self.member_dep_types = {}    # class name -> [function_type_t]
+        self.diverted = set()         # function keys handled as members
+        for nm in sorted(self.functions):
+            f = self.functions[nm]
+            ft = f.get("type")
+            mc = f.get("memberOfClass")
+            if not isinstance(ft, Node) or ft.tag != "function_type_t":
+                continue
+            # A non-static method is left alone: its function_type_t may or may
+            # not carry the implicit `this`, and the body reaches it through an
+            # object rather than through the class.
+            if not isinstance(mc, Node) or ft.get("is_method") == "true":
+                continue
+            if mc.get("name") not in self.class_defs:
+                continue
+            d = P.decl(ft, f.get("id") or nm)
+            if "static" in (f.get("dflags") or ""):
+                d = "static " + d
+            self.nested_members.setdefault(mc.get("name"), []).append("%s;" % d)
+            self.member_dep_types.setdefault(mc.get("name"), []).append(ft)
+            self.diverted.add(nm)
         # forward declarations
         fwd = []
         for nm in sorted(self.classes):
+            if nested_components(nm):
+                continue      # a nested class cannot be forward-declared here
             key = self.classes[nm]
             if key == "class" and not self.cxx:
                 key = "struct"
@@ -562,14 +633,22 @@ class Slice:
         en = []
         for nm in sorted(self.enums):
             node = self.enums[nm]
+            parts = nested_components(nm)
+            # inside its class the definition is spelled with the bare name
+            spelling = parts[-1] if parts else self.names.tag(nm, "e")
             if node is None:
-                en.append("enum %s { __cov_%s_unknown };" % (self.names.tag(nm, "e"), self.names.tag(nm, "e")))
+                text = "enum %s { __cov_%s_unknown };" % (spelling, re.sub(r"\W", "_", spelling))
                 self.notes.append("enum %s: no definition found; emitted as a placeholder" % nm)
-                continue
-            vals = []
-            for k, e in (node.get("enumerators") or []):
-                vals.append("  %s = %s" % (e.get("name"), e.get("value", "0")))
-            en.append("enum %s {\n%s\n};" % (self.names.tag(nm, "e"), ",\n".join(vals) if vals else "  __cov_empty"))
+            else:
+                vals = ["  %s = %s" % (e.get("id") or e.get("name"), e.get("value", "0"))
+                        for k, e in (node.get("enumerators") or [])]
+                text = "enum %s {\n%s\n};" % (spelling, ",\n".join(vals) if vals else "  __cov_empty")
+            if parts:
+                # nested enums come first in the class body: a member
+                # declaration may use one as a parameter type.
+                self.nested_members.setdefault(parts[0], []).insert(0, text)
+            else:
+                en.append(text)
         if en:
             out.append("\n/* enums */\n" + "\n".join(en))
         # typedefs and complete structs, in dependency order. Render the
@@ -583,6 +662,11 @@ class Slice:
         decls = []
         for kind, nm in order:
             if kind == "typedef":
+                if nested_components(nm):
+                    # Coverity gives a nested enum a same-named typedef as well;
+                    # `typedef enum C::E C::E;` is not a declaration, and the
+                    # enum's own name already names the type in C++.
+                    continue
                 td = self.typedefs[nm]
                 decls.append("typedef %s;" % P.decl(td.get("target"), nm))
             elif nm not in self.inlined:
@@ -607,14 +691,84 @@ class Slice:
             ft = f.get("type")
             if not isinstance(ft, Node) or ft.tag != "function_type_t":
                 continue
-            if ft.get("is_method") == "true":
-                self.notes.append("callee %s is a C++ method; not declared" % nm)
+            if nm in self.diverted:
+                continue          # declared inside its class instead
+            mc = f.get("memberOfClass")
+            if ft.get("is_method") == "true" or isinstance(mc, Node):
+                self.notes.append(
+                    "callee %s is a C++ %s of %s; not declared"
+                    % (f.get("id") or nm,
+                       "method" if ft.get("is_method") == "true" else "static member",
+                       mc.get("name") if isinstance(mc, Node) else "?"))
                 continue
-            pr.append("%s;" % P.decl(ft, nm))
+            # `name` is the linker name -- for C++ the mangled one, which is not
+            # what the body calls. `id` is the source spelling. Keying
+            # self.functions on the mangled name already kept overloads apart,
+            # so declaring each under its `id` re-creates the overload set.
+            pr.append("%s;" % P.decl(ft, f.get("id") or nm))
         if pr:
             out.append("\n/* callees (prototypes only: the analysis sees them as unmodeled) */\n" + "\n".join(pr))
         out.append("\n/* the function */\n" + self.rewrite_body(body_text).rstrip() + "\n")
         return "\n".join(out)
+
+    # A declaration whose declarator is missing: the token before `[` is a type
+    # keyword or `*`/`&`, never an identifier, and a string literal initialises
+    # it. `CHAR trunkGrpName[24];` and `static const char tag[4] = "ab";` both
+    # end that run with an identifier, so neither matches.
+    ANON_ARRAY_DECL = re.compile(
+        r'^(?P<indent>[ \t]*)(?P<spec>[A-Za-z_][^;=\[\]]*?'
+        r'(?:const|volatile|char|int|long|short|unsigned|signed|bool|double|float|wchar_t|\*|&))'
+        r'[ \t]*\[(?P<dim>[^\]]*)\][ \t]*=[ \t]*(?P<init>"(?:[^"\\]|\\.)*")[ \t]*;[ \t]*$',
+        re.M)
+
+    def name_anonymous(self, body):
+        """A compiler-generated static -- the string a logging macro builds out
+        of `__func__` -- reaches the pretty-printer without a source name, so it
+        prints as a declaration with no declarator
+        (`static constexpr char const [16] = "SipSgSendSipPdu";`) and every use
+        of it prints as `<anonymous>`. Neither is C++. Name the declaration and
+        point the uses at it.
+        """
+        if "<anonymous>" not in body:
+            return body
+        named = []
+
+        def name_decl(m):
+            nm = "__cov_anon_%d" % len(named)
+            named.append(nm)
+            return "%s%s %s[%s] = %s;" % (m.group("indent"), m.group("spec").rstrip(),
+                                          nm, m.group("dim"), m.group("init"))
+
+        body = self.ANON_ARRAY_DECL.sub(name_decl, body)
+        if len(named) == 1:
+            body = body.replace("<anonymous>", named[0])
+        else:
+            # With two or more, a use cannot be tied to its declaration by
+            # position alone; say so rather than guess.
+            self.notes.append(
+                "%d nameless declarations and %d `<anonymous>` uses left unresolved"
+                % (len(named), body.count("<anonymous>")))
+        return body
+
+    @staticmethod
+    def respell_header(body):
+        """`--print-definitions` heads the body with a `/* ... */` block naming
+        the function, and for C++ that name carries the mangled name in a
+        `/*...*/` of its own. Block comments do not nest: the inner `*/` ends
+        the header, and its remaining lines (` * declared at:` ...) reach the
+        parser as code. Re-spell the header as line comments, which nest fine.
+        """
+        if not body.startswith("/*"):
+            return body
+        lines = body.split("\n")
+        for end, ln in enumerate(lines):
+            if ln.strip() == "*/":
+                break
+        else:
+            return body
+        head = ["// " + ln.strip().lstrip("*").strip()
+                for ln in lines[1:end]]
+        return "\n".join(head + lines[end + 1:])
 
     def rewrite_body(self, body):
         """Three constructs the pretty-printer emits that are not C:
@@ -628,6 +782,8 @@ class Slice:
            (glibc's __SOCKADDR_ARG). C spells that `(TypeName){.member = value}`.
         3. NULL / va_arg: handled by the #defines at the top.
         """
+        body = self.respell_header(body)
+        body = self.name_anonymous(body)
         for qualified, tag in self.names.local_tags:
             body = re.sub(r"\b(struct|union|enum)\s+" + re.escape(qualified) + r"\b", r"\1 " + tag, body)
             body = re.sub(r"^\s*(struct|union|enum)\s+" + re.escape(tag) + r";\s*$\n?", "", body, flags=re.M)
@@ -690,6 +846,11 @@ class Slice:
             if width:
                 d += " : " + width
             lines.append("%s  %s;" % (indent, d))
+        for text in (getattr(self, "nested_members", {}).get(cls.get("name")) or []):
+            # `class` members default to private, and the body reaches these
+            # through the class name.
+            lines.append("%spublic:" % indent)
+            lines += ["%s  %s" % (indent, ln) for ln in text.split("\n")]
         lines.append("%s};" % indent)
         return "\n".join(lines)
 
