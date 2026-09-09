@@ -776,6 +776,90 @@ verified here.** The antecedent-merge-key mechanism, the Connect commit
 behaviour, and the REST consequence are stated rather than measured. Worth a
 calibration run before anything depends on the exception rate.
 
+### 35. Extract a function from the emit, never from preprocessed text
+
+When you need to see one function as the analyzer saw it -- for a PATHOUT
+notice, a puzzling defect trace, a "does the analyzer see this macro"
+question -- pretty-print it from the AST the intermediate directory already
+holds:
+
+```bash
+$BIN/cov-manage-emit --dir <idir> --ticker-mode none --tu <N> find '^<name>$' --kind f --print-definitions
+```
+
+**Why.** The emit is the parsed tree, and a pretty-print of it is exact,
+compact, and instant: 0.4 s and 509 lines for a 963-line C function, macros
+expanded, `sizeof` folded, types canonical -- which is precisely the view in
+which a branch hidden inside a macro becomes visible. The alternative people
+reach for -- `extract-files` or `cov-preprocess`, then cutting the function
+out of the `.i` text by eye or by script -- is slow, fights line directives
+and expansion, burns effort on a text-parsing problem that does not need
+solving, and still is not what the analyzer saw.
+
+**Do.** Use the name exactly as the analysis log printed it: the identifier
+for C, the **mangled** name for C++ (the regex is matched against the
+mangled name; `find 'Widget' --kind f` lists candidates with their mangled
+forms). Anchor the regex. Pass `--tu` from the log line -- `find` prints
+every matching definition, and a project can have seven `main`s.
+
+**Check.** The output starts with a `Matching function:` header carrying
+`declared at:` and `defined in TU N`; a miss prints nothing and exits 0.
+The `declared at:` line equals `ml` in `output/FUNCTION.metrics.xml.gz`.
+The installation must be the version that wrote the idir (`emit/version`,
+line 1); any other refuses with a version-mismatch error.
+
+**To re-analyze the function on its own**, the declarations it needs come
+from the same emit, not from headers: the function's `--print-debug` tree
+carries every callee's prototype (including ones `find` cannot look up),
+every global's type and every typedef's target, and `find <tag> --kind c
+--print-debug` gives each struct's fields. `coverity-pathout`'s
+`slice_function.py` closes over those, prints the declarations back out in
+dependency order, re-emits the file with the TU's recorded `cov-emit` flags
+minus include paths, and re-analyzes it -- `setup_env` reproduced its
+PATHOUT on the same checker at the same count in 15 seconds. C++ uses the
+preprocessed TU (`cov-manage-emit --tu N preprocess`, then `cov-emit` the
+`.i` with the same flags) as the container instead.
+
+Source: verified -- `coverity-pathout`, `references/function-extraction.md`,
+`references/standalone-reproducer.md`.
+
+### 36. A path limit counts paths x state; ask the analyzer which checker hit it
+
+`cov-analyze --paths` (default 5000) bounds the work per function, and a
+function that exceeds it is logged `PATHOUT` in `output/analysis-log.txt`
+-- nowhere else. Do not explain one from cyclomatic complexity, the acyclic
+path count, or the shape of the source.
+
+**Why.** The engine explores the cross product of control-flow paths and
+the abstract state each checker tracks, merging paths that rejoin in the
+same state. Two functions with identical control flow (14 independent
+`if`s, CCM 15, APC 16384) measured 16,384 paths and 106 paths -- the
+difference was whether an accumulator started at a known constant or an
+unknown. Every checker has its own count; the log's number is the maximum
+over them and the limit trips when one exceeds it. A function with APC 6.4e9
+finished in 3845 paths; one with APC 31104 did not finish in 5000.
+
+**Do.** Copy the idir, then re-run scoped: `cov-analyze --dir <copy> --tu
+<N> --print-paths`. The log then says `Pathed out: 5001 paths traversed by
+REVERSE_INULL in "setup_env(...)"` -- the function *and* the checker, which
+names the kind of state that multiplied (nullness, index values, condition
+outcomes). This is also the only way to get names when the log's `PATHOUT=`
+lines are per-batch (`PATHOUT=4 nr=20 n: batch 645`), which on a large
+project under `--all --aggressiveness-level high` is nearly all of them (3
+named of 189). Then measure what the cut-off cost: raise `--paths` on the
+same scoped run and diff the defect sets with `cov-format-errors
+--json-output-v10`. For `setup_env` the checker needed 6003 paths and the
+defect set did not change; for a function that needs 16,384 it may.
+
+**Check.** `summary: paths_exceeded count: N` is on every log; the
+`Exceeded path limit ... % of functions` warning appears only when the
+share is high (seen at 1.11% and above, absent at 0.19%). The count is a
+property of the checker configuration as much as the code: the same idir
+gave 16 at defaults and 189 under `--all --aggressiveness-level high`.
+
+Source: verified -- `coverity-pathout`, `references/path-explosion.md`,
+`references/analysis-log.md`.
+
 ## Reporting
 
 ### 21. Verdict first, then the evidence

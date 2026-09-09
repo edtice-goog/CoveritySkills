@@ -1,0 +1,224 @@
+# Calibration status
+
+This project's standard is that factual claims in a skill were established by
+real runs. This file records what was run for `coverity-pathout`, on what,
+and what is reasoned rather than measured.
+
+Environment: Windows 11, installations under `C:\Coverity\`. Three analyzer
+versions were used, each against an idir it wrote:
+
+| idir | written by | size | analyzed with |
+|---|---|---|---|
+| proftpd 1.3.9 (`coverity-demo-data-workspace/idirs/v1.3.9`), 149 C files, 2102 functions | 2025.9.0 (cov-build, gcc, WSL) | 2 GB | 2025.9.0 win64, scratch copy |
+| subversion + sqlite amalgamation (`C:\Data\tool-interop\coverity\idirs\svn-augmented-post-enrichment`), 9533 functions | 2026.3.0 | 185 MB | 2026.3.0 win64, scratch copy |
+| fixtures (`evals/fixtures/*`), emitted with bare `cov-emit --c` / `--c++` | 2026.6.0 | -- | 2026.6.0 win64 |
+
+All dates 2026-09-09.
+
+## Verified by direct execution
+
+### Where the notice is
+
+- `output/analysis-log.txt` carries `summary: paths_exceeded count: N` on
+  every run (0 on clean runs: three fixture idirs).
+- `summary: Exceeded path limit of 5000 paths in P% of functions (normally
+  up to 5% of functions encounter this limitation)` appeared at P = 1.11,
+  1.91, 16.67 and 50.00, and did **not** appear on the proftpd run with 4 of
+  2102 functions (0.19%). Threshold not determined.
+- Nothing on the console: `cov-analyze` stdout for the proftpd and fixture
+  runs contains no `path limit` / `PATHOUT` text, with or without
+  `--print-paths` (which adds `wur_diagnostics` lines to stdout, with a
+  phase prefix, but no summary).
+- Not in `*.errors.xml`, `FUNCTION.metrics.xml.gz`, `callgraph-metrics.json.gz`,
+  the `stats` SQLite database (tables `version`, `Stat`, `InferredBehavior`;
+  no PATHOUT in any column), or `tus` (grepped, subversion idir).
+
+### Log line formats
+
+- Per-function: `wur: gen1059 4 102632 4703 7340 4703 5001 PATHOUT=1 n:
+  setup_env in TU 77`. C names plain; C++ names mangled
+  (`n: _ZN4demo6Widget1fEi in TU 2`). Phases seen: `gen`, `stat`, `conc`,
+  `conctd`, `fnsaftertus`.
+- Batch: `wur: gen646 15 1058527 33094 3593 33016 mem=126263296
+  max=167362560 38650 PATHOUT=4 nr=20 n: batch 645`. Subversion under
+  `--all --aggressiveness-level high` + 5 model files: 130 batch lines
+  (`PATHOUT=` values summing to 193), 3 named lines, count 189. Same idir
+  at defaults: 0 batch lines, 17 named, count 16. A 600-function fixture at
+  defaults produced batch work units (62) but no PATHOUT; with `-j 1`, no
+  batch lines at all.
+- The number before `PATHOUT=` is the maximum over components: for
+  `setup_env` at `--paths 200000`, 39 `wur_diagnostics` lines summing to
+  31,365; the `wur:` line said 6003 = `REVERSE_INULL`'s count.
+- `5001` is the usual value at the limit; `10001` seen on `tpl_map_va`
+  (proftpd) and on `DEADCODE_pass2` lines (subversion). One function
+  (`sqlite3AtoF`) had `Pathed out: 10001 ... DEADCODE_pass2` while its
+  `wur:` line said 735 with no `PATHOUT=` flag.
+- `--print-paths` adds `wur_diagnostics: [Pathed out: ]N paths traversed by
+  <component> in "<demangled signature>"`. Heavy subversion run: 481
+  `Pathed out` lines, 181 distinct functions, 23 exact duplicate lines
+  (same component logged twice for a function).
+- `--path-log-threshold 100` (fixture) and `1000` (proftpd `--tu 77`): no
+  change to the log or stdout.
+- The log's first line is the full command; `cmdline: parsed cmdline:`
+  lists options including `--paths` when given.
+
+### Which components path out
+
+- proftpd `setup_env` at defaults: `REVERSE_INULL` only (5001);
+  `DEADCODE_pass2` 4956; 37 others between 1 and 1796.
+- subversion at defaults (16 functions): `REVERSE_INULL` 11, `OVERRUN_pass1`
+  6, `DEADCODE_pass2` 6, `INFINITE_LOOP` 4, then 2 each for
+  `FORWARD_NULL_pass2`, `DIVIDE_BY_ZERO_pass2`, `UNUSED_VALUE`,
+  `REVERSE_NEGATIVE_pass1`, `OVERLAPPING_COPY_INTERNAL`, `generic_DERIVERS`.
+- subversion at `--all --aggressiveness-level high` (181 named): 
+  `BUFFER_SIZE_pass1` 141, `TAINTED_SCALAR_pass1` 133,
+  `STRING_OVERFLOW_pass1` 97, `REVERSE_INULL` 20, `INTEGER_OVERFLOW_pass1`
+  14, `security_DERIVERS` 11, `OVERRUN_pass1` 11.
+- fixture `ifs_from_zero` (and `many_ifs`, `demo::Widget::f(int)`):
+  `generic_DERIVERS`, `uninit_DERIVERS`, `DEADCODE_pass1`, `OVERRUN_pass1`,
+  all at 5001; with `--paths 200000` all four at exactly 16384.
+
+### Paths x state
+
+- `ifs_from_zero` (acc = 0): 5001, PATHOUT. `ifs_from_param` (acc = a):
+  106, no PATHOUT. Same CFG, CCM 15, APC 16384 for both.
+- An earlier C++ draft with `acc = v` (unknown) explored 92 paths for 13
+  `if`s; changed to `acc = 0` it trips the limit.
+- Negative results: 14 guarded `malloc`s freed at the end -- 172 paths; 14
+  precomputed flags tested in 14 `if`s -- 217 paths. Neither tripped.
+- APC vs explored across proftpd: `ls_nlst` APC 6.4e9 / 3845 paths;
+  `facts_mlinfo_fmt` APC 31104 / > 5000; `pr_auth_cache_set` 526339 / 1025;
+  of 2099 non-PATHOUT functions, explored == APC for 439 (small ones).
+
+### Scoping and cost
+
+- `cov-analyze --tu 77` on proftpd reproduces `setup_env`'s PATHOUT in
+  isolation: 15 s vs 32 s for the full project. Subversion defaults full
+  run 2 m 14 s; heavy configuration 4 m 27 s (both with `--print-paths`).
+- `--paths 200000 --tu 77`: `setup_env` finished at 6003; `paths_exceeded
+  count: 0`. `cov-format-errors --json-output-v10` on the default and raised
+  runs: identical defect sets for TU 77 (2 issues; `DEADCODE` at
+  `mod_auth.c:1606` in `setup_env` in both).
+
+### Function extraction
+
+- `cov-manage-emit --dir idir --ticker-mode none --tu 77 find '^setup_env$'
+  --kind f --print-definitions`: 0.4 s (3.0 s for the first `find` on a
+  cold idir), 509 lines / 19,948 bytes for a 963-LOC function. Header
+  comment with `declared at:` and `defined in TU 77 with row 1911`; body
+  with macros expanded (`PRIVS_ROOT`, `errno` -> `*__errno_location()`,
+  `ENOSYS` -> `38`, `PR_LOG_NOTICE` -> `5`), `sizeof(gid_t)` -> `4UL /*
+  sizeof (gid_t) */`, `const char *` -> `char const *`.
+- Regex is matched against the mangled name in C++: `find 'Widget' --kind f`
+  lists `demo::Widget::f(int) /*_ZN4demo6Widget1fEi*/` and
+  `demo::Widget::f(double) /*_ZN4demo6Widget1fEd*/`;
+  `find '_ZN4demo6Widget1fEd$' --print-definitions` returns only that
+  overload.
+- `find '^main$'` on proftpd lists seven definitions (TUs 14, 71, 84, 87,
+  88, 89, 90); `--tu 14` returns one.
+- A miss (`^no_such_function_xyz$`) prints nothing, exit 0.
+- Version mismatch: 2026.6.0's `cov-manage-emit` on the 2025.9.0 idir:
+  `Expected version number is 355, but this directory has version 350`.
+- `--tu 77 print-source` prints three header lines before the file:
+  `setup_env` at source line 1035 appears on output line 1038.
+- Sizes of the other outputs for `setup_env`: `--print-debug` 75,102
+  lines / 3.6 MB; `--print-codexm` 465,718 lines / 34 MB.
+- Definition-header line (1035) equals `ml` in `FUNCTION.metrics.xml.gz`.
+- Bare `cov-emit --dir idir file.c` (no `--c`) emitted the C file in C++
+  mode: names appear mangled (`_Z8many_ifsiiii`) in the log and metrics.
+  `--c` gives plain names. The fixture script passes `--c` / `--c++`.
+
+### The report tool
+
+- `tools/pathout_report.py` run against all three idirs. proftpd: 4
+  functions, metrics joined, 4 definitions extracted (509 / 295 / 353 / 92
+  lines). C++ fixture: mangled name joined to `FUNCTION.metrics`
+  (`fn:_ZN4demo6Widget1fEi`) and extracted by mangled regex. Subversion
+  heavy log without `--print-paths`: 3 named, 129 batches flagged, advice
+  printed; with `--print-paths`: the batch-hidden functions listed under
+  their `Pathed out` signatures, duplicates folded.
+- `evals/fixture.sh` end to end on 2026.6.0: both expected PATHOUT lines,
+  `Pathed out` lines for four components each, `50.00%` summary line,
+  zero console mentions, the C++ definition by mangled name, and the report.
+
+### The standalone slice (`tools/slice_function.py`)
+
+- `--print-debug` node shapes read off the output and relied on:
+  `function_t{name,dflags,type}`, `function_type_t{return,parameters,
+  prototyped,has_C_ellipsis,is_method}`, `global_variable_t{name,dflags,
+  type}`, `typedef_type_t{name,target}`, `class_type_t{name,classKey}`,
+  `internal_defined_class_type_t{fields}` with `field_t{name,type,index,
+  offset}` (`name = <anonymous>` for C11 anonymous members),
+  `internal_defined_enum_type_t{enumerators}` with `enumerator_t{name,
+  value}`, `pointer_type_t{pointed_to}`, `array_type_t{element_type,
+  element_count}`, `cv_wrapper_type_t{target,flags}`, `scalar_type_t{kind}`.
+  Same on 2025.9.0, 2026.3.0 and 2026.6.0. No bit-field width key was seen.
+- Callees that are only declared (`strlen`, `getenv`) are not findable with
+  `find` but their full prototypes are in the calling function's tree.
+- `__builtin_va_list` is a typedef to `char *` in the emit; typedefs named
+  `__builtin_*` are not re-emitted. `NULL` and `va_start/va_arg/va_end/
+  va_copy` survive the pretty-print in macro form and are `#define`d.
+- The pretty-printer emits `struct fn::tag` for a function-local struct and
+  drops its definition (leaving `struct tag;`), and emits a transparent
+  union argument as `TypeName({...})`. Both rewritten; both seen in proftpd
+  (`ext_match`, `main`).
+- `print-compilation-info` prints argv unquoted; a `--sys_include=C:/Program
+  Files/...` arrives as two tokens. The splitter re-joins on the rule "a
+  flag written without `=` takes the next token as its value; any further
+  non-flag token continues the previous one". Verified on the MSVC-built
+  subversion idir (32 flags, one containing a space) and the WSL-built
+  proftpd idir (47 flags, `/mnt/c/` paths mapped to `C:/`).
+- Emit + analysis results, proftpd 2025.9.0:
+  `setup_env` 906-line slice, clean emit, `REVERSE_INULL` pathed out at 5001
+  (original: same); `tpl_map_va` clean, `DEADCODE_pass2` at 10001 (original
+  `wur:` line: 10001); `listfile` and `facts_mlinfo_fmt` clean and pathed
+  out; `main`, `ext_match`, `pr_auth_cache_set` clean, no PATHOUT
+  (`pr_auth_cache_set`: 1025 paths, original 1025). Random sample of 15
+  functions across 15 TUs: 11 clean on the first run, 15 after fixing the
+  anonymous-member and typedef-ordering bugs those 4 exposed. Second random
+  sample of 40: see the line below.
+- Second random sample, 40 functions (every 50th in `list-functions-v1`
+  order, offset 31) across the proftpd TUs, `--emit` only: **40 of 40
+  emitted with no recoverable errors**, 85 s in total (about 2 s per
+  function, dominated by `cov-emit` start-up).
+- Whole slice cycle for `setup_env` (`--emit --analyze`): 15-19 s, most of
+  it `cov-analyze` start-up.
+- C++ fixture (`demo::Widget::f(int)`): body extracts, slice emits with
+  `function not emitted` because the class's methods are not reconstructed.
+  Documented as out of scope; the preprocessed-TU route is the C++ path.
+- Preprocessed-TU route: `cov-manage-emit --tu 1 preprocess` on the
+  subversion idir (2026.3.0, MSVC) wrote `output/preprocessed/fs-util.c.1.i`
+  in 7 s; `cov-emit` of that file with the recorded flags minus
+  `-I/-D/--sys_include` succeeded; `cov-analyze` analyzed 12 functions.
+  Not runnable for the WSL-built proftpd idir on Windows: the recorded
+  `cov-emit` is a Linux binary.
+
+## Reasoned, not measured
+
+- That the `_pass2` suffix is the FPP-enabled second pass described in the
+  Extend SDK guide (*Two-pass checking*). Consistent with `DEADCODE_pass2`
+  running to ~5000 where `DEADCODE_pass1` needed ~700; not documented.
+- That `REVERSE_INULL`'s state is what multiplies in `setup_env`: inferred
+  from the checker's documented behaviour and the counts over the body (55
+  NULL comparisons, `c` tested 15 times). The scoped run names the checker;
+  it does not print the state.
+- The `FUNCTION.metrics` short keys (`cc`, `pce`, `pcs`, `lc`, `ml`, `hf`,
+  `hr`, `be`, `fe`): mapped to Connect's documented Functions-view columns
+  (CCM, Acyclic Path Count, APC statements-only, Line Count, Halstead
+  Effort/Errors, Backedge/Forwardedge Count) by value and name; `ml` verified
+  against `declared at:`. The keys themselves are undocumented.
+- That a pathed-out deriver (`*_DERIVERS`) leaves callers with a weaker
+  model. Follows from what derivers are for; not measured.
+
+## Not verified
+
+- Whether Connect surfaces the notice anywhere (not checked against a
+  commit).
+- The threshold at which the `Exceeded path limit ... %` summary line
+  appears (somewhere between 0.19% and 1.11%).
+- Why some components report `10001` rather than `5001`.
+- Any Java, C#, or other non-C/C++ language: all runs were C and C++.
+- The coverity CLI's `analyze.cov-analyze-args` setting (documented in
+  `doc/configuration-schema.json` as "Additional arguments to pass to
+  cov-analyze") as the way to pass `--paths` / `--print-paths` through
+  `coverity analyze` -- read in the schema, not exercised.

@@ -1,0 +1,58 @@
+{
+  "skill_name": "coverity-pathout",
+  "evals": [
+    {
+      "id": 0,
+      "eval_name": "which-functions-and-why",
+      "prompt": "Our Coverity run of proftpd (intermediate directory at C:\\Data\\CoveritySkills\\coverity-demo-data-workspace\\idirs\\v1.3.9, analyzed with C:\\Coverity\\cov-analysis-win64-2025.9.0) reports that some functions exceeded the path limit. Which functions, why did setup_env in particular blow up, and should we raise --paths? Do not modify that intermediate directory.",
+      "expected_output": "Names the four functions (setup_env, listfile, tpl_map_va, facts_mlinfo_fmt) with TU ids from analysis-log.txt; copies the idir before re-running; uses cov-analyze --tu 77 --print-paths to find that REVERSE_INULL is the component that pathed out; extracts setup_env with cov-manage-emit find --print-definitions rather than preprocessing; explains the structure (many null-checked config pointers along a loop-free sequence); measures that --paths 200000 completes at ~6003 paths with no defect change; recommends a modest raise (10000) or a split, and says the other three were not diagnosed.",
+      "assertions": [
+        "Reads output/analysis-log.txt and reports paths_exceeded count and the four named functions with their TU numbers",
+        "Does not run cov-analyze into the original idir (copies it or the log first)",
+        "Uses the 2025.9.0 installation, not a newer one, for cov-manage-emit",
+        "Runs cov-analyze with --print-paths scoped with --tu and identifies REVERSE_INULL as the pathed-out checker for setup_env",
+        "Extracts setup_env with cov-manage-emit find '^setup_env$' --kind f --print-definitions (not cov-preprocess, extract-files, or a text-parsing script)",
+        "Explains the cause in terms of tracked state (pointer nullness), not cyclomatic complexity alone",
+        "Measures the effect of a raised --paths on the defect set for the TU and reports it",
+        "Verdict first; states what was not checked"
+      ]
+    },
+    {
+      "id": 1,
+      "eval_name": "batched-log-large-project",
+      "prompt": "The analysis log for our subversion build says 'Exceeded path limit of 5000 paths in 1.91% of functions' and 'paths_exceeded count: 189', but I can only find three function names next to PATHOUT=1. The idir is at C:\\Data\\tool-interop\\coverity\\idirs\\svn-augmented-post-enrichment (Coverity 2026.3.0). How do I get the list of affected functions and which checker is responsible for each?",
+      "expected_output": "Explains that the remaining PATHOUT lines are per-batch ('PATHOUT=4 nr=20 n: batch 645') and do not name functions; re-runs cov-analyze on a copy with the original options plus --print-paths (reading the original command line from the log's first line) and collects 'Pathed out: N paths traversed by <checker> in \"<signature>\"' lines; notes that the count depends on the checker set (16 at defaults vs 189 with --all --aggressiveness-level high); offers tools/pathout_report.py.",
+      "assertions": [
+        "Identifies batch work-unit lines as the reason only three functions are named",
+        "Re-runs with --print-paths using the same options as the original run, on a copy",
+        "Produces the per-function, per-checker list from the Pathed out lines",
+        "Points out that the number of affected functions is configuration-dependent",
+        "Does not claim the log alone can name the functions"
+      ]
+    },
+    {
+      "id": 3,
+      "eval_name": "standalone-reproducer",
+      "prompt": "setup_env in modules/mod_auth.c (TU 77 of the proftpd idir at C:\\Data\\CoveritySkills\\coverity-demo-data-workspace\\idirs\\v1.3.9, Coverity 2025.9.0) hits the path limit. I want to try restructuring it, but the full build takes too long to iterate on. Give me that one function as a file I can cov-emit and cov-analyze by itself, and show me that it still reproduces the PATHOUT before I start editing.",
+      "expected_output": "Uses tools/slice_function.py --tu 77 --name setup_env --emit --analyze (or reproduces its method: body from find --print-definitions, declarations printed from the --print-debug tree and struct dumps, re-emit with the TU's recorded cov-emit flags minus -I/-D/--sys_include); reports a clean emit and the wur/Pathed out lines showing REVERSE_INULL at 5001 on the one-file idir; explains that callees are unmodeled prototypes and globals extern, and what that can change.",
+      "assertions": [
+        "Produces a single file containing the function plus its typedefs, struct definitions, extern globals and callee prototypes -- not a body alone, and not hand-written declarations",
+        "Obtains the declarations from the emit (cov-manage-emit find --print-debug), not from headers or preprocessed text",
+        "Re-emits with the flags recorded by print-compilation-info for TU 77 (language standard, gnu_version, type sizes, pre_preinclude compat headers), dropping include paths",
+        "Runs cov-analyze --print-paths on the one-file idir and shows the PATHOUT reproducing (REVERSE_INULL, 5001)",
+        "States the differences from the original analysis (unmodeled callees, extern globals) as a caveat on path counts"
+      ]
+    },
+    {
+      "id": 2,
+      "eval_name": "extract-a-cpp-overload",
+      "prompt": "I have an intermediate directory built by Coverity 2026.6.0 from evals/fixtures/overloads.cpp. Show me exactly what the analyzer saw for demo::Widget::f(int) -- not f(double) -- without preprocessing anything.",
+      "expected_output": "Runs cov-manage-emit find 'Widget' --kind f to list the overloads with their mangled names, then find '_ZN4demo6Widget1fEi$' --kind f --print-definitions to print the int overload only, and explains that the regex matches the mangled name.",
+      "assertions": [
+        "Uses cov-manage-emit find with --print-definitions",
+        "Selects the overload by mangled name (_ZN4demo6Widget1fEi), not by the bare identifier f",
+        "Does not use cov-preprocess, --preprocess-native, extract-files, or a text-parsing script"
+      ]
+    }
+  ]
+}

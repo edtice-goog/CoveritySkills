@@ -84,6 +84,8 @@ evidence, in `RULES.md`:
 | 32 | Configure compiler wrappers like ccache — never disable them |
 | 33 | If you move an intermediate directory, preserve its timestamps |
 | 34 | Capture is not all-or-nothing — a captured file can be missing functions |
+| 35 | Extract a function from the emit (`cov-manage-emit find --print-definitions`), never from preprocessed text |
+| 36 | A path limit counts paths x state; ask the analyzer which checker hit it (`--print-paths`) |
 
 Numbers are stable and citable. New rules take the next free number and are
 filed under the section they belong to; a rule that turns out to be wrong is
@@ -96,6 +98,7 @@ marked superseded in place rather than renumbered.
 | "How do I set up `cov-configure`?" / unconfigured compilers / tainted config | `coverity-compiler-configuration` |
 | "Did wrapping the build in `cov-build` change the binaries?" / release gating on binary equivalence | `coverity-build-fidelity` |
 | "Can Coverity find *this* defect?" / which checker, which option, which taint flag | `coverity-defect-detectability` |
+| "PATHOUT" / "Exceeded path limit" / `paths_exceeded` / which functions hit `--paths` and why / "show me what the analyzer saw for this function" | `coverity-pathout` |
 | Anything else, or you do not yet know which | here |
 
 Hand off explicitly rather than half-doing a specialist's job. Capture

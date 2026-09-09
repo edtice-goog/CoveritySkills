@@ -71,6 +71,7 @@ verified by running it or reasoned from mechanism.
 | [coverity-recreate-from-emit](coverity-recreate-from-emit/README.md) | The build can't be re-run, or is too slow to re-run | An analyzable intermediate directory without the original toolchain — or a fast incremental update instead of a full rebuild |
 | [coverity-issue-transition-inference](coverity-issue-transition-inference/README.md) | After an upgrade: separating new findings from new analyzer behaviour | The missing control — old code analyzed by the new analyzer — which splits a confounded delta in two |
 | [coverity-demo-data](coverity-demo-data/README.md) | Adopting Coverity on an existing codebase, migrating from another tool, or building a demo | Findings dated to the release they actually arrived in, rather than all dated the day you installed the tool |
+| [coverity-pathout](coverity-pathout/README.md) | A function exceeded the path limit (`PATHOUT`, `--paths`), or you need one function exactly as the analyzer saw it | The function and the checker that ran out of paths, the function pulled from the AST in under a second, and the measured cost of the cut-off |
 
 ## Requirements
 
