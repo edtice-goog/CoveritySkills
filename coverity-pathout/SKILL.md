@@ -16,7 +16,13 @@ description: >
   ("re-analyze just this function", "make a standalone reproducer",
   "iterate on this function without rebuilding"), with every typedef, struct,
   global and callee prototype it needs printed back out of the same emit,
-  re-emitted with the TU's recorded flags and re-analyzed in seconds. The central
+  re-emitted with the TU's recorded flags and re-analyzed in seconds -- and
+  for obfuscating that file so it can be shown to someone who may not see
+  the code ("obfuscate this function", "anonymize it", "rename the
+  variables but keep the structure", "make a version I can send to the
+  vendor / to another model"): identifiers renamed by kind, strings masked,
+  library names and constants kept, and the analyzer run on both copies to
+  prove they analyze identically. The central
   fact is that the limit counts paths x tracked state, not control-flow
   paths, so cyclomatic complexity does not explain a PATHOUT and the
   analyzer's own --print-paths output does. Requires a local Coverity
@@ -178,14 +184,8 @@ the original -- in 15 seconds, editable, repeatable. That is the loop for
 Steps 4 and 5. C++ needs the preprocessed-TU route instead; both are in
 `references/standalone-reproducer.md`.
 
-Add `--obfuscate` when the slice has to go somewhere the code may not:
-project names are renamed by kind (`fn_3`, `v_12`, `S_2`, `f_17`), string
-literals are masked to same-length placeholders, library names and every
-constant stay, and with `--analyze` the tool proves the analyzer cannot tell
-the twin from the original (`verify : obfuscation preserved the analysis`).
-The map file stays local. A `DIFFERS` verdict means the twin is not fit to
-represent the function; a `review :` line lists identifiers to check by
-hand before it leaves.
+If the file has to go somewhere the code may not, Step 6 makes an
+obfuscated twin of it and proves the twin analyzes the same.
 
 ## Step 4: Diagnose -- read the body with the checker in mind
 
@@ -233,6 +233,70 @@ functions normally hit the limit -- but it is paid on every function on
 every run. Prefer a value the measurement justifies (`setup_env` needs
 10000, not 200000) and say what it cost in time.
 
+## Step 6: Obfuscate it before it leaves
+
+Use this when the user wants the function seen by someone who must not see
+the source: another model, a vendor, a colleague outside the project. The
+request may be phrased as "obfuscate", "anonymize", "rename the variables",
+"strip the identifying parts", or "make a version I can send". The
+structure is what the outside reader needs and the names are what identify
+the codebase, so the tool renames and masks, keeps everything the analyzer
+reasons about, and then **proves** the analyzer treats the twin like the
+original. Do not obfuscate by hand or with `sed`; a rename that misses one
+position produces a file that looks fine and analyzes differently.
+
+**Run** (same `--tu` and `--name` as Step 3; `--analyze` is what makes it
+verified):
+
+```bash
+python3 tools/slice_function.py --dir <idir> --bin $BIN --tu <N> --name <name> --obfuscate --emit --analyze
+```
+
+**It writes three files** under `<idir>/output/pathout/slice-<name>/`
+(or `--out`):
+
+| file | what | where it may go |
+|---|---|---|
+| `<name>.slice.c` | the plain slice, real names | stays |
+| `<name>.obf.c` | the twin: project identifiers renamed by kind, strings masked, comments gone | this is the only file that leaves |
+| `<name>.obf.map.json` | every new name with what it was; every kept name with why | stays; it is how the outside reader's advice about `fn_0` and `L_1` is translated back |
+
+**Read four lines of the output before handing anything over:**
+
+1. `obfusc.  cov-emit: emitted` with no recoverable errors. Errors mean the
+   twin is not even the same program.
+2. `verify : obfuscation preserved the analysis -- same path count (N),
+   same PATHOUT flag, same pathed-out checkers`. This is the acceptance
+   test. If it says `DIFFERS`, stop: the twin does not represent the
+   function, and the tool has a bug worth reporting with the two files.
+   Do not hand over a twin that differs and do not explain it away.
+3. `review : ... identifiers neither renamed nor classified as library`.
+   Usually absent. If present, look at each name in `<name>.obf.c`: it is
+   something the tool could not attribute, and a human decides whether it
+   identifies the project. Renaming it by hand *and re-running the
+   verification* is fine; skipping the verification is not.
+4. `kept : N library names` -- open the map's `kept` section and skim it.
+   Every entry should read as libc, POSIX, Win32 or the compiler
+   (`strlen`, `struct passwd`, `pw_uid`, `size_t`, `setuid`). A project
+   name there means it was declared under a path the tool took for a
+   system path; say so and treat it as a `review` item.
+
+**What the twin still carries, and say so to the user**: control flow,
+struct shapes, numeric constants, string *lengths* and `%` directives,
+and the library calls. Someone who knows the codebase can recognize a
+function by its shape. Names, string contents, file paths and comments
+are gone. Numeric constants are kept on purpose: known constants are the
+state that multiplies (see *What "paths" means*), and changing them would
+change the very thing being diagnosed.
+
+**Hand over** `<name>.obf.c` alone. Not the map, not the plain slice, not
+the analysis log (it contains the real name and paths). The tool's own
+`obfusc.  analysis:` lines are safe to quote because they name only the
+new name and the checker.
+
+Mechanism, measurements and limits: `references/standalone-reproducer.md`,
+*Obfuscating the slice so it can leave the building*.
+
 ## Reporting
 
 Verdict first (rule 21): the function, the checker that pathed out, the
@@ -252,6 +316,12 @@ did *not* take past Step 1 (rule 22).
   declarations it needs. The tree has them all; `slice_function.py` prints
   them. (For C++, the preprocessed TU is the container, not a hand-built
   one.)
+- Obfuscating with `sed`, a word list, or by hand, and sending the result
+  without the `verify` line. Renaming `malloc` changes the analysis;
+  missing one `->` access breaks the file; neither is visible by reading.
+  `--obfuscate --analyze` is the only path that ends in evidence.
+- Sending the plain slice, the map, or the analysis log along with the
+  obfuscated twin. Only `<name>.obf.c` leaves.
 - Using a different Coverity version than the one that wrote the idir.
 - Re-running `cov-analyze` into the only copy of the idir and losing the
   original log.
