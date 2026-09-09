@@ -209,17 +209,43 @@ def nested_components(name):
     m = NESTED_RE.match(name or "")
     if not m or is_anonymous(name):
         return None
-    rest, parts = m.group(1), []
+    return _itanium_parts(m.group(1), least=2)
+
+
+def _itanium_parts(rest, least=1):
+    parts = []
     while rest:
-        m2 = re.match(r"^(\d+)(.*)$", rest)
-        if not m2:
+        m = re.match(r"^(\d+)(.*)$", rest)
+        if not m:
             return None
-        n, tail = int(m2.group(1)), m2.group(2)
+        n, tail = int(m.group(1)), m.group(2)
         if len(tail) < n:
             return None
         parts.append(tail[:n])
         rest = tail[n:]
-    return tuple(parts) if len(parts) >= 2 else None
+    return tuple(parts) if len(parts) >= least else None
+
+
+def source_spelling(name):
+    """The source-level identifier behind a mangled name:
+    `_Z5drivei...` -> 'drive', `_ZN4demo6Widget1fEi` ->
+    'f'. A C name is not mangled and comes back unchanged.
+
+    The emit keys a function by its linker name, but the pretty-printed body
+    and the prototypes spell it the way the source did, so anything matching
+    text against a function name needs this.
+    """
+    if not name or not name.startswith("_Z"):
+        return name
+    m = re.match(r"^_Z(\d+)(.*)$", name)
+    if m and len(m.group(2)) >= int(m.group(1)):
+        return m.group(2)[:int(m.group(1))]
+    m = re.match(r"^_ZN(.*?)E", name)
+    if m:
+        parts = _itanium_parts(m.group(1))
+        if parts:
+            return parts[-1]
+    return name
 
 
 class Names:
@@ -956,6 +982,8 @@ int long register restrict return short signed sizeof static struct switch typed
 void volatile while _Bool _Complex _Imaginary _Atomic _Alignas _Alignof _Generic _Noreturn
 _Static_assert _Thread_local bool true false class namespace template typename this new delete
 public private protected virtual operator using nullptr wchar_t char16_t char32_t
+constexpr decltype noexcept static_assert thread_local explicit friend mutable export
+const_cast dynamic_cast reinterpret_cast static_cast typeid throw try catch alignas alignof
 """.split())
 
 # standard / POSIX typedef names: recognisable to any reader and to library models
@@ -1083,6 +1111,24 @@ class Obfuscator:
         m[name] = new
         self.category[new] = (category, name)
 
+    def _also(self, alias, primary, category, into=None):
+        """Point one more spelling at the new name `primary` already has.
+
+        C++ separates the name the emit keys an entity by from the name the
+        text spells it with: a callee is keyed by its mangled name but called
+        by its `id`, an enumerator likewise, and a nested type is keyed by
+        `_ZN...E` but written `Outer::Inner`. Every such spelling has to reach
+        the same new name, or the original leaks into the twin.
+        """
+        src = self._map_for(category)
+        dst = self._map_for(into) if into else src
+        new = src.get(primary)
+        if not alias or new is None or (alias == primary and dst is src):
+            return
+        if alias in dst or alias in self.keep or alias in C_KEYWORDS:
+            return
+        dst[alias] = new
+
     def _keep(self, name, why):
         if name:
             self.keep.add(name)
@@ -1098,24 +1144,45 @@ class Obfuscator:
         for line in callees_text.splitlines():
             s = line.strip()
             if s.startswith("Call to: "):
-                cur = s[len("Call to: "):].split(" /*")[0].split("(")[0].split("::")[-1]
+                sig = s[len("Call to: "):]
+                # `find` prints `name(params) /*mangled*/`, and sl.functions is
+                # keyed by the mangled name, so key this by the same thing --
+                # the demangled base name only matches for C, where there is no
+                # mangled form to print.
+                mm = re.search(r"/\*(_Z[^*]+)\*/", sig)
+                cur = mm.group(1) if mm else sig.split(" /*")[0].split("(")[0].split("::")[-1]
             elif cur and RE_LOC.match(s) and cur not in callee_loc:
                 callee_loc[cur] = RE_LOC.match(s).group(1)
         for nm in sl.functions:
             loc = callee_loc.get(nm)
             if loc is None:
                 loc = sl.lookup_loc("function", nm, "f")
+            # the prototype and the call site both spell the source name
+            spelled = sl.functions[nm].get("id") or source_spelling(nm)
             if loc and not is_system_path(loc, self.sys):
                 self._rename(nm, "function")
-            else:
-                self._keep(nm, "library function (declared in %s); the analyzer models it by name" % (loc or "no captured file"))
+                self._also(spelled, nm, "function")
+            elif loc:
+                self._keep(nm, "library function (declared in %s); the analyzer models it by name" % loc)
+                self._keep(spelled, "library function (source spelling of %s)" % nm)
+            # No declaring file means the tool cannot tell a library name from a
+            # project one. Saying "library" there would emit it unchanged on a
+            # guess, so leave it unclassified instead: it is not renamed (the
+            # analyzer may model it by name) but it is reported, and a human
+            # decides before the file leaves.
         # globals
         for nm in sl.globals:
             loc = sl.lookup_loc("global", nm, "g")
-            if loc and not is_system_path(loc, self.sys):
-                self._rename(nm, "global")
+            if loc and is_system_path(loc, self.sys):
+                self._keep(nm, "library global (declared in %s)" % loc)
             else:
-                self._keep(nm, "library global")
+                # `find --kind g` does not index a global that is only declared
+                # `extern`, so there is usually no location to judge by. Rename
+                # rather than keep: the slice declares every global `extern` and
+                # unmodelled, so a new name costs the analysis nothing, while
+                # keeping a project name costs exactly what this mode exists to
+                # prevent.
+                self._rename(nm, "global")
         # structs/unions and their fields
         for nm in sl.classes:
             if is_anonymous(nm) or sl.names._local_of(nm):
@@ -1127,6 +1194,12 @@ class Obfuscator:
                 system = is_system_path(loc, self.sys)
             tag = sl.names.tag(nm, "s")
             fields = [f.get("name") for k, f in ((sl.class_defs.get(nm) or Node("x")).get("fields") or [])]
+            # A mangled instantiation name is not a library API name even when
+            # the template is library code: it spells out the types it was
+            # instantiated on, and those are the project's
+            # (`_ZSt5dequeIN5boost10shared_ptrI7RequestEE...`).
+            if system and nm.startswith("_Z"):
+                system = False
             if system:
                 self._keep(tag, "library struct")
                 for f in fields:
@@ -1134,44 +1207,51 @@ class Obfuscator:
                         self._keep(f, "field of a library struct")
             else:
                 self._rename(tag, "struct")
+                # a class name is also written without an elaborated specifier,
+                # in `Outer::member` and in a C++ cast or constructor call
+                self._also(tag, tag, "struct", into="global")
                 for f in fields:
                     if f and f != "<anonymous>":
                         self._rename(f, "field")
         # enums and enumerators
         for nm, node in sl.enums.items():
             loc = sl.decl_loc.get(("enum", nm))
-            system = is_system_path(loc, self.sys)
+            system = is_system_path(loc, self.sys) and not nm.startswith("_Z")
             tag = sl.names.tag(nm, "e")
-            vals = [e.get("name") for k, e in ((node or Node("x")).get("enumerators") or [])]
+            parts = nested_components(nm)
+            enums_ = [(e.get("name"), e.get("id")) for k, e in ((node or Node("x")).get("enumerators") or [])]
             if system:
                 self._keep(tag, "library enum")
-                for v in vals:
+                for v, vid in enums_:
                     self._keep(v, "library enumerator")
+                    self._keep(vid, "library enumerator (source spelling of %s)" % v)
             else:
                 self._rename(tag, "enum")
-                for v in vals:
+                if parts:
+                    # written `Outer::Inner` at every use and bare `Inner` in
+                    # the class body, never by the `_ZN...E` name it is keyed by
+                    self._also(parts[-1], tag, "enum")
+                    self._also(parts[-1], tag, "enum", into="global")
+                for v, vid in enums_:
                     self._rename(v, "enumerator")
+                    self._also(vid or source_spelling(v), v, "enumerator")
         # typedefs
         for nm, td in sl.typedefs.items():
             if nm in STD_TYPEDEFS or nm.startswith("__"):
                 self._keep(nm, "standard typedef")
                 continue
-            target = td.get("target")
-            while isinstance(target, Node) and target.tag in ("cv_wrapper_type_t", "pointer_type_t", "array_type_t"):
-                target = target.get("target") or target.get("pointed_to") or target.get("element_type")
-            if isinstance(target, Node) and target.tag in ("class_type_t", "internal_defined_class_type_t",
-                                                          "enum_type_t", "internal_defined_enum_type_t"):
-                tgt = target.get("name")
-                kind = "class" if "class" in target.tag else "enum"
-                loc = sl.decl_loc.get((kind, tgt))
-                if loc is None and not is_anonymous(tgt):
-                    loc = sl.lookup_loc(kind, tgt, "c" if kind == "class" else "e")
-                if is_system_path(loc, self.sys):
-                    self._keep(nm, "typedef of a library type")
-                    continue
+            # There is no `--kind t`, so a typedef's own declaring file is never
+            # available; the target's location used to stand in for it. It does
+            # not: `typedef std::unordered_map<...> PROJECT_LOOKUP_MAP;`
+            # is a project name for a library type, and keeping it published the
+            # name. A typedef is renamed unless it is recognisably standard,
+            # which the STD_TYPEDEFS check above decides.
             self._rename(nm, "typedef")
         # the function, its parameters and locals
         self._rename(sl.name, "target")
+        # the body declares the function by its source name, not the mangled
+        # one the emit keys it by
+        self._also(source_spelling(sl.name), sl.name, "target")
         for nm in sl.params:
             self._rename(nm, "param")
         for nm in sl.locals:
@@ -1216,7 +1296,7 @@ class Obfuscator:
             if kind == "id":
                 if prev in (".", "->"):
                     new = self.fields.get(tok)
-                elif prev in ("struct", "union", "enum"):
+                elif prev in ("struct", "union", "enum", "class"):
                     new = self.tags.get(tok)
                 else:
                     new = self.general.get(tok)
@@ -1256,7 +1336,18 @@ def run_emit(bin_dir, flags, idir, slice_path, log_path):
             "error_lines": errs[:6], "log": log}
 
 
-def run_analyze(bin_dir, idir, fn_name, log_path, paths=None):
+def emit_symbol_name(bin_dir, idir, source_name):
+    """How the analysis log's `n:` field will spell this function: for C++ the
+    mangled name, which cannot be predicted for the obfuscated twin because
+    its parameter types were renamed too. Ask the emit. For C the two are the
+    same and the lookup is a no-op.
+    """
+    out = manage_emit(bin_dir, idir, ["find", source_name, "--kind", "f"])
+    m = re.search(r"/\*(_Z[^*]+)\*/", out)
+    return m.group(1) if m else source_name
+
+
+def run_analyze(bin_dir, idir, fn_name, log_path, paths=None, emit_name=None):
     exe = os.path.join(bin_dir, "cov-analyze")
     if os.name == "nt" and os.path.exists(exe + ".exe"):
         exe += ".exe"
@@ -1273,7 +1364,7 @@ def run_analyze(bin_dir, idir, fn_name, log_path, paths=None):
     with open(logp, encoding="utf-8", errors="replace") as f:
         for l in f:
             l = l.rstrip()
-            if l.startswith("wur: ") and l.endswith(" n: %s in TU 1" % fn_name):
+            if l.startswith("wur: ") and l.endswith(" n: %s in TU 1" % (emit_name or fn_name)):
                 res["wur"] = re.sub(r" mem=\d+ max=\d+", "", l)
                 m = re.search(r" (\d+)( PATHOUT=\d+)? n: ", l)
                 if m:
@@ -1378,10 +1469,14 @@ def main():
                     " * string literals masked to same-length placeholders, comments removed. Library\n"
                     " * functions, types and standard typedefs keep their names so the analyzer's models\n"
                     " * still apply. Numeric constants and all control flow are unchanged. */\n" + obf_text)
-        obf_path = os.path.join(out_dir, re.sub(r"[^A-Za-z0-9_]", "_", a.name) + ".obf" + ext)
+        # Named after the NEW name: this is the one file that leaves, and a C++
+        # mangled name spells out the function and its parameter types, so
+        # naming it after --name would publish in the filename exactly what the
+        # contents just removed.
+        obf_path = os.path.join(out_dir, re.sub(r"[^A-Za-z0-9_]", "_", obf_name) + ".obf" + ext)
         with open(obf_path, "w", encoding="utf-8", newline="\n") as f:
             f.write(obf_text)
-        map_path = obf_path[:-len(ext)] + ".map.json"
+        map_path = os.path.join(out_dir, re.sub(r"[^A-Za-z0-9_]", "_", a.name) + ".obf.map.json")
         import json
         with open(map_path, "w", encoding="utf-8", newline="\n") as f:
             json.dump({"function": a.name, "tu": a.tu, "idir": a.dir, "renamed": mapping,
@@ -1405,7 +1500,9 @@ def main():
     with open(os.path.join(out_dir, "cov-emit.flags"), "w", encoding="utf-8", newline="\n") as f:
         f.write("\n".join(flags) + "\n")
 
-    runs = [("slice", slice_path, a.name, os.path.join(out_dir, "idir"))]
+    # the `Pathed out` lines name the function by its demangled signature, so
+    # these are source spellings; the `wur:` line needs the emit's own name
+    runs = [("slice", slice_path, source_spelling(a.name), os.path.join(out_dir, "idir"))]
     if obf_path:
         runs.append(("obfusc.", obf_path, obf_name, os.path.join(out_dir, "idir-obf")))
     results = {}
@@ -1415,7 +1512,8 @@ def main():
         report_emit(label, er)
         if not er["ok"] or not a.analyze:
             continue
-        ar = run_analyze(a.bin, idir, fn_name, os.path.join(out_dir, "cov-analyze%s.log" % suffix), a.paths)
+        ar = run_analyze(a.bin, idir, fn_name, os.path.join(out_dir, "cov-analyze%s.log" % suffix), a.paths,
+                         emit_name=emit_symbol_name(a.bin, idir, fn_name))
         report_analyze(label, ar)
         results[label] = ar
     if "slice" in results and "obfusc." in results:
