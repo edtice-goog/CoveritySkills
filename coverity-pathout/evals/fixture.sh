@@ -32,4 +32,6 @@ echo "== the function, from the AST, by mangled name"
 echo "== the report tool"
 python3 "$HERE/../tools/pathout_report.py" --dir "$IDIR" --bin "$BIN" --out "$WORK/pathout"
 echo "== the slice: ifs_from_zero as a standalone file, re-emitted and re-analyzed"
-python3 "$HERE/../tools/slice_function.py" --dir "$IDIR" --bin "$BIN" --tu 1 --name ifs_from_zero --out "$WORK/slice" --emit --analyze
+python3 "$HERE/../tools/slice_function.py" --dir "$IDIR" --bin "$BIN" --tu 1 --name ifs_from_zero --out "$WORK/slice" --obfuscate --emit --analyze
+echo "== the obfuscated twin (the 'verify' line above says whether the analysis matched)"
+head -30 "$WORK/slice/ifs_from_zero.obf.c"

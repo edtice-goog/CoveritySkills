@@ -5,7 +5,7 @@ global and callee prototype it needs -- so it can be re-emitted and
 re-analyzed in seconds while you change it.
 
     slice_function.py --dir <idir> --bin <install>/bin --tu <N> --name <fn> \
-        [--out <dir>] [--emit] [--analyze]
+        [--out <dir>] [--emit] [--analyze] [--obfuscate]
 
 Everything comes from the emit's own AST via `cov-manage-emit find`:
 
@@ -21,6 +21,12 @@ the tree, in dependency order, and the body is appended verbatim.
 translation unit (include paths and -D dropped: there is nothing left to
 include). --analyze then runs cov-analyze --print-paths on that one-file idir
 and reports the function's path count and any 'Pathed out' checkers.
+
+--obfuscate also writes <fn>.obf.c: project identifiers renamed by kind,
+string literals masked to same-length placeholders, comments dropped,
+library names and all constants kept; with --analyze both files are
+analyzed and compared, so the twin is proven to analyze like the original
+before it leaves. The rename map (<fn>.obf.map.json) stays local.
 
 Scope: C. C++ bodies extract fine, but classes with methods, templates and
 namespaces are not reconstructed; for C++ use the preprocessed TU instead
@@ -154,6 +160,19 @@ def parse_debug(text):
         else:
             i += 1
     return roots
+
+
+RE_LOC = re.compile(r"^(.*?):\d+:\d+-")
+
+
+def declared_at(header_lines):
+    """The file named on the `declared at:` line of a find header comment."""
+    for i, l in enumerate(header_lines):
+        if "declared at:" in l and i + 1 < len(header_lines):
+            m = RE_LOC.match(header_lines[i + 1].lstrip(" *"))
+            if m:
+                return m.group(1)
+    return None
 
 
 def walk(value, fn, path=()):
@@ -315,6 +334,10 @@ class Slice:
         self.functions = {}      # name -> function_t node
         self.names = Names(name)
         self.inlined = set()     # anonymous member types defined in place, not at file scope
+        self.decl_loc = {}       # (kind, name) -> declaring file, for the obfuscator
+        self.defined = {}        # (kind, name) -> has a definition in the emit
+        self.locals = []         # local variable names, in tree order
+        self.params = []         # parameter names, in tree order
         self.notes = []
 
     # ---- walking a tree -------------------------------------------------
@@ -353,6 +376,20 @@ class Slice:
                 if isinstance(mc, Node) and mc.get("name"):
                     self.classes.setdefault(mc.get("name"), mc.get("classKey", "struct"))
                     self.complete.add(mc.get("name"))
+            elif tag == "local_variable_t":
+                nm = node.get("name")
+                if nm and nm not in self.locals:
+                    self.locals.append(nm)
+            elif tag == "parameter_t":
+                nm = node.get("name")
+                if nm and nm not in self.params:
+                    self.params.append(nm)
+            elif tag == "Function":
+                # `formals` names every parameter, including ones the body never
+                # uses (which never appear as parameter_t nodes)
+                for k, v in (node.get("formals") or []):
+                    if isinstance(v, str) and v and v not in self.params:
+                        self.params.append(v)
         walk(root, visit)
 
     @staticmethod
@@ -387,6 +424,7 @@ class Slice:
         for header, root in parse_debug(out):
             cls = root.get("class")
             if isinstance(cls, Node) and cls.get("name") == name:
+                self.decl_loc.setdefault(("class", name), declared_at(header))
                 if cls.get("fields") is None:
                     continue
                 return cls
@@ -397,8 +435,28 @@ class Slice:
         for header, root in parse_debug(out):
             en = root.get("enum")
             if isinstance(en, Node) and en.get("name") == name:
+                self.decl_loc.setdefault(("enum", name), declared_at(header))
                 return en
         return None
+
+    def lookup_loc(self, kind, name, flag):
+        """Declaration file of a symbol via a plain `find`; None if the emit
+        does not index it (library functions, for instance)."""
+        key = (kind, name)
+        if key in self.decl_loc:
+            return self.decl_loc[key]
+        out = manage_emit(self.bin, self.idir, ["find", find_regex(name), "--kind", flag])
+        loc = None
+        defined = False
+        for line in out.splitlines():
+            line = line.strip()
+            if loc is None and RE_LOC.match(line):
+                loc = RE_LOC.match(line).group(1)
+            if line.startswith("defined in TU"):
+                defined = True
+        self.decl_loc[key] = loc
+        self.defined[key] = defined
+        return loc
 
     # ---- dependency order -------------------------------------------------
     def deps(self, t, under_ptr, acc):
@@ -474,7 +532,8 @@ class Slice:
         return order
 
     # ---- printing -----------------------------------------------------------
-    def render(self, body_text, provenance):
+    def render(self, body_text, provenance, obf=None):
+        self.obf = obf
         P = Printer(self.names, self.class_defs, self.enums, self.cxx)
         out = []
         out.append("/* Standalone slice of %s, generated by slice_function.py from the AST in\n"
@@ -625,6 +684,8 @@ class Slice:
                     lines.append(self.render_class(P, inner, indent + "  ", tagless=True).rstrip(";") + ";")
                     continue
             width = f.get("bitfieldWidth") or f.get("bitWidth")
+            if getattr(self, "obf", None) is not None:
+                fname = self.obf.field_name(fname)
             d = P.decl(ftype, fname)
             if width:
                 d += " : " + width
@@ -691,11 +752,16 @@ def recorded_emit_flags(bin_dir, idir, tu):
     exe = toks[0]
     src = toks[-1]
     flags = []
+    sys_includes = []
     skip = False
-    for t in toks[1:-1]:
+    for i, t in enumerate(toks[1:-1]):
         if skip:
             skip = False
             continue
+        if t == "--sys_include" and i + 2 < len(toks):
+            sys_includes.append(toks[i + 2])
+        if t.startswith("--sys_include="):
+            sys_includes.append(t.split("=", 1)[1])
         if t in ("--dir", "--sys_include", "-I", "-D", "-U", "--ignore_path"):
             skip = True
             continue
@@ -714,7 +780,376 @@ def recorded_emit_flags(bin_dir, idir, tu):
             mapped.append(t)
         flags = mapped
     lang = "c++" if "--c++" in flags else "c"
-    return flags, {"exe": exe, "source": src, "lang": lang}
+    return flags, {"exe": exe, "source": src, "lang": lang, "sys_includes": sys_includes}
+
+
+# ==========================================================================
+# obfuscation: rename what the project defined, keep what the library defined,
+# mask string literals, drop comments. Structure, constants and types' shapes
+# are untouched, so the analyzer should not be able to tell the difference --
+# and --analyze checks that it cannot.
+
+C_KEYWORDS = set("""
+auto break case char const continue default do double else enum extern float for goto if inline
+int long register restrict return short signed sizeof static struct switch typedef union unsigned
+void volatile while _Bool _Complex _Imaginary _Atomic _Alignas _Alignof _Generic _Noreturn
+_Static_assert _Thread_local bool true false class namespace template typename this new delete
+public private protected virtual operator using nullptr wchar_t char16_t char32_t
+""".split())
+
+# standard / POSIX typedef names: recognisable to any reader and to library models
+STD_TYPEDEFS = set("""
+size_t ssize_t off_t off64_t time_t clock_t clockid_t timer_t uid_t gid_t pid_t mode_t dev_t ino_t
+nlink_t socklen_t suseconds_t useconds_t va_list FILE DIR wchar_t wint_t ptrdiff_t intptr_t uintptr_t
+intmax_t uintmax_t int8_t int16_t int32_t int64_t uint8_t uint16_t uint32_t uint64_t bool sig_atomic_t
+fd_set sigset_t jmp_buf sigjmp_buf div_t ldiv_t locale_t blkcnt_t blksize_t fsblkcnt_t fsfilcnt_t
+key_t id_t caddr_t u_char u_short u_int u_long quad_t u_quad_t sa_family_t in_addr_t in_port_t
+regex_t regmatch_t pthread_t pthread_mutex_t pthread_cond_t pthread_attr_t pthread_key_t
+DWORD WORD BYTE HANDLE BOOL LPVOID LPCSTR LPSTR SIZE_T ULONG LONG UINT INT CHAR WCHAR HRESULT
+""".split())
+
+RE_TOKEN = re.compile(r"""
+    (?P<comment>/\*.*?\*/|//[^\n]*)
+  | (?P<str>(?:L|u8|u|U)?"(?:\\.|[^"\\\n])*")
+  | (?P<chr>(?:L|u|U)?'(?:\\.|[^'\\\n])+')
+  | (?P<num>(?:0[xX][0-9a-fA-F']+|\d[\d']*\.?[\d']*(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?)[uUlLfF]*)
+  | (?P<id>[A-Za-z_]\w*)
+  | (?P<ws>\s+)
+  | (?P<op>->|\+\+|--|<<=|>>=|<<|>>|<=|>=|==|!=|&&|\|\||\+=|-=|\*=|/=|%=|&=|\|=|\^=|\.\.\.)
+  | (?P<other>.)
+""", re.S | re.X)
+
+RE_GENERATED = re.compile(r"^(?:fn|p|v|g|T|S|E|e|f|L)_\d+$")
+
+RE_FMT = re.compile(r"%[-+ #0]*(?:\d+|\*)?(?:\.(?:\d+|\*))?(?:hh|h|ll|l|L|q|j|z|t)?[diouxXeEfFgGaAcspn%]")
+
+
+def tokenize_c(text):
+    for m in RE_TOKEN.finditer(text):
+        yield m.lastgroup, m.group()
+
+
+def mask_string(tok, index):
+    """Same length, same escapes, same printf directives; everything else
+    becomes x. A small index keeps distinct literals distinct."""
+    m = re.match(r'^((?:L|u8|u|U)?")(.*)(")$', tok, re.S)
+    if not m:
+        return tok
+    prefix, body, suffix = m.groups()
+    keep = [False] * len(body)
+    for mm in RE_FMT.finditer(body):
+        for i in range(mm.start(), mm.end()):
+            keep[i] = True
+    i = 0
+    while i < len(body):
+        if body[i] == "\\" and i + 1 < len(body):
+            keep[i] = keep[i + 1] = True
+            i += 2
+        else:
+            i += 1
+    out = []
+    tag = str(index)
+    t = 0
+    for i, ch in enumerate(body):
+        if keep[i]:
+            out.append(ch)
+        elif t < len(tag):
+            out.append(tag[t])
+            t += 1
+        else:
+            out.append("x")
+    return prefix + "".join(out) + suffix
+
+
+def is_system_path(path, sys_includes):
+    if not path:
+        return False
+    p = path.replace("\\", "/").lower()
+    for s in sys_includes:
+        s = s.replace("\\", "/").lower().rstrip("/")
+        if s and p.startswith(s + "/"):
+            return True
+    for marker in ("/usr/include/", "/usr/lib/gcc/", "/usr/local/include/", "program files", "windows kits",
+                   "cov-analysis", "coverity-compiler-compat", "coverity-macro-compat"):
+        if marker in p:
+            return True
+    return False
+
+
+class Obfuscator:
+    """Builds the rename maps from the slice's own knowledge and applies them.
+
+    Three maps, applied by position so that a field, a struct tag and a
+    variable may share a spelling without sharing a new name:
+      fields   -- after '.' or '->' in the body; field names in struct bodies
+      tags     -- after 'struct' / 'union' / 'enum'
+      general  -- everything else: functions, globals, typedefs, enumerators,
+                  parameters, locals, labels, the function itself
+    """
+
+    PREFIX = {"function": "fn", "target": "fn", "param": "p", "local": "v", "global": "g",
+              "typedef": "T", "struct": "S", "enum": "E", "enumerator": "e", "field": "f", "label": "L"}
+
+    def __init__(self, sl, sys_includes, callees_text):
+        self.sl = sl
+        self.sys = sys_includes
+        self.fields = {}          # old -> new
+        self.tags = {}
+        self.general = {}
+        self.category = {}        # new -> category
+        self.keep = set()
+        self.reasons = {}
+        self.counters = {}
+        self.classify(callees_text)
+
+    # ---- map building --------------------------------------------------
+    def _map_for(self, category):
+        if category == "field":
+            return self.fields
+        if category in ("struct", "enum"):
+            return self.tags
+        return self.general
+
+    def _rename(self, name, category):
+        if not name or name in C_KEYWORDS or name.startswith("__") or name.startswith("__cov_anon_"):
+            return
+        m = self._map_for(category)
+        if name in m or name in self.keep:
+            return
+        n = self.counters.get(category, 0) + 1
+        self.counters[category] = n
+        new = "fn_0" if category == "target" else "%s_%d" % (self.PREFIX[category], n)
+        m[name] = new
+        self.category[new] = (category, name)
+
+    def _keep(self, name, why):
+        if name:
+            self.keep.add(name)
+            self.reasons.setdefault(name, why)
+
+    def classify(self, callees_text):
+        sl = self.sl
+        # callees: --print-callees gives each one's declaring file (a
+        # 'defined in TU' line appears only for same-TU definitions, so it is
+        # not the criterion; the declaring file is)
+        callee_loc = {}
+        cur = None
+        for line in callees_text.splitlines():
+            s = line.strip()
+            if s.startswith("Call to: "):
+                cur = s[len("Call to: "):].split(" /*")[0].split("(")[0].split("::")[-1]
+            elif cur and RE_LOC.match(s) and cur not in callee_loc:
+                callee_loc[cur] = RE_LOC.match(s).group(1)
+        for nm in sl.functions:
+            loc = callee_loc.get(nm)
+            if loc is None:
+                loc = sl.lookup_loc("function", nm, "f")
+            if loc and not is_system_path(loc, self.sys):
+                self._rename(nm, "function")
+            else:
+                self._keep(nm, "library function (declared in %s); the analyzer models it by name" % (loc or "no captured file"))
+        # globals
+        for nm in sl.globals:
+            loc = sl.lookup_loc("global", nm, "g")
+            if loc and not is_system_path(loc, self.sys):
+                self._rename(nm, "global")
+            else:
+                self._keep(nm, "library global")
+        # structs/unions and their fields
+        for nm in sl.classes:
+            if is_anonymous(nm) or sl.names._local_of(nm):
+                system = False
+            else:
+                loc = sl.decl_loc.get(("class", nm))
+                if loc is None:
+                    loc = sl.lookup_loc("class", nm, "c")
+                system = is_system_path(loc, self.sys)
+            tag = sl.names.tag(nm, "s")
+            fields = [f.get("name") for k, f in ((sl.class_defs.get(nm) or Node("x")).get("fields") or [])]
+            if system:
+                self._keep(tag, "library struct")
+                for f in fields:
+                    if f and f != "<anonymous>":
+                        self._keep(f, "field of a library struct")
+            else:
+                self._rename(tag, "struct")
+                for f in fields:
+                    if f and f != "<anonymous>":
+                        self._rename(f, "field")
+        # enums and enumerators
+        for nm, node in sl.enums.items():
+            loc = sl.decl_loc.get(("enum", nm))
+            system = is_system_path(loc, self.sys)
+            tag = sl.names.tag(nm, "e")
+            vals = [e.get("name") for k, e in ((node or Node("x")).get("enumerators") or [])]
+            if system:
+                self._keep(tag, "library enum")
+                for v in vals:
+                    self._keep(v, "library enumerator")
+            else:
+                self._rename(tag, "enum")
+                for v in vals:
+                    self._rename(v, "enumerator")
+        # typedefs
+        for nm, td in sl.typedefs.items():
+            if nm in STD_TYPEDEFS or nm.startswith("__"):
+                self._keep(nm, "standard typedef")
+                continue
+            target = td.get("target")
+            while isinstance(target, Node) and target.tag in ("cv_wrapper_type_t", "pointer_type_t", "array_type_t"):
+                target = target.get("target") or target.get("pointed_to") or target.get("element_type")
+            if isinstance(target, Node) and target.tag in ("class_type_t", "internal_defined_class_type_t",
+                                                          "enum_type_t", "internal_defined_enum_type_t"):
+                tgt = target.get("name")
+                kind = "class" if "class" in target.tag else "enum"
+                loc = sl.decl_loc.get((kind, tgt))
+                if loc is None and not is_anonymous(tgt):
+                    loc = sl.lookup_loc(kind, tgt, "c" if kind == "class" else "e")
+                if is_system_path(loc, self.sys):
+                    self._keep(nm, "typedef of a library type")
+                    continue
+            self._rename(nm, "typedef")
+        # the function, its parameters and locals
+        self._rename(sl.name, "target")
+        for nm in sl.params:
+            self._rename(nm, "param")
+        for nm in sl.locals:
+            self._rename(nm, "local")
+
+    # ---- application ---------------------------------------------------
+    def field_name(self, name):
+        return self.fields.get(name, name)
+
+    def new_name(self, old):
+        return self.general.get(old, old)
+
+    def apply(self, text):
+        """Rename by position, mask strings, drop comments.
+        Returns (new_text, mapping, unclassified identifiers)."""
+        for m in re.finditer(r"\bgoto\s+([A-Za-z_]\w*)", text):
+            self._rename(m.group(1), "label")
+        out = []
+        str_index = 0
+        prev = None            # previous significant token text
+        in_directive = False   # inside a #... line: ours, copied verbatim
+        unclassified = set()
+        for kind, tok in tokenize_c(text):
+            if kind == "comment":
+                continue
+            if kind == "ws":
+                out.append(tok)
+                if "\n" in tok:
+                    in_directive = False
+                continue
+            if tok == "#" and (prev is None or out and out[-1].endswith("\n")):
+                in_directive = True
+            if in_directive:
+                out.append(tok)
+                prev = tok
+                continue
+            if kind == "str":
+                str_index += 1
+                out.append(mask_string(tok, str_index))
+                prev = tok
+                continue
+            if kind == "id":
+                if prev in (".", "->"):
+                    new = self.fields.get(tok)
+                elif prev in ("struct", "union", "enum"):
+                    new = self.tags.get(tok)
+                else:
+                    new = self.general.get(tok)
+                if new is None and tok not in self.keep and tok not in C_KEYWORDS \
+                        and not tok.startswith("__") and tok not in ("NULL", "va_start", "va_arg", "va_end", "va_copy") \
+                        and not RE_GENERATED.match(tok):
+                    unclassified.add(tok)
+                out.append(new or tok)
+                prev = tok
+                continue
+            out.append(tok)
+            prev = tok
+        new_text = re.sub(r"\n{3,}", "\n\n", "".join(out))
+        mapping = {new: {"was": old, "kind": cat} for new, (cat, old) in self.category.items()}
+        return new_text, mapping, sorted(unclassified)
+
+
+# ==========================================================================
+# emit + analyze one file
+
+def run_emit(bin_dir, flags, idir, slice_path, log_path):
+    if os.path.isdir(idir):
+        import shutil
+        shutil.rmtree(idir)
+    exe = os.path.join(bin_dir, "cov-emit")
+    if os.name == "nt" and os.path.exists(exe + ".exe"):
+        exe += ".exe"
+    cmd = [exe, "--dir", idir] + flags + [slice_path]
+    p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    log = p.stdout + p.stderr
+    with open(log_path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(" ".join(cmd) + "\n\n" + log)
+    errs = re.findall(r'"[^"]*", line (\d+): (?:error|warning #\d+)', log)
+    rec = re.search(r"(\d+) recoverable error", log)
+    ok = "complete." in log and p.returncode == 0
+    return {"ok": ok, "rc": p.returncode, "recoverable": int(rec.group(1)) if rec else 0,
+            "error_lines": errs[:6], "log": log}
+
+
+def run_analyze(bin_dir, idir, fn_name, log_path, paths=None):
+    exe = os.path.join(bin_dir, "cov-analyze")
+    if os.name == "nt" and os.path.exists(exe + ".exe"):
+        exe += ".exe"
+    cmd = [exe, "--dir", idir, "--print-paths"]
+    if paths:
+        cmd += ["--paths", str(paths)]
+    p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    with open(log_path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(" ".join(cmd) + "\n\n" + p.stdout + p.stderr)
+    res = {"rc": p.returncode, "wur": None, "paths": None, "pathout": False, "pathed_out": [], "count": None}
+    logp = os.path.join(idir, "output", "analysis-log.txt")
+    if p.returncode != 0 or not os.path.exists(logp):
+        return res
+    with open(logp, encoding="utf-8", errors="replace") as f:
+        for l in f:
+            l = l.rstrip()
+            if l.startswith("wur: ") and l.endswith(" n: %s in TU 1" % fn_name):
+                res["wur"] = re.sub(r" mem=\d+ max=\d+", "", l)
+                m = re.search(r" (\d+)( PATHOUT=\d+)? n: ", l)
+                if m:
+                    res["paths"] = int(m.group(1))
+                    res["pathout"] = bool(m.group(2))
+            elif "Pathed out" in l and (' in "%s(' % fn_name in l or "::%s(" % fn_name in l):
+                m = re.search(r"Pathed out: (\d+) paths traversed by (\S+) in", l)
+                if m:
+                    res["pathed_out"].append((m.group(2), int(m.group(1))))
+            elif l.startswith("summary: paths_exceeded count: "):
+                res["count"] = int(l.rsplit(" ", 1)[1])
+    res["pathed_out"] = sorted(set(res["pathed_out"]))
+    return res
+
+
+def report_emit(label, r):
+    line = "%-9s cov-emit: %s" % (label, "emitted" if r["ok"] else "FAILED (exit %d)" % r["rc"])
+    if r["recoverable"]:
+        line += "; %d recoverable errors" % r["recoverable"]
+    if r["error_lines"]:
+        line += "; first diagnostics at lines " + ", ".join(r["error_lines"])
+    print(line)
+    if not r["ok"]:
+        for l in r["log"].splitlines():
+            if "error" in l.lower():
+                print("    " + l[:200])
+
+
+def report_analyze(label, r):
+    if r["wur"]:
+        print("%-9s analysis: %s" % (label, r["wur"]))
+    for comp, n in r["pathed_out"]:
+        print("%-9s analysis: Pathed out: %d paths traversed by %s" % (label, n, comp))
+    if r["count"] is not None:
+        print("%-9s analysis: paths_exceeded count: %d" % (label, r["count"]))
+    if r["rc"] != 0:
+        print("%-9s analysis: cov-analyze FAILED (exit %d)" % (label, r["rc"]))
 
 
 # ==========================================================================
@@ -730,6 +1165,9 @@ def main():
     ap.add_argument("--emit", action="store_true", help="re-emit the slice with the recorded flags")
     ap.add_argument("--analyze", action="store_true", help="also cov-analyze --print-paths the one-file idir")
     ap.add_argument("--paths", type=int, help="pass --paths N to the analysis")
+    ap.add_argument("--obfuscate", action="store_true",
+                    help="also write <name>.obf.c: project identifiers renamed, string literals masked, "
+                         "comments dropped, library names kept; with --analyze, verify both slices analyze alike")
     a = ap.parse_args()
 
     out_dir = a.out or os.path.join(a.dir, "output", "pathout", "slice-" + re.sub(r"[^A-Za-z0-9_]", "_", a.name))
@@ -768,61 +1206,67 @@ def main():
     for n in sl.notes:
         print("note    : " + n)
 
+    # ---- obfuscated twin
+    obf_path = obf_name = None
+    if a.obfuscate:
+        callees = manage_emit(a.bin, a.dir, ["--tu", str(a.tu), "find", find_regex(a.name), "--kind", "f", "--print-callees"])
+        ob = Obfuscator(sl, (meta or {}).get("sys_includes", []), callees)
+        obf_text, mapping, unclassified = ob.apply(sl.render(body, a.dir, ob))
+        obf_name = ob.new_name(a.name)
+        obf_text = ("/* Obfuscated slice: project identifiers renamed by kind (fn_ p_ v_ g_ T_ S_ E_ e_ f_ L_),\n"
+                    " * string literals masked to same-length placeholders, comments removed. Library\n"
+                    " * functions, types and standard typedefs keep their names so the analyzer's models\n"
+                    " * still apply. Numeric constants and all control flow are unchanged. */\n" + obf_text)
+        obf_path = os.path.join(out_dir, re.sub(r"[^A-Za-z0-9_]", "_", a.name) + ".obf" + ext)
+        with open(obf_path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(obf_text)
+        map_path = obf_path[:-len(ext)] + ".map.json"
+        import json
+        with open(map_path, "w", encoding="utf-8", newline="\n") as f:
+            json.dump({"function": a.name, "tu": a.tu, "idir": a.dir, "renamed": mapping,
+                       "kept": {k: v for k, v in ob.reasons.items()},
+                       "unclassified": unclassified}, f, indent=1, sort_keys=True)
+        cats = {}
+        for new, (cat, old) in ob.category.items():
+            cats[cat] = cats.get(cat, 0) + 1
+        print("obfusc. : %s  (%d lines)" % (obf_path, obf_text.count("\n")))
+        print("renamed : " + ", ".join("%d %s" % (n, c) for c, n in sorted(cats.items())))
+        print("kept    : %d library names (listed with reasons in the map); map, keep it local: %s"
+              % (len(ob.keep), map_path))
+        if unclassified:
+            print("review  : %d identifiers neither renamed nor classified as library -- check them "
+                  "before the file leaves: %s" % (len(unclassified), ", ".join(unclassified[:20])))
+
     if not (a.emit or a.analyze):
         return
     if flags is None:
         sys.exit("no recorded cov-emit invocation for TU %d; cannot re-emit" % a.tu)
     with open(os.path.join(out_dir, "cov-emit.flags"), "w", encoding="utf-8", newline="\n") as f:
         f.write("\n".join(flags) + "\n")
-    idir = os.path.join(out_dir, "idir")
-    if os.path.isdir(idir):
-        import shutil
-        shutil.rmtree(idir)
-    exe = os.path.join(a.bin, "cov-emit")
-    if os.name == "nt" and os.path.exists(exe + ".exe"):
-        exe += ".exe"
-    cmd = [exe, "--dir", idir] + flags + [slice_path]
-    p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
-    log = p.stdout + p.stderr
-    with open(os.path.join(out_dir, "cov-emit.log"), "w", encoding="utf-8", newline="\n") as f:
-        f.write(" ".join(cmd) + "\n\n" + log)
-    errs = re.findall(r'"[^"]*", line (\d+): error', log)
-    rec = re.search(r"(\d+) recoverable errors", log)
-    ok = "complete." in log and p.returncode == 0
-    print("cov-emit: %s%s%s" % ("emitted" if ok else "FAILED (exit %d)" % p.returncode,
-                                 "; %s recoverable errors" % rec.group(1) if rec else "",
-                                 "; first errors at slice lines %s" % ", ".join(errs[:6]) if errs else ""))
-    if not ok:
-        for l in log.splitlines():
-            if "error" in l.lower():
-                print("    " + l[:200])
-        print("    full log: %s" % os.path.join(out_dir, "cov-emit.log"))
-        return
-    if not a.analyze:
-        return
-    exe = os.path.join(a.bin, "cov-analyze")
-    if os.name == "nt" and os.path.exists(exe + ".exe"):
-        exe += ".exe"
-    cmd = [exe, "--dir", idir, "--print-paths"]
-    if a.paths:
-        cmd += ["--paths", str(a.paths)]
-    p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
-    with open(os.path.join(out_dir, "cov-analyze.log"), "w", encoding="utf-8", newline="\n") as f:
-        f.write(" ".join(cmd) + "\n\n" + p.stdout + p.stderr)
-    logp = os.path.join(idir, "output", "analysis-log.txt")
-    if p.returncode != 0 or not os.path.exists(logp):
-        print("cov-analyze: FAILED (exit %d); see %s" % (p.returncode, os.path.join(out_dir, "cov-analyze.log")))
-        return
-    ident = a.name
-    with open(logp, encoding="utf-8", errors="replace") as f:
-        for l in f:
-            l = l.rstrip()
-            if l.startswith("wur: ") and l.endswith(" n: %s in TU 1" % a.name):
-                print("analysis: " + re.sub(r" mem=\d+ max=\d+", "", l))
-            elif "Pathed out" in l and (' in "%s(' % ident in l or "::%s(" % ident in l):
-                print("analysis: " + l.split("wur_diagnostics: ", 1)[1])
-            elif l.startswith("summary: paths_exceeded"):
-                print("analysis: " + l)
+
+    runs = [("slice", slice_path, a.name, os.path.join(out_dir, "idir"))]
+    if obf_path:
+        runs.append(("obfusc.", obf_path, obf_name, os.path.join(out_dir, "idir-obf")))
+    results = {}
+    for label, path, fn_name, idir in runs:
+        suffix = "" if label == "slice" else "-obf"
+        er = run_emit(a.bin, flags, idir, path, os.path.join(out_dir, "cov-emit%s.log" % suffix))
+        report_emit(label, er)
+        if not er["ok"] or not a.analyze:
+            continue
+        ar = run_analyze(a.bin, idir, fn_name, os.path.join(out_dir, "cov-analyze%s.log" % suffix), a.paths)
+        report_analyze(label, ar)
+        results[label] = ar
+    if "slice" in results and "obfusc." in results:
+        s, o = results["slice"], results["obfusc."]
+        same = (s["paths"], s["pathout"], s["pathed_out"]) == (o["paths"], o["pathout"], o["pathed_out"])
+        if same:
+            print("verify  : obfuscation preserved the analysis -- same path count (%s), same PATHOUT flag, "
+                  "same pathed-out checkers" % s["paths"])
+        else:
+            print("verify  : DIFFERS -- slice %s/%s/%s vs obfuscated %s/%s/%s; do not trust the obfuscated "
+                  "copy for this question" % (s["paths"], s["pathout"], [c for c, n in s["pathed_out"]],
+                                              o["paths"], o["pathout"], [c for c, n in o["pathed_out"]]))
 
 
 if __name__ == "__main__":

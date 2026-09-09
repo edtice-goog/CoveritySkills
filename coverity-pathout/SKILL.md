@@ -178,6 +178,15 @@ the original -- in 15 seconds, editable, repeatable. That is the loop for
 Steps 4 and 5. C++ needs the preprocessed-TU route instead; both are in
 `references/standalone-reproducer.md`.
 
+Add `--obfuscate` when the slice has to go somewhere the code may not:
+project names are renamed by kind (`fn_3`, `v_12`, `S_2`, `f_17`), string
+literals are masked to same-length placeholders, library names and every
+constant stay, and with `--analyze` the tool proves the analyzer cannot tell
+the twin from the original (`verify : obfuscation preserved the analysis`).
+The map file stays local. A `DIFFERS` verdict means the twin is not fit to
+represent the function; a `review :` line lists identifiers to check by
+hand before it leaves.
+
 ## Step 4: Diagnose -- read the body with the checker in mind
 
 You know the multiplier (Step 2) and you have the body (Step 3). Look for

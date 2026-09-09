@@ -153,6 +153,69 @@ four, `--analyze`:
 A second random sample of 40 functions, taken after those fixes, emitted 40
 of 40 cleanly (85 s in total). Details in `CALIBRATION.md`.
 
+## Obfuscating the slice so it can leave the building
+
+A slice is a single function with everything it needs, which makes it the
+natural thing to hand to someone outside -- a more capable model, a
+colleague at the vendor -- for a second opinion on the structure. Names
+and strings are what identify it. `--obfuscate` writes a twin,
+`<name>.obf.c`, with the structure intact and the identity removed, and
+proves the analyzer cannot tell the two apart.
+
+```bash
+python3 tools/slice_function.py --dir <idir> --bin $BIN --tu 77 --name setup_env --obfuscate --emit --analyze
+```
+
+```
+obfusc. : .../setup_env.obf.c  (895 lines)
+renamed : 125 field, 66 function, 9 global, 1 label, 39 local, 4 param, 15 struct, 1 target, 12 typedef
+kept    : 87 library names (listed with reasons in the map); map, keep it local: .../setup_env.obf.map.json
+slice     analysis: Pathed out: 5001 paths traversed by REVERSE_INULL
+obfusc.   analysis: Pathed out: 5001 paths traversed by REVERSE_INULL
+verify  : obfuscation preserved the analysis -- same path count (5001), same PATHOUT flag, same pathed-out checkers
+```
+
+What changes, and what deliberately does not:
+
+| | treatment | why |
+|---|---|---|
+| project functions, globals, typedefs, struct tags, fields, enumerators, parameters, locals, labels, the function itself | renamed by kind: `fn_3`, `g_1`, `T_4`, `S_2`, `f_17`, `e_1`, `p_2`, `v_12`, `L_1`, `fn_0` | the kind prefix keeps the code readable as structure |
+| functions, structs, fields, typedefs declared in a **system header** (`strlen`, `struct passwd`, `pw_uid`, `size_t`) | kept | Coverity models library functions by name; renaming `malloc` would change what RESOURCE_LEAK knows. "System" means declared under a recorded `--sys_include` path, `/usr/include`, Program Files, or the Coverity compat headers |
+| string literals | same length, same escapes, same `%` directives, everything else `x`; a small index keeps distinct literals distinct (`"6xxxx%sxxxx%i"`) | log messages and config keys are the biggest identity leak; length and format directives are what checkers use |
+| numeric constants | kept | known constants are exactly the state that multiplies; see `path-explosion.md` |
+| control flow, types' shapes, struct layout | kept | that is what the reader is meant to reason about |
+| comments, the provenance header | removed | file paths and the real name |
+
+"Project" versus "library" is decided per symbol from where the emit says
+it was declared, not from a name list: a wrapper called `xmalloc` declared
+in the project is renamed; `malloc` is not. Positional renaming means a
+field, a struct tag and a variable that share a spelling get separate new
+names (`p` the parameter and `p` the field of `struct pool_rec` do not
+collide).
+
+**The verification is the point.** With `--analyze`, both files are emitted
+and analyzed and the tool compares path count, `PATHOUT` flag and the set
+of pathed-out checkers. It prints `verify : obfuscation preserved the
+analysis` or `verify : DIFFERS`, and a `DIFFERS` twin should not leave.
+During development that line caught a broken tokenizer that had renamed
+struct fields in declarations but not in `->` accesses; the analyzer saw
+50 recoverable errors and no function.
+
+Measured: `setup_env`, `listfile`, `tpl_map_va`, `main`, `ext_match` and
+the fixture all verified identical (5001/REVERSE_INULL, 5001/three
+derivers, 10001/DEADCODE_pass2, 656, 0, 5001/four components).
+
+**What still leaks.** Shape. Ninety-five `if`s, twenty-two `goto`s to one
+label and a call pattern of lookup-then-null-check is recognisable to
+someone who knows the codebase. The kept library calls narrow it further
+(`setuid`, `setgid`, `strcasecmp` say "a login routine on POSIX"). The
+`review :` line lists any identifier the tool could neither rename nor
+attribute to a library, for a human to look at before the file goes
+anywhere. The map file (`<name>.obf.map.json`: every new name with what it
+was, every kept name with the reason) stays local; it is what turns the
+outside reader's "split `fn_0` at `L_1`" back into advice about
+`setup_env`.
+
 ## When the slice is not the right container
 
 **C++.** The body of `demo::Widget::f(int)` extracts fine, but the class it

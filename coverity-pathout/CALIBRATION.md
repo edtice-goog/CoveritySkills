@@ -183,6 +183,26 @@ All dates 2026-09-09.
   function, dominated by `cov-emit` start-up).
 - Whole slice cycle for `setup_env` (`--emit --analyze`): 15-19 s, most of
   it `cov-analyze` start-up.
+- **`--obfuscate`, verified by analyzing both files.** `setup_env`
+  (125 fields, 66 functions, 9 globals, 39 locals, 4 params, 15 structs,
+  12 typedefs, 1 label renamed; 87 library names kept, all libc/POSIX),
+  `listfile`, `tpl_map_va`, `main`, `ext_match` and the fixture's
+  `ifs_from_zero`: in every case the obfuscated twin emitted cleanly and
+  produced the same path count, the same `PATHOUT` flag and the same set of
+  pathed-out checkers as the plain slice (5001/`REVERSE_INULL`;
+  5001/`DEADCODE_pass1`+`generic_DERIVERS`+`uninit_DERIVERS`;
+  10001/`DEADCODE_pass2`; 656; 0; 5001/four components). The whole cycle
+  for `setup_env`, both files, is about 60 s.
+- The `DIFFERS` verdict fired during development when a tokenizer bug left
+  `->` accesses unrenamed while struct fields were: 50 recoverable errors,
+  no function analyzed, reported as `DIFFERS -- slice 5001/True/
+  ['REVERSE_INULL'] vs obfuscated None/False/[]`.
+- `--print-callees` marks `defined in TU` only for same-TU definitions, so
+  project functions from other TUs (`pr_auth_getpwnam`) would have been kept
+  under a "defined?" rule; the rule used is the declaring file's path.
+- The `Function` node's `formals` list names every parameter, including
+  unused ones that never appear as `parameter_t` in the body (the fixture's
+  `int a`).
 - C++ fixture (`demo::Widget::f(int)`): body extracts, slice emits with
   `function not emitted` because the class's methods are not reconstructed.
   Documented as out of scope; the preprocessed-TU route is the C++ path.
