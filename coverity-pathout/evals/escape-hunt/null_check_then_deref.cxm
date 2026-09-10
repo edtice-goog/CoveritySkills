@@ -1,0 +1,93 @@
+// Path-INSENSITIVE candidate finder for the shape behind an escaped FORWARD_NULL:
+// a pointer is null-tested in an `if` condition, and dereferenced somewhere in
+// the same function OUTSIDE that if statement. No feasibility reasoning at all:
+// every such pair is reported. Meant to run over a whole idir and be filtered
+// to PATHOUT functions afterwards; the survivors are fuzzed, not believed.
+include `C/C++`;
+
+// A variable's identity: the mangled name when the front end has one, else
+// the identifier. (`.variable` is a symbol record, not a node, so it cannot
+// be compared directly.)
+function varKey(r : astnode) : string? ->
+    if r matches variableReference as v then (v.mangledName ?? v.identifier) else null endif;
+
+// After casts, is e a reference to the variable whose key is sym?
+function refsVar(e : expression, sym : string) : bool ->
+    stripCasts(e) matches variableReference as r && varKey(r) == sym;
+
+function isNullLiteral(e : expression) : bool ->
+    stripCasts(e) matches nullPointerLiteral
+    || stripCasts(e) matches intLiteral { .value == 0 };
+
+// Polarity of a null test of sym inside condition c:
+//   1  the true branch is the non-null side  (if (p), if (p != 0), if (p && ...))
+//  -1  the true branch is the null side      (if (!p), if (p == 0))
+//   0  c does not test sym
+function nullTest(c : astnode, sym : string) : int ->
+    switch (c) {
+      | binaryOperator { .operator == `&&` } as b ->
+            let l = nullTest(b.lhsExpression, sym) in
+            if l != 0 then l else nullTest(b.rhsExpression, sym) endif
+      | binaryOperator { .operator == `||` } as b ->
+            let l = nullTest(b.lhsExpression, sym) in
+            if l != 0 then l else nullTest(b.rhsExpression, sym) endif
+      | binaryOperator { .operator == `!=` } as b ->
+            if (refsVar(b.lhsExpression, sym) && isNullLiteral(b.rhsExpression))
+               || (refsVar(b.rhsExpression, sym) && isNullLiteral(b.lhsExpression))
+            then 1 else 0 endif
+      | binaryOperator { .operator == `==` } as b ->
+            if (refsVar(b.lhsExpression, sym) && isNullLiteral(b.rhsExpression))
+               || (refsVar(b.rhsExpression, sym) && isNullLiteral(b.lhsExpression))
+            then -1 else 0 endif
+      | unaryOperator { .operator == `!` } as u ->
+            if refsVar(u.operandExpression, sym) then -1
+            else 0 - nullTest(u.operandExpression, sym) endif
+      | expression as ce -> if refsVar(ce, sym) then 1 else 0 endif
+      | default -> 0
+    };
+
+// The key of the variable a dereference expression dereferences, or null.
+function derefTarget(d : astnode) : string? ->
+    switch (d) {
+      | pointerDereference as p -> varKey(stripCasts(p.pointerExpression))
+      | memberReference as m ->
+            if stripCasts(m.objectExpression) matches pointerDereference as pd
+            then varKey(stripCasts(pd.pointerExpression))
+            else varKey(stripCasts(m.objectExpression)) endif
+      | subscriptReference as s -> varKey(stripCasts(s.arrayExpression))
+      | default -> null
+    };
+
+// The top of the tree a node sits in: the function definition that owns it.
+// (outermostOwner(blockStatement, ...) returns null for expressions; walking
+// .parent does not.)
+function root(n : astnode) : astnode ->
+    if n.parent matches NonNull as p then root(p) else n endif;
+
+// Does the statement leave the function or the enclosing loop/switch?
+function escapes(s : astnode) : bool ->
+    contains(function(x : astnode) -> x matches returnStatement || x matches gotoStatement
+                                      || x matches breakStatement || x matches continueStatement, s);
+
+checker {
+    name = "PATHOUT_CANDIDATE_NULL_CHECK_THEN_DEREF";
+    reports = for d in globalset allFunctionCode
+        where derefTarget(d) matches NonNull as sym
+           && exists s in allMatchingCodeIn(ifStatement, root(d))
+                where let pol = nullTest(s.conditionExpression, sym) in
+                      pol != 0
+                      // the dereference is outside the whole if statement
+                      && !contains(function(x : astnode) -> x == d, s)
+                      // a null test whose true branch exits is a guard, not a candidate
+                      && !(pol < 0 && escapes(s.trueStatement))
+        : {
+            events = [
+                {
+                    description = "Candidate: " + sym.formattedAsCode
+                                  + " is null-tested in this function and dereferenced here, outside that test."
+                                  + " Path-insensitive; confirm or refute by fuzzing.";
+                    location = d.location;
+                }
+            ];
+        };
+};

@@ -22,7 +22,14 @@ description: >
   variables but keep the structure", "make a version I can send to the
   vendor / to another model"): identifiers renamed by kind, strings masked,
   library names and constants kept, and the analyzer run on both copies to
-  prove they analyze identically. The central
+  prove they analyze identically -- and for the hunt that follows an
+  ESCAPED defect ("a fuzzer / pen test / customer found a bug Coverity
+  missed", "it was missed because the function pathed out", "are there
+  more like it", "path-insensitive checker", "confirm the candidates"):
+  a CodeXM checker for the defect's shape over the whole idir, filtered to
+  the PATHOUT functions where the relevant checker was cut off, then
+  confirmed or refuted by reading and by fuzzing with callee stubs generated
+  from Coverity's own derived models. The central
   fact is that the limit counts paths x tracked state, not control-flow
   paths, so cyclomatic complexity does not explain a PATHOUT and the
   analyzer's own --print-paths output does. Requires a local Coverity
@@ -314,6 +321,45 @@ new name and the checker.
 Mechanism, measurements and limits: `references/standalone-reproducer.md`,
 *Obfuscating the slice so it can leave the building*.
 
+## Step 7 (after an escape): hunt the siblings behind the limit
+
+Use this when a defect got past Coverity, was found later, and the reason is
+a PATHOUT: the checker that would have reported it was cut off in that
+function. Raising `--paths` is not the answer (a real case still pathed out
+at 200,001). The answer is to look for the same *shape* everywhere the same
+cut-off happened, and to let execution decide.
+
+1. **Write the shape as a path-insensitive CodeXM checker** -- one sentence
+   about structure ("null-tested in an `if`, dereferenced outside it"), no
+   feasibility, no ordering. `references/candidate-checkers.md` has the
+   skeleton, the tree shapes, and the grammar traps; `evals/escape-hunt/
+   null_check_then_deref.cxm` is a tested one. Run it alone over a **copy**
+   of the whole idir: `cov-analyze --disable-default --codexm shape.cxm`,
+   then `cov-format-errors --json-output-v10`. Seconds; thousands of hits
+   is normal.
+2. **Filter to where nobody looked.** `tools/pathout_filter.py --findings
+   ... --log <print-paths log> --relevant FORWARD_NULL,NULL_RETURNS` keeps
+   hits in PATHOUT functions where a checker that would have caught the
+   shape was the one cut off. Everywhere else the path-sensitive checker
+   finished and was right to stay quiet. Subversion: 2,088 hits, 815 in
+   PATHOUT functions, **1** where `FORWARD_NULL` pathed out. Exclude the
+   known instance.
+3. **Read each survivor**, then **fuzz the ones reading cannot settle**:
+   slice it (Step 3), generate stubs for its callees from their derived
+   models (`cov-find-function --save`, `tools/model_stubs.py`), build the
+   slice with `evals/escape-hunt/harness.c` under clang-cl `-fsanitize=
+   fuzzer,address`, and let the input choose both the arguments and the
+   stub behaviours. A crash at the candidate's dereference is the
+   confirmation, with the stub branches it took as the callee behaviours it
+   relied on. `references/fuzz-confirmation.md` has the recipe and the
+   verdict tiers; `evals/escape-hunt/run.sh` runs the whole chain on a
+   fixture in about a minute.
+
+Report the shape checker (the next escape of the class reuses it), the
+survivor list with per-candidate verdict and tier, and for confirmed ones
+the crashing input. `references/escape-hunt.md` is the full procedure with
+the measurements.
+
 ## Reporting
 
 Verdict first (rule 21): the function, the checker that pathed out, the
@@ -367,15 +413,26 @@ coverity-pathout/
 │   ├── function-extraction.md           # cov-manage-emit find: C, C++, duplicates, output shape
 │   ├── standalone-reproducer.md         # the slice: declarations from the tree, re-emit, re-analyze
 │   ├── path-explosion.md                # paths x state, the fixture evidence, which checkers
-│   └── worked-example-setup-env.md      # proftpd, end to end, with the defect diff
+│   ├── worked-example-setup-env.md      # proftpd, end to end, with the defect diff
+│   ├── escape-hunt.md                   # after an escape: shape checker -> PATHOUT filter -> confirm
+│   ├── candidate-checkers.md            # writing the path-insensitive CodeXM checker; the traps
+│   └── fuzz-confirmation.md             # stubs from derived models, harness, clang-cl, verdict tiers
 ├── tools/
 │   ├── pathout_report.py                # log + metrics join, optional AST extraction
-│   └── slice_function.py                # one function as a file that compiles; --emit --analyze
+│   ├── slice_function.py                # one function as a file that compiles; --emit --analyze
+│   ├── pathout_filter.py                # keep candidates in PATHOUT functions (--relevant checker)
+│   └── model_stubs.py                   # a callee stub from its cov-find-function model
 └── evals/
     ├── fixture.sh                       # builds, analyzes and checks the fixtures
     ├── evals.json
-    └── fixtures/
-        ├── ifs_known_vs_unknown.c       # same CFG, one explodes, one does not
-        ├── overloads.cpp                # C++: mangled names, one overload explodes
-        └── nested_members.cpp           # C++ free function: static member, nested enum, __func__
+    ├── fixtures/
+    │   ├── ifs_known_vs_unknown.c       # same CFG, one explodes, one does not
+    │   ├── overloads.cpp                # C++: mangled names, one overload explodes
+    │   └── nested_members.cpp           # C++ free function: static member, nested enum, __func__
+    └── escape-hunt/
+        ├── run.sh                       # checker -> slice -> model stub -> fuzz, on the fixtures
+        ├── null_check_then_deref.cxm    # the tested shape checker
+        ├── shape.c                      # the shape and its three nearest non-shapes
+        ├── lookup.c, use.c              # a callee with a model, a caller with the shape
+        └── harness.c                    # libFuzzer harness: one input feeds args and stub choices
 ```

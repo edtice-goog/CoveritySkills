@@ -79,6 +79,18 @@ produced the same path count and the same pathed-out checkers. It did, for
 every function tried. The map stays local; the twin can go to a frontier
 model, or to the vendor, without carrying the codebase's name.
 
+**When a defect escaped, it hunts the siblings.** A later tool found a bug
+Coverity missed, and the reason was a PATHOUT. Raising the limit does not
+help (a real case still pathed out at 200,001). Instead: a
+*path-insensitive* CodeXM checker for the defect's shape runs over the
+whole idir in seconds, its hits are filtered to the PATHOUT functions where
+the relevant checker was cut off (on subversion: 2,088 hits, 815 in
+PATHOUT functions, 1 where `FORWARD_NULL` was the one cut off), and each
+survivor is read, then fuzzed: the slice plus callee stubs generated from
+Coverity's own derived models, built with clang-cl and ASan, so a crash at
+the candidate's dereference is the confirmation. The fixture chain runs in
+about a minute (`evals/escape-hunt/run.sh`).
+
 ## What is in it
 
 | | |
@@ -91,6 +103,8 @@ model, or to the vendor, without carrying the codebase's name.
 | `references/worked-example-setup-env.md` | proftpd's `setup_env` end to end, including the raised-limit defect diff |
 | `tools/pathout_report.py` | one command: log + `FUNCTION.metrics` join, batch detection, optional AST extraction of every affected function |
 | `tools/slice_function.py` | one function as a standalone `.c` file, re-emitted with the TU's recorded flags and re-analyzed with `--print-paths` |
+| `references/escape-hunt.md`, `candidate-checkers.md`, `fuzz-confirmation.md` | the escape hunt: shape checker over the idir, PATHOUT filter, read-then-fuzz confirmation with model-derived stubs |
+| `tools/pathout_filter.py`, `tools/model_stubs.py`, `evals/escape-hunt/` | the filter, the stub generator, the tested checker, fixtures and harness |
 | `evals/` | the two fixtures and a script that builds, analyzes and checks them on your installation |
 
 ## Requirements

@@ -44,6 +44,20 @@
       ]
     },
     {
+      "id": 4,
+      "eval_name": "escape-hunt",
+      "prompt": "A fuzzer found a null dereference in one of our functions that Coverity never reported. We checked: that function paths out (FORWARD_NULL_pass2 hit the limit). The bug is a null check whose closing brace comes one statement too early, so the pointer is dereferenced right after the guard. Are there more of these hiding behind the path limit in this idir (C:\\Data\\tool-interop\\coverity\\idirs\\svn-augmented-post-enrichment, Coverity 2026.3.0)? I don't want a list of every unguarded dereference in the codebase.",
+      "expected_output": "Writes (or reuses) a path-insensitive CodeXM checker for the shape; runs it alone over a copy of the whole idir with --disable-default --codexm; obtains the PATHOUT set from a --print-paths run with the original options; filters with tools/pathout_filter.py --relevant FORWARD_NULL,NULL_RETURNS (2088 -> 815 -> 1 on this idir); reads the survivor and refutes it (bufpt reassigned to a stack array before the flagged dereference); explains that confirmation of anything unresolved is by fuzzing the slice with model-derived stubs; does not raise --paths as the fix.",
+      "assertions": [
+        "Does not propose raising --paths as the remedy",
+        "Uses a path-insensitive CodeXM checker over the whole idir rather than per-function analysis",
+        "Filters candidates to PATHOUT functions and, further, to those where a null-tracking checker (FORWARD_NULL / NULL_RETURNS) pathed out",
+        "Excludes or identifies the known instance rather than re-reporting it",
+        "Reads the survivors before proposing fuzzing, and states the verdict tier",
+        "Describes the fuzz confirmation as slice + stubs from derived models + sanitizer, with the stub branches as part of the evidence"
+      ]
+    },
+    {
       "id": 2,
       "eval_name": "extract-a-cpp-overload",
       "prompt": "I have an intermediate directory built by Coverity 2026.6.0 from evals/fixtures/overloads.cpp. Show me exactly what the analyzer saw for demo::Widget::f(int) -- not f(double) -- without preprocessing anything.",

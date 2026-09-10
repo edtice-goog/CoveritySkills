@@ -244,6 +244,52 @@ All dates 2026-09-09.
   Not runnable for the WSL-built proftpd idir on Windows: the recorded
   `cov-emit` is a Linux binary.
 
+### The escape hunt (2026-09-10)
+
+- **Shape checker** (`evals/escape-hunt/null_check_then_deref.cxm`,
+  CodeXM, 2026.6.0 and 2026.3.0): on `shape.c` reports the two intended
+  sites (guard closing early; cast-and-star) and none of the three controls.
+  Over the subversion idir with `--disable-default --codexm`: 13 s, 9,533
+  functions, 2,088 hits in 442 functions.
+- **CodeXM facts learned by compiling it**: `if..then..else..endif` and
+  `elsif`; `??` is null-coalescing (`default` is not an operator);
+  `stripCasts` needs an `expression`-typed argument; `variableReference.
+  variable` is a record and cannot be `==`-compared (key by `mangledName ??
+  identifier`); `innermostOwner(functionDefinition, ...)` is rejected and
+  `outermostOwner(blockStatement, expr)` returns null, so the function is
+  reached by walking `.parent`; `sourceloc` has no properties (no
+  ordering); `if (p)` arrives as an implicit `p != 0` binaryOperator; `p->f`
+  is `memberReference{objectExpression = pointerDereference{...}}`; a bogus
+  property name makes the compiler list the real ones.
+- **Filter** (`tools/pathout_filter.py`) against the `--print-paths` log of
+  the heavy subversion run (178 PATHOUT functions named): 815 of 2,088 hits
+  in 75 PATHOUT functions; with `--relevant FORWARD_NULL,NULL_RETURNS`:
+  **1** (`sqlite3_str_vappendf`, sqlite3.c:33692, `bufpt`; `FORWARD_NULL_
+  pass2` and `NULL_RETURNS_pass1` pathed out there). With `REVERSE_INULL`
+  also counted as relevant it would be 306, 217 of them in `write_entry`.
+- **The survivor refuted by reading**: `bufpt` is null-tested in switch
+  cases where it came from `printfTempBuf` and dereferenced in the
+  floating-point case where it was just assigned the stack array `buf`.
+- **Fuzz confirmation on the fixture** (`lookup.c` + `use.c`, 2026.6.0,
+  clang-cl from `C:\Program Files\LLVM`, LLVM 22): candidate at `use.c:18`;
+  slice of `escaped` (2 prototypes); `lookup`'s generic model has two
+  behaviours (non-null, `returnsnull`); harness + stub built with
+  `-fsanitize=fuzzer,address -Zi -Od`; ASan access-violation at address 0
+  in `escaped` at `sink(r->id + v);` within the first second; crashing
+  input `0a 0a 41 0a`. `evals/escape-hunt/run.sh` reproduces the chain.
+- **Two Windows facts**: Git Bash rewrites `/Zi` to a path (use `-Zi`);
+  the fuzzer exits 127 unless `LLVM\lib\clang\<ver>\lib\windows` (the ASan
+  DLL) is on `PATH`.
+- **Derived models as stubs** (subversion, 2026.3.0): `cov-find-function
+  --save --module generic` takes ~0.25 s per callee and writes a `.dot`
+  automaton; stubs for both `svn_dirent_skip_ancestor` and `relpath_depth`
+  brought `fetch_conflict_details`'s NULL_RETURNS back in the slice with the
+  original event chain; either alone did not; a stub that guarded its
+  `dereference(<arg 0>)` with `if (a0)` made the finding vanish. The
+  fixture's NULL_RETURNS needed `--checker-option NULL_RETURNS:stat_
+  threshold:0` at defaults (one call site cannot satisfy the 80% rule); the
+  subversion case under `--all --aggressiveness-level high` did not.
+
 ## Reasoned, not measured
 
 - That the `_pass2` suffix is the FPP-enabled second pass described in the
