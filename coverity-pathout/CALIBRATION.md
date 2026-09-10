@@ -305,6 +305,37 @@ All dates 2026-09-09.
   fixture's NULL_RETURNS needed `--checker-option NULL_RETURNS:stat_
   threshold:0` at defaults (one call site cannot satisfy the 80% rule); the
   subversion case under `--all --aggressiveness-level high` did not.
+- **The whole catalogue, no escape to key on** (2026-09-10, the twelve
+  checkers of https://github.com/edtice-goog/pathout-shapes in one
+  `cov-analyze --disable-default` with twelve `--codexm`, then
+  `pathout_filter.py --relevant auto` against the `--print-paths` log of
+  the same idir; all captured with linux64-2026.6.0 and analyzed with
+  win64-2026.6.0):
+
+  | project | functions | PATHOUT | hits | in PATHOUT functions | relevant | analysis |
+  |---|---|---|---|---|---|---|
+  | nginx 1.26.0 | 1,374 | 18 | 159 | 4 | **2** | 15 s |
+  | zstd 1.5.6 | 1,852 | 12 | 666 | 167 | 60 | 14 s |
+  | redis 7.2.4 | 7,440 | 27 | 869 | 76 | **0** | 24 s |
+
+  The two nginx survivors are one candidate (`params[index]` in
+  `ngx_http_ssi_body_filter`, where `OVERRUN_SYMBOLIC` pathed out); 57 of
+  zstd's 60 sit in `main` and most name the macro variable `__nb`, a
+  same-name-local artefact of macro expansion (the checker keys locals by
+  identifier). Neither was read or fuzzed here, so that the idirs stay
+  usable for a blind trial of the skill.
+- **Three checker defects found by reading hits, all fixed the same day**:
+  an unparenthesized `exists .. where P || exists .. where Q` nests the
+  second `exists` inside the first's `where` (an empty leading collection
+  made three guards silently false; the fixtures had passed because every
+  fixture function had an `if`); `p[i]` on a pointer is a dereference of
+  `p + i`, not a `subscriptReference`, so every `p[0]` was invisible to the
+  dereference matcher; and `while ((p = f()) != NULL)` was not a test of
+  `p` because the operand is an assignment, which turned zstd's `readdir`
+  and `strchr` loops into candidates. `sizeof_pointer_as_size` first
+  reported 32 sites in redis, all `memcpy(&x, &p, sizeof p)` copying a
+  pointer value on purpose; it now requires the pointer to be the direct
+  destination or source, and reports 0 there.
 
 ## Reasoned, not measured
 

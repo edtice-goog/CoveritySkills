@@ -363,6 +363,27 @@ survivor list with per-candidate verdict and tier, and for confirmed ones
 the crashing input. `references/escape-hunt.md` is the full procedure with
 the measurements.
 
+**No escape yet, only a PATHOUT?** Then there is no shape to derive, and
+every shape is a hypothesis. Run the whole catalogue of tested shape
+checkers from https://github.com/edtice-goog/pathout-shapes (twelve of
+them: null-check-then-deref, unchecked null return, divide after zero
+test, double release, unbounded copy, source-length-bounded copy, alloc
+never released, unchecked array index, overflow before alloc, free of
+non-heap, non-literal format, sizeof of a pointer) in one pass over a copy
+of the idir, then filter with the per-checker relevance table built in:
+
+```bash
+git clone https://github.com/edtice-goog/pathout-shapes
+pathout-shapes/bin/run_all.sh <install>/bin <idir-copy> <outdir>      # one cov-analyze, all shapes
+python3 tools/pathout_filter.py --findings <outdir>/candidates.json \
+    --log <print-paths idir>/output/analysis-log.txt --relevant auto --json survivors.json
+```
+
+Step 2's `--print-paths` run is what supplies the components; without it
+the filter can only keep every hit in a PATHOUT function and says so. Then
+step 3 as above: read, then fuzz. Expect a few dozen survivors on a
+mid-sized project and most of them to be refuted by reading.
+
 ## Reporting
 
 Verdict first (rule 21): the function, the checker that pathed out, the

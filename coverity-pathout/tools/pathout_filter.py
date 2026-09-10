@@ -29,7 +29,26 @@ import sys
 
 RE_PATHED_OUT = re.compile(
     r"^wur_diagnostics: (?:\w+: )?Pathed out: (\d+) paths traversed by (\S+) in \"(.*)\"$")
-RE_WUR_NAMED = re.compile(r"^wur: [a-z]+\d+ .*? (\d+) PATHOUT=(\d+) n: (.+?) in TU (\d+)$")
+RE_WUR_NAMED = re.compile(
+    r"^wur: [a-z]+\d+ .*? (\d+) PATHOUT=(\d+) n: (.+?)(?: in TU (\d+))?(?: with extra_info)?$")
+
+# --relevant auto: which pathed-out components make a hit of each shape checker
+# in the pathout-shapes catalogue worth reading. A candidate only matters where
+# the checker that would have caught it is the one that was cut off.
+SHAPE_RELEVANCE = {
+    "PATHOUT_CANDIDATE_NULL_CHECK_THEN_DEREF": ("FORWARD_NULL", "NULL_RETURNS", "REVERSE_INULL"),
+    "PATHOUT_CANDIDATE_UNCHECKED_NULL_RETURN_DEREF": ("NULL_RETURNS", "FORWARD_NULL"),
+    "PATHOUT_CANDIDATE_ZERO_CHECK_THEN_DIVIDE": ("DIVIDE_BY_ZERO",),
+    "PATHOUT_CANDIDATE_DOUBLE_RELEASE": ("USE_AFTER_FREE",),
+    "PATHOUT_CANDIDATE_UNBOUNDED_COPY_INTO_FIXED_BUFFER": ("STRING_OVERFLOW", "OVERRUN", "BUFFER_SIZE"),
+    "PATHOUT_CANDIDATE_SOURCE_LENGTH_INTO_FIXED_BUFFER": ("STRING_OVERFLOW", "OVERRUN", "BUFFER_SIZE"),
+    "PATHOUT_CANDIDATE_ALLOC_NEVER_RELEASED": ("RESOURCE_LEAK",),
+    "PATHOUT_CANDIDATE_UNCHECKED_ARRAY_INDEX": ("OVERRUN", "NEGATIVE_RETURNS", "TAINTED_SCALAR"),
+    "PATHOUT_CANDIDATE_OVERFLOW_BEFORE_ALLOC": ("INTEGER_OVERFLOW", "OVERFLOW_BEFORE_WIDEN", "TAINTED_SCALAR"),
+    "PATHOUT_CANDIDATE_FREE_OF_NONHEAP": ("BAD_FREE", "USE_AFTER_FREE"),
+    "PATHOUT_CANDIDATE_NONLITERAL_FORMAT_STRING": ("PRINTF_ARGS", "FORMAT_STRING_INJECTION", "TAINTED_STRING"),
+    "PATHOUT_CANDIDATE_SIZEOF_POINTER_AS_SIZE": ("SIZEOF_MISMATCH", "BAD_SIZEOF"),
+}
 
 
 def identifier_of_signature(sig):
@@ -52,7 +71,7 @@ def pathout_functions(log_path):
                 e["components"][comp] = max(e["components"].get(comp, 0), int(paths))
                 continue
             m = RE_WUR_NAMED.match(line)
-            if m:
+            if m and m.group(2) != "0" and not m.group(3).startswith("batch "):
                 name = m.group(3)
                 e = out.setdefault(name, {"signatures": set(), "components": {}, "wur": False})
                 e["wur"] = True
@@ -75,9 +94,12 @@ def main():
     ap.add_argument("--relevant", help="comma-separated checker-name prefixes; keep only findings in functions where "
                                        "one of these pathed out (e.g. FORWARD_NULL,NULL_RETURNS,REVERSE_INULL for a "
                                        "null-dereference shape). A candidate only matters where the checker that "
-                                       "would have caught it is the one that was cut off.")
+                                       "would have caught it is the one that was cut off. 'auto' looks the prefixes "
+                                       "up per finding from its checker name, for the pathout-shapes catalogue "
+                                       "(a whole-catalogue run with no escaped defect to key on).")
     a = ap.parse_args()
-    relevant = tuple(x.strip() for x in a.relevant.split(",") if x.strip()) if a.relevant else None
+    auto = a.relevant == "auto"
+    relevant = None if auto or not a.relevant else tuple(x.strip() for x in a.relevant.split(",") if x.strip())
 
     if a.log:
         po = pathout_functions(a.log)
@@ -89,14 +111,23 @@ def main():
         sys.exit("give --log or --pathout-map")
     if not po:
         sys.exit("no PATHOUT function named in %s -- is it the log of a --print-paths run?" % (a.log or a.pathout_map))
+    if (relevant or auto) and not any(v["components"] for v in po.values()):
+        print("note: the log names PATHOUT functions but no components (not a --print-paths run), so "
+              "relevance cannot be applied; every finding in a PATHOUT function is kept", file=sys.stderr)
+        relevant, auto = None, False
     data = json.load(open(a.findings, encoding="utf-8"))
     issues = data.get("issues", [])
-    kept, dropped, irrelevant = [], 0, 0
+    kept, dropped, irrelevant, unknown_shape = [], 0, 0, 0
     for it in issues:
         fn = finding_function(it)
         if fn in po:
             comps = po[fn]["components"]
-            if relevant and not any(c.startswith(relevant) for c in comps):
+            rel = relevant
+            if auto:
+                rel = SHAPE_RELEVANCE.get(it.get("checkerName", ""))
+                if rel is None:
+                    unknown_shape += 1
+            if rel and not any(c.startswith(rel) for c in comps):
                 irrelevant += 1
                 continue
             it2 = dict(it)
@@ -111,10 +142,11 @@ def main():
     if a.callers:
         print("note: --callers is not implemented yet; only findings inside PATHOUT functions are kept", file=sys.stderr)
 
-    print("findings: %d total, %d in PATHOUT functions (kept), %d elsewhere (dropped)%s"
+    print("findings: %d total, %d in PATHOUT functions (kept), %d elsewhere (dropped)%s%s"
           % (len(issues), len(kept), dropped,
-             ", %d in PATHOUT functions where none of [%s] pathed out (dropped)" % (irrelevant, a.relevant)
-             if relevant else ""))
+             ", %d in PATHOUT functions where no relevant checker pathed out (dropped)" % irrelevant
+             if (relevant or auto) else "",
+             ", %d of an unknown shape (kept unfiltered)" % unknown_shape if unknown_shape else ""))
     print("PATHOUT functions named in the log: %d" % len(po))
     by_fn = {}
     for it in kept:
@@ -123,9 +155,10 @@ def main():
         comps = ", ".join("%s(%d)" % kv for kv in lst[0]["pathout"]["pathed_out_components"][:4])
         print("  %-36s %2d candidate(s)   pathed out: %s" % (fn[:36], len(lst), comps))
         for it in lst[:6]:
-            print("      %s:%s  %s" % (os.path.basename(it.get("mainEventFilePathname", "?")),
-                                       it.get("mainEventLineNumber", "?"),
-                                       (it.get("events") or [{}])[0].get("eventDescription", "")[:90]))
+            print("      %s:%s  %s  %s" % (os.path.basename(it.get("mainEventFilePathname", "?")),
+                                           it.get("mainEventLineNumber", "?"),
+                                           it.get("checkerName", "").replace("PATHOUT_CANDIDATE_", "").lower(),
+                                           (it.get("events") or [{}])[0].get("eventDescription", "")[:80]))
     if a.json:
         with open(a.json, "w", encoding="utf-8", newline="\n") as f:
             json.dump({"source": a.findings, "log": a.log, "kept": kept,

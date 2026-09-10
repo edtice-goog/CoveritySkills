@@ -87,6 +87,31 @@ and nothing else. 13 seconds for 9,533 functions.
 - When a property name is wrong, the error lists the properties the value
   has. Referencing a bogus property on purpose (`d.location.zzz`) is the
   fastest way to see a type's surface.
+- **Parenthesize every `exists` in an `||` chain.** `exists a in X where P
+  || exists b in Y where Q` parses as one `exists` with the second nested
+  inside the first's `where`; when X is empty the whole disjunction is
+  false, silently. This cost a day: three checkers passed their fixtures
+  only because their leading collection (the `if` statements, the calls)
+  happened to be non-empty in every fixture function. Write `(exists a in X
+  where P) || (exists b in Y where Q)`.
+- `exists x in C` needs a `where`; `exists a in C where a matches T` is the
+  idiom for "C is non-empty".
+- `allMatchingCodeIn(expression, fn)` enumerates nothing. Give it a concrete
+  pattern (`pointerDereference`, `memberReference`, `subscriptReference`)
+  and take the union.
+- `p[i]` on a **pointer** is not a `subscriptReference`: the tree spells it
+  as a `pointerDereference` of `p + i` (a `binaryOperator`). Only a true
+  array keeps `subscriptReference`. A dereference matcher must accept the
+  `+`/`-` operand form or it misses every `p[0]`.
+- Function parameters are `astnode` (or `expression`), never a node type:
+  `f(b : binaryOperator)` is "No type named binaryOperator". Match inside.
+- `sizeofOperator` exposes only `.children` (empty for `sizeof(type)`); the
+  expression form has its operand as the child.
+- A binding made by `as` inside a `let ... in` is not visible in the
+  `events` block; bind at the top level of the `where` chain.
+- `.formattedAsCode` yields an `eventstring?`; it cannot be added to a
+  `string?`, so coalesce first (`(x ?? "?").formattedAsCode`) and keep
+  function return values plain strings.
 
 ## The worked example, in prose
 
