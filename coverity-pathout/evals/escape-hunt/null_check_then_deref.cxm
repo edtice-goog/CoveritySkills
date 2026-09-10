@@ -1,8 +1,16 @@
 // Path-INSENSITIVE candidate finder for the shape behind an escaped FORWARD_NULL:
-// a pointer is null-tested in an `if` condition, and dereferenced somewhere in
-// the same function OUTSIDE that if statement. No feasibility reasoning at all:
+// a pointer is null-tested somewhere in the function, and dereferenced at a
+// place that no test of that pointer guards. No feasibility reasoning, no
+// ordering (CodeXM's sourceloc has no fields), no reassignment tracking:
 // every such pair is reported. Meant to run over a whole idir and be filtered
-// to PATHOUT functions afterwards; the survivors are fuzzed, not believed.
+// to PATHOUT functions afterwards; the survivors are read, then fuzzed.
+//
+// "Guarded" is structural: the dereference sits inside an if statement whose
+// condition tests the pointer (either branch -- the checker does not know
+// which branch is the safe one), inside a ternary whose condition tests it,
+// or on the right of a `p && ...` / `!p || ...`. Anything else is a
+// candidate: the escaped shape (guard closes one statement too early) and
+// the reverse shape (dereference before the test) both land here.
 include `C/C++`;
 
 // A variable's identity: the mangled name when the front end has one, else
@@ -20,8 +28,8 @@ function isNullLiteral(e : expression) : bool ->
     || stripCasts(e) matches intLiteral { .value == 0 };
 
 // Polarity of a null test of sym inside condition c:
-//   1  the true branch is the non-null side  (if (p), if (p != 0), if (p && ...))
-//  -1  the true branch is the null side      (if (!p), if (p == 0))
+//   1  the true side is the non-null side  (if (p), if (p != 0), if (p && ...))
+//  -1  the true side is the null side      (if (!p), if (p == 0))
 //   0  c does not test sym
 function nullTest(c : astnode, sym : string) : int ->
     switch (c) {
@@ -64,28 +72,45 @@ function derefTarget(d : astnode) : string? ->
 function root(n : astnode) : astnode ->
     if n.parent matches NonNull as p then root(p) else n endif;
 
+function inside(d : astnode, s : astnode) : bool ->
+    contains(function(x : astnode) -> x == d, s);
+
 // Does the statement leave the function or the enclosing loop/switch?
 function escapes(s : astnode) : bool ->
     contains(function(x : astnode) -> x matches returnStatement || x matches gotoStatement
                                       || x matches breakStatement || x matches continueStatement, s);
 
+// Is dereference d of sym guarded by some test of sym around it?
+function guarded(d : astnode, sym : string, fn : astnode) : bool ->
+       exists s in allMatchingCodeIn(ifStatement, fn)
+           where nullTest(s.conditionExpression, sym) != 0 && inside(d, s)
+    // `if (!p) return;` guards everything that follows it (order unknown, so
+    // it is taken to guard every dereference outside itself)
+    || exists g in allMatchingCodeIn(ifStatement, fn)
+           where nullTest(g.conditionExpression, sym) < 0 && escapes(g.trueStatement) && !inside(d, g)
+    || exists t in allMatchingCodeIn(conditionalOperator, fn)
+           where nullTest(t.conditionExpression, sym) != 0 && inside(d, t)
+    || exists a in allMatchingCodeIn(binaryOperator { .operator == `&&` }, fn)
+           where nullTest(a.lhsExpression, sym) > 0 && inside(d, a.rhsExpression)
+    || exists o in allMatchingCodeIn(binaryOperator { .operator == `||` }, fn)
+           where nullTest(o.lhsExpression, sym) < 0 && inside(d, o.rhsExpression);
+
 checker {
     name = "PATHOUT_CANDIDATE_NULL_CHECK_THEN_DEREF";
     reports = for d in globalset allFunctionCode
         where derefTarget(d) matches NonNull as sym
-           && exists s in allMatchingCodeIn(ifStatement, root(d))
-                where let pol = nullTest(s.conditionExpression, sym) in
-                      pol != 0
-                      // the dereference is outside the whole if statement
-                      && !contains(function(x : astnode) -> x == d, s)
-                      // a null test whose true branch exits is a guard, not a candidate
-                      && !(pol < 0 && escapes(s.trueStatement))
+           && let fn = root(d) in
+              // the function tests sym against null somewhere ...
+              exists s in allMatchingCodeIn(ifStatement, fn)
+                  where nullTest(s.conditionExpression, sym) != 0
+              // ... and nothing guards this dereference of it
+              && !guarded(d, sym, fn)
         : {
             events = [
                 {
                     description = "Candidate: " + sym.formattedAsCode
-                                  + " is null-tested in this function and dereferenced here, outside that test."
-                                  + " Path-insensitive; confirm or refute by fuzzing.";
+                                  + " is null-tested in this function and dereferenced here, unguarded."
+                                  + " Path-insensitive; read it, then confirm or refute by fuzzing.";
                     location = d.location;
                 }
             ];

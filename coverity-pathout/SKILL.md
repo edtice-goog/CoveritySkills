@@ -341,10 +341,13 @@ cut-off happened, and to let execution decide.
    ... --log <print-paths log> --relevant FORWARD_NULL,NULL_RETURNS` keeps
    hits in PATHOUT functions where a checker that would have caught the
    shape was the one cut off. Everywhere else the path-sensitive checker
-   finished and was right to stay quiet. Subversion: 2,088 hits, 815 in
-   PATHOUT functions, **1** where `FORWARD_NULL` pathed out. Exclude the
-   known instance.
-3. **Read each survivor**, then **fuzz the ones reading cannot settle**:
+   finished and was right to stay quiet. Subversion: 503 hits, 115 in
+   PATHOUT functions, **0** where `FORWARD_NULL` pathed out and 27 where
+   `REVERSE_INULL` did. Exclude the known instance.
+3. **Read each survivor** (all 27 on subversion were refuted by reading:
+   preconditions, allocate-if-null macros, invariants between variables,
+   reassignment; `references/escape-hunt.md` has the catalogue), then
+   **fuzz the ones reading cannot settle**:
    slice it (Step 3), generate stubs for its callees from their derived
    models (`cov-find-function --save`, `tools/model_stubs.py`), build the
    slice with `evals/escape-hunt/harness.c` under clang-cl `-fsanitize=

@@ -262,14 +262,30 @@ All dates 2026-09-09.
   is `memberReference{objectExpression = pointerDereference{...}}`; a bogus
   property name makes the compiler list the real ones.
 - **Filter** (`tools/pathout_filter.py`) against the `--print-paths` log of
-  the heavy subversion run (178 PATHOUT functions named): 815 of 2,088 hits
-  in 75 PATHOUT functions; with `--relevant FORWARD_NULL,NULL_RETURNS`:
-  **1** (`sqlite3_str_vappendf`, sqlite3.c:33692, `bufpt`; `FORWARD_NULL_
-  pass2` and `NULL_RETURNS_pass1` pathed out there). With `REVERSE_INULL`
-  also counted as relevant it would be 306, 217 of them in `write_entry`.
-- **The survivor refuted by reading**: `bufpt` is null-tested in switch
-  cases where it came from `printfTempBuf` and dereferenced in the
-  floating-point case where it was just assigned the stack array `buf`.
+  the heavy subversion run (178 PATHOUT functions named). First checker
+  draft ("outside one testing if"): 815 of 2,088 hits in 75 PATHOUT
+  functions; `--relevant FORWARD_NULL,NULL_RETURNS`: 1
+  (`sqlite3_str_vappendf`, sqlite3.c:33692, `bufpt`); `--relevant
+  REVERSE_INULL`: 306 in 31 (function, variable) pairs, 217 in
+  `write_entry`. Reading those showed most were dereferences inside a guard
+  of their own variable, flagged because another `if` tested it elsewhere.
+  Second draft (structural "guarded": inside a testing if/ternary, right of
+  `p &&` / `!p ||`, or anywhere given an `if (!p) <exit>`): 503 hits
+  (11 s); 115 in PATHOUT functions; `FORWARD_NULL,NULL_RETURNS`: **0**;
+  `REVERSE_INULL`: **27** in 7 pairs. Fixture unchanged (lines 20 and 59;
+  controls silent).
+- **The 27 read, all refuted**: `actual_node` x9 (`MAYBE_ALLOC` is
+  allocate-if-null); `pTab` x7 (`assert(pTab!=0)`; `abort` is not an exit to
+  the checker); `work` x5 and `t_entry` (inner declaration with the same
+  name; locals had no `mangledName`, so the identifier fallback conflated
+  them); `left_dirent`/`right_dirent` x3 (keys iterate the union of the two
+  hashes, so both null is impossible); `pUsing` x2 (`fg.isUsing` implies it);
+  `moved_nodes` (guarded by a `for` condition the checker does not treat as a
+  guard). `parent_node` in `write_entry`, judged real on a first reading, is
+  refuted by `WRITE_ENTRY_ASSERT(parent_node || entry->schedule ==
+  svn_wc_schedule_normal)` at entries.c:1817, and the second checker draft
+  had already dropped it on that basis. `bufpt` (first draft's survivor):
+  reassigned to the stack array `buf` before the flagged dereference.
 - **Fuzz confirmation on the fixture** (`lookup.c` + `use.c`, 2026.6.0,
   clang-cl from `C:\Program Files\LLVM`, LLVM 22): candidate at `use.c:18`;
   slice of `escaped` (2 prototypes); `lookup`'s generic model has two

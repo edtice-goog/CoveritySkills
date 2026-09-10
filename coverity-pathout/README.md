@@ -84,9 +84,9 @@ Coverity missed, and the reason was a PATHOUT. Raising the limit does not
 help (a real case still pathed out at 200,001). Instead: a
 *path-insensitive* CodeXM checker for the defect's shape runs over the
 whole idir in seconds, its hits are filtered to the PATHOUT functions where
-the relevant checker was cut off (on subversion: 2,088 hits, 815 in
-PATHOUT functions, 1 where `FORWARD_NULL` was the one cut off), and each
-survivor is read, then fuzzed: the slice plus callee stubs generated from
+the relevant checker was cut off (on subversion: 503 hits, 115 in PATHOUT
+functions, 27 where a null-tracking checker was the one cut off, all 27
+refuted by reading), and each survivor is read, then fuzzed: the slice plus callee stubs generated from
 Coverity's own derived models, built with clang-cl and ASan, so a crash at
 the candidate's dereference is the confirmation. The fixture chain runs in
 about a minute (`evals/escape-hunt/run.sh`).

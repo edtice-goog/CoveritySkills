@@ -67,7 +67,9 @@ def finding_function(issue):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--findings", required=True)
-    ap.add_argument("--log", required=True)
+    ap.add_argument("--log", help="analysis-log.txt of a --print-paths run of the same idir")
+    ap.add_argument("--pathout-map", help="instead of --log: the --json output of an earlier run of this "
+                                          "tool, whose pathout_functions map is reused")
     ap.add_argument("--json", help="write the kept findings here")
     ap.add_argument("--callers", action="store_true", help="also keep direct callers of pathed-out derivers")
     ap.add_argument("--relevant", help="comma-separated checker-name prefixes; keep only findings in functions where "
@@ -77,9 +79,16 @@ def main():
     a = ap.parse_args()
     relevant = tuple(x.strip() for x in a.relevant.split(",") if x.strip()) if a.relevant else None
 
-    po = pathout_functions(a.log)
+    if a.log:
+        po = pathout_functions(a.log)
+    elif a.pathout_map:
+        prev = json.load(open(a.pathout_map, encoding="utf-8"))
+        po = {k: {"signatures": set(v.get("signatures", [])), "components": v["components"], "wur": False}
+              for k, v in prev["pathout_functions"].items()}
+    else:
+        sys.exit("give --log or --pathout-map")
     if not po:
-        sys.exit("no PATHOUT function named in %s -- is it the log of a --print-paths run?" % a.log)
+        sys.exit("no PATHOUT function named in %s -- is it the log of a --print-paths run?" % (a.log or a.pathout_map))
     data = json.load(open(a.findings, encoding="utf-8"))
     issues = data.get("issues", [])
     kept, dropped, irrelevant = [], 0, 0

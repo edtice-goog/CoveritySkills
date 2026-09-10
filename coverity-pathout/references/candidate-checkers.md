@@ -91,14 +91,30 @@ and nothing else. 13 seconds for 9,533 functions.
 ## The worked example, in prose
 
 `null_check_then_deref.cxm` reports a dereference `d` of variable `v` when
-some `if` in the same function tests `v` against null and `d` is not inside
-that `if` at all, unless the test is negative (`!v`, `v == 0`) and its true
-branch exits (`return`, `goto`, `break`, `continue`), which is a guard.
-That is the whole logic: no order, no reassignment, no feasibility. On the
-fixture it reports the two intended sites and none of the three controls
-(call inside the guard, early-return guard, dereference in the else
-branch). On subversion it reports 2,088 sites, which is the point of the
-next stage, not a defect of this one.
+some `if` in the same function tests `v` against null and **nothing guards
+`d`**, where "guarded" is structural: `d` is inside an `if` whose condition
+tests `v` (either branch; the checker does not know which one is safe),
+inside a ternary whose condition tests `v`, on the right of `v && ...` or
+of `!v || ...`, or anywhere outside an `if (!v) <exit>` (an exit guard is
+taken to cover the whole function, since there is no order). That is the
+whole logic: no order, no reassignment, no feasibility.
+
+The first draft required only that `d` be outside *one* testing `if`, and
+reported 2,088 sites on subversion, four in five of them dereferences
+sitting inside a guard of their own variable that happened to have a second
+test elsewhere in the function. The guard definition above took it to 503.
+On the fixture it reports the two intended sites and none of the three
+controls (call inside the guard, early-return guard, dereference in the
+else branch).
+
+Gaps found by reading the survivors, not yet closed:
+
+- a loop condition is not a guard (`for (...; p && i < p->n; ...)` bodies
+  are reported);
+- `assert(p)` and a call to a `noreturn` function are not exits, only
+  `return`/`goto`/`break`/`continue` are;
+- two locals with the same name in one function are one variable to the
+  checker when the front end supplies no `mangledName` for them.
 
 Derive your own from the escaped instance the same way: write down the
 shape in one sentence, encode the sentence, run it on a five-function

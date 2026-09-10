@@ -26,10 +26,10 @@ candidates are **confirmed or refuted by execution**, not believed.
 
 | stage | what | cost, subversion |
 |---|---|---|
-| 1 | a CodeXM checker for the shape, over the whole idir | 13 s, 2,088 hits in 442 functions |
-| 2 | keep only hits in PATHOUT functions | 815 hits in 75 functions (of 178 PATHOUT) |
-| 3 | keep only where the relevant checker pathed out | **1** candidate |
-| 4 | read it; then fuzz what reading cannot settle | minutes per candidate |
+| 1 | a CodeXM checker for the shape, over the whole idir | 11 s, 503 hits (2,088 before the checker learned what "guarded" means) |
+| 2 | keep only hits in PATHOUT functions | 115 hits (of 178 PATHOUT functions) |
+| 3 | keep only where the relevant checker pathed out | **0** for `FORWARD_NULL`/`NULL_RETURNS`; 27 in 7 (function, variable) pairs when `REVERSE_INULL` is counted too |
+| 4 | read them; then fuzz what reading cannot settle | the 27 took about an hour to read; all refuted |
 
 The whole-idir run is cheap because the checker is structural. The
 filtering is the mechanism. Slicing is not needed for detection at all; it
@@ -74,10 +74,13 @@ python3 tools/pathout_filter.py --findings candidates.json --log <print-paths id
 `--relevant` is the step that matters most. A candidate for a null
 dereference in a function where only `BUFFER_SIZE` pathed out is not a
 candidate: `FORWARD_NULL` finished that function and rejected it with full
-path sensitivity. On subversion that one filter took 815 down to 1. Name
+path sensitivity. On subversion that one filter took 115 down to 0. Name
 the checkers that would have reported the escaped defect; for a
-check-then-dereference shape that is `FORWARD_NULL` and `NULL_RETURNS`, and
-not `REVERSE_INULL`, which is the opposite shape.
+check-then-dereference shape that is `FORWARD_NULL` and `NULL_RETURNS`.
+`REVERSE_INULL` is the opposite shape (dereference, then test), but since
+the shape checker is order-blind it finds that shape too, so counting
+`REVERSE_INULL` as relevant is a legitimate second pass; on subversion it
+yields 27 more candidates in 7 (function, variable) pairs.
 
 Two things the filter does not do, and says so: it keeps every candidate in
 a relevant function even though the checker did explore ~5,000 paths there
@@ -87,11 +90,21 @@ truncated model weakens every caller.
 
 ## Stage 4: confirm or refute
 
-**Read first.** The subversion survivor, `bufpt` in `sqlite3_str_vappendf`,
-is null-tested in some `switch` cases and dereferenced in another where it
-had just been assigned a stack array. Same variable, different definition;
-a path-insensitive checker cannot see the reassignment, and a reader
-refutes it in under a minute. Do that before building anything.
+**Read first.** Every subversion candidate was settled by reading, and the
+reasons are the catalogue of what a path-insensitive checker cannot know:
+
+| refuted by | example |
+|---|---|
+| reassignment between test and use | `bufpt` in `sqlite3_str_vappendf`: null-tested where it came from `printfTempBuf`, dereferenced where it had just been assigned a stack array |
+| the function's own precondition | `parent_node` in `write_entry`: dereferenced unguarded under three `switch` cases, but `WRITE_ENTRY_ASSERT(parent_node \|\| entry->schedule == svn_wc_schedule_normal)` at the top says a null parent only arrives with the fourth. (The first reading missed the assertion and called this one real; the checker, which treats an assertion as an exit guard, had already dropped it.) |
+| allocate-if-null | `actual_node = MAYBE_ALLOC(actual_node, pool)` then `actual_node->x`: the macro is `(x) ? (x) : apr_pcalloc(...)`, so the test the checker saw is the allocation |
+| an invariant between two variables | `left_dirent`/`right_dirent` in `inner_dir_diff`: both come from hashes whose key union is being iterated, so they cannot both be null; `pUsing` in `selectExpander` is set whenever `fg.isUsing` is; `pTab` in `lookupName` is asserted |
+| a loop-condition guard | `for (i = 0; moved_nodes && i < moved_nodes->nelts; i++)`: the checker knows `if`, `?:`, `&&` and `\|\|` as guards, not loop conditions |
+| two variables with one name | `t_entry` in `delta_dirs`, `work` in `write_entry`: an inner declaration shadows the tested one; the front end had no mangled name for the locals, so the identifier fallback conflated them |
+
+The last two are checker gaps, recorded in `candidate-checkers.md`. The
+first four are what reading is for. Do it before building anything: it
+took about an hour for 27 candidates, and left nothing to fuzz.
 
 **Then fuzz what reading cannot settle.** The slice makes the function
 executable on its own, the derived models make its callees behave exactly
