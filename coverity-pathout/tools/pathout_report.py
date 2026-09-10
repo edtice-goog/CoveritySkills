@@ -73,6 +73,8 @@ def parse_log(path):
             m = RE_WUR.match(line)
             if m:
                 phase, wid, paths, pathout, nr, name, tu = m.groups()
+                if int(pathout) == 0:
+                    continue          # a wur line can carry PATHOUT=0; that is not a hit
                 rec = {"phase": phase, "work_unit": phase + wid,
                        "paths": int(paths), "pathout": int(pathout)}
                 if name.startswith("batch ") and tu is None:
