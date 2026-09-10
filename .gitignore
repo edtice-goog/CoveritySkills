@@ -12,3 +12,8 @@ coverity-demo-data-workspace/
 
 # Issue-transition workspace: build trees, idirs, snapshots (large)
 coverity-issue-transition-inference-workspace/
+
+# Reproductions built from customer material never enter the repo
+# (see CONTRIBUTING.md). Keep them beside the checkout, not in it.
+pathout-cpp-repro/
+*-repro/
