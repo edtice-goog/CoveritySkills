@@ -1433,7 +1433,7 @@ def main():
     ap.add_argument("--analyze", action="store_true", help="also cov-analyze --print-paths the one-file idir")
     ap.add_argument("--paths", type=int, help="pass --paths N to the analysis")
     ap.add_argument("--obfuscate", action="store_true",
-                    help="also write <name>.obf.c: project identifiers renamed, string literals masked, "
+                    help="also write fn_0.obf.c: project identifiers renamed, string literals masked, "
                          "comments dropped, library names kept; with --analyze, verify both slices analyze alike")
     a = ap.parse_args()
 
