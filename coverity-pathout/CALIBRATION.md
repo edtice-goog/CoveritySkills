@@ -203,9 +203,40 @@ All dates 2026-09-09.
 - The `Function` node's `formals` list names every parameter, including
   unused ones that never appear as `parameter_t` in the body (the fixture's
   `int a`).
-- C++ fixture (`demo::Widget::f(int)`): body extracts, slice emits with
-  `function not emitted` because the class's methods are not reconstructed.
-  Documented as out of scope; the preprocessed-TU route is the C++ path.
+- C++ fixture (`demo::Widget::f(int)`, a non-static method): body
+  extracts, slice emits with 3 recoverable errors because the class's
+  methods are not reconstructed, and `--obfuscate` leaves `demo` and
+  `Widget` on the `review` line. Documented as the boundary; the
+  preprocessed-TU route is the path for methods.
+- **C++ free functions (PR #1, from an Opus 5 run against a customer TU;
+  merged 2026-09-10).** Reported there, not reproduced here: a 12-parameter
+  free function in a large real-world C++ TU, 2026.3.0, `--c++`,
+  a GCC 10 compiler configuration -- 76 recoverable errors before the change, clean
+  after; slice `FORWARD_NULL_pass1` 2578 vs 2580 in the full TU,
+  `FORWARD_NULL_pass2` pathed out at 5001 in both; `--obfuscate` went from
+  2 of 36 callees renamed and 43 project identifiers left (with `verify`
+  reporting `DIFFERS` for the wrong reason) to 36 of 36, 0 unclassified,
+  identical analysis. Reproduced here on `evals/fixtures/nested_members.cpp`
+  (2026.6.0): a free function calling a static member of a class with a
+  nested enum, a flexible-array-member struct and a `__func__` static. The
+  slicer places the enum and the static member declaration back inside the
+  class body, prints `[]` for the flexible member, names the `__func__`
+  static, and both files emit clean and verify identical (5001; four
+  components). One fix was needed on top of the PR: the `__func__` static
+  is spelled `constexpr`, which is not a keyword under a bare `--c++`
+  (the PR's TU carried a C++17 flag), so the rewritten declaration drops it.
+- The PR's C-side effects, re-run here on proftpd and the C fixture: all
+  verify identical. Its fail-open-to-rename change for globals also renamed
+  `stdin`, `stdout`, `optarg`, `optind`, `opterr`, `optopt` on `main`
+  (16 -> 22 globals renamed); `STD_GLOBALS` keeps those, and `main` is
+  back to 16. Its typedef change renames `typedef struct tpl_node {...}
+  tpl_node;` through the struct alias -- the twin contains no `tpl_`, but
+  the map lists it as a struct rename (13 -> 6 "typedef" entries for
+  `tpl_map_va`).
+- `verify` used to compare `(None, False, [])` against itself and call that
+  preserved when neither file produced an analysis line. It now reports
+  `COULD NOT VERIFY` in that case. Found by the fixture above, before the
+  `constexpr` fix.
 - Preprocessed-TU route: `cov-manage-emit --tu 1 preprocess` on the
   subversion idir (2026.3.0, MSVC) wrote `output/preprocessed/fs-util.c.1.i`
   in 7 s; `cov-emit` of that file with the recorded flags minus

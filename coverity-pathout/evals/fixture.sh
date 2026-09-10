@@ -34,4 +34,14 @@ python3 "$HERE/../tools/pathout_report.py" --dir "$IDIR" --bin "$BIN" --out "$WO
 echo "== the slice: ifs_from_zero as a standalone file, re-emitted and re-analyzed"
 python3 "$HERE/../tools/slice_function.py" --dir "$IDIR" --bin "$BIN" --tu 1 --name ifs_from_zero --out "$WORK/slice" --obfuscate --emit --analyze
 echo "== the obfuscated twin (the 'verify' line above says whether the analysis matched)"
-head -30 "$WORK/slice/ifs_from_zero.obf.c"
+head -30 "$WORK/slice/fn_0.obf.c"
+
+echo "== C++: a free function calling a static member, nested enum, flexible array member, __func__"
+CXXDIR="$WORK/idir-pathout-cxx"
+rm -rf "$CXXDIR"
+"$BIN/cov-emit" --dir "$CXXDIR" --c++ "$HERE/fixtures/nested_members.cpp" | tail -1
+"$BIN/cov-analyze" --dir "$CXXDIR" > "$WORK/analyze-cxx.stdout" 2>&1 || { tail -20 "$WORK/analyze-cxx.stdout"; exit 1; }
+grep -E '^wur: .*PATHOUT=1 n: _Z5drivei in TU' "$CXXDIR/output/analysis-log.txt" | sed 's/ mem=[0-9]* max=[0-9]*//'
+python3 "$HERE/../tools/slice_function.py" --dir "$CXXDIR" --bin "$BIN" --tu 1 --name _Z5drivei --out "$WORK/slice-cxx" --obfuscate --emit --analyze
+echo "== the class body as the slicer reconstructed it"
+sed -n '/^class /,/^};/p' "$WORK/slice-cxx/_Z5drivei.slice.cpp"

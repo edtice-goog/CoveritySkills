@@ -22,7 +22,8 @@ translation unit (include paths and -D dropped: there is nothing left to
 include). --analyze then runs cov-analyze --print-paths on that one-file idir
 and reports the function's path count and any 'Pathed out' checkers.
 
---obfuscate also writes <fn>.obf.c: project identifiers renamed by kind,
+--obfuscate also writes fn_0.obf.c (named after the new name, so a mangled
+--name never reaches the filename): project identifiers renamed by kind,
 string literals masked to same-length placeholders, comments dropped,
 library names and all constants kept; with --analyze both files are
 analyzed and compared, so the twin is proven to analyze like the original
@@ -762,8 +763,12 @@ class Slice:
         def name_decl(m):
             nm = "__cov_anon_%d" % len(named)
             named.append(nm)
-            return "%s%s %s[%s] = %s;" % (m.group("indent"), m.group("spec").rstrip(),
-                                          nm, m.group("dim"), m.group("init"))
+            # `constexpr` is how the front end spells this static, but it is a
+            # keyword only under a C++11-or-later dialect flag, and the
+            # recorded invocation may not carry one (a bare `--c++` does not).
+            # A plain static const array analyzes the same.
+            spec = re.sub(r"\bconstexpr\b\s*", "", m.group("spec")).rstrip()
+            return "%s%s %s[%s] = %s;" % (m.group("indent"), spec, nm, m.group("dim"), m.group("init"))
 
         body = self.ANON_ARRAY_DECL.sub(name_decl, body)
         if len(named) == 1:
@@ -997,6 +1002,13 @@ regex_t regmatch_t pthread_t pthread_mutex_t pthread_cond_t pthread_attr_t pthre
 DWORD WORD BYTE HANDLE BOOL LPVOID LPCSTR LPSTR SIZE_T ULONG LONG UINT INT CHAR WCHAR HRESULT
 """.split())
 
+# library globals that `find --kind g` cannot locate (they are only ever
+# declared extern) but that the analyzer may model by name
+STD_GLOBALS = set("""
+stdin stdout stderr errno optarg optind opterr optopt environ h_errno timezone daylight tzname
+sys_errlist sys_nerr program_invocation_name program_invocation_short_name signgam
+""".split())
+
 RE_TOKEN = re.compile(r"""
     (?P<comment>/\*.*?\*/|//[^\n]*)
   | (?P<str>(?:L|u8|u|U)?"(?:\\.|[^"\\\n])*")
@@ -1172,6 +1184,9 @@ class Obfuscator:
             # decides before the file leaves.
         # globals
         for nm in sl.globals:
+            if nm in STD_GLOBALS:
+                self._keep(nm, "standard library global")
+                continue
             loc = sl.lookup_loc("global", nm, "g")
             if loc and is_system_path(loc, self.sys):
                 self._keep(nm, "library global (declared in %s)" % loc)
@@ -1519,7 +1534,14 @@ def main():
     if "slice" in results and "obfusc." in results:
         s, o = results["slice"], results["obfusc."]
         same = (s["paths"], s["pathout"], s["pathed_out"]) == (o["paths"], o["pathout"], o["pathed_out"])
-        if same:
+        if s["wur"] is None or o["wur"] is None:
+            # nothing to compare: the function was not analyzed (not emitted,
+            # or logged under a name we did not predict). Never call that a pass.
+            print("verify  : COULD NOT VERIFY -- no analysis line for the function in %s; "
+                  "check cov-emit for recoverable errors and the analysis log for the name it used"
+                  % ("either file" if s["wur"] is None and o["wur"] is None
+                     else ("the plain slice" if s["wur"] is None else "the obfuscated twin")))
+        elif same:
             print("verify  : obfuscation preserved the analysis -- same path count (%s), same PATHOUT flag, "
                   "same pathed-out checkers" % s["paths"])
         else:

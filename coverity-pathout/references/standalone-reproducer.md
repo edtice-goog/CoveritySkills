@@ -159,15 +159,16 @@ A slice is a single function with everything it needs, which makes it the
 natural thing to hand to someone outside -- a more capable model, a
 colleague at the vendor -- for a second opinion on the structure. Names
 and strings are what identify it. `--obfuscate` writes a twin,
-`<name>.obf.c`, with the structure intact and the identity removed, and
-proves the analyzer cannot tell the two apart.
+`fn_0.obf.c` (named after the new name, never the real one), with the
+structure intact and the identity removed, and proves the analyzer cannot
+tell the two apart.
 
 ```bash
 python3 tools/slice_function.py --dir <idir> --bin $BIN --tu 77 --name setup_env --obfuscate --emit --analyze
 ```
 
 ```
-obfusc. : .../setup_env.obf.c  (895 lines)
+obfusc. : .../fn_0.obf.c  (895 lines)
 renamed : 125 field, 66 function, 9 global, 1 label, 39 local, 4 param, 15 struct, 1 target, 12 typedef
 kept    : 87 library names (listed with reasons in the map); map, keep it local: .../setup_env.obf.map.json
 slice     analysis: Pathed out: 5001 paths traversed by REVERSE_INULL
@@ -188,10 +189,31 @@ What changes, and what deliberately does not:
 
 "Project" versus "library" is decided per symbol from where the emit says
 it was declared, not from a name list: a wrapper called `xmalloc` declared
-in the project is renamed; `malloc` is not. Positional renaming means a
-field, a struct tag and a variable that share a spelling get separate new
-names (`p` the parameter and `p` the field of `struct pool_rec` do not
-collide).
+in the project is renamed; `malloc` is not. Two kinds of symbol have no
+declaring file to judge by and get a list instead: a typedef (there is no
+`find --kind t`, and judging by the *target* kept
+`typedef std::unordered_map<...> PROJECT_NAME_MAP` on a real C++ TU), and a
+global that is only ever declared `extern` (`find --kind g` does not index
+it). Both are renamed unless the name is in `STD_TYPEDEFS` /
+`STD_GLOBALS` (`size_t`, `FILE`, `stdin`, `optarg`, ...); a project name
+that slips through costs exactly what the mode exists to prevent, while
+renaming a library one costs the analysis nothing, since the slice declares
+globals `extern` and unmodelled anyway. A function with no declaring file
+at all is neither renamed nor kept: it lands on the `review` line.
+Positional renaming means a field, a struct tag and a variable that share a
+spelling get separate new names (`p` the parameter and `p` the field of
+`struct pool_rec` do not collide); a typedef that shares its spelling with
+its struct tag (`typedef struct tpl_node {...} tpl_node;`) is renamed
+through the tag's new name, so the map records it once, as a struct.
+
+C++ adds spellings: the emit keys a function by its mangled name while the
+body calls it by its source name, an enumerator likewise, and a nested type
+is keyed `_ZN...E` but written `Outer::Inner`. Every spelling is pointed at
+the same new name, `class` counts as an elaborated specifier alongside
+`struct`, a mangled template instantiation is never treated as a library
+name (it spells out the project types it was instantiated on), and the
+twin is written as `fn_0.obf.cpp` -- naming it after the mangled `--name`
+would put the function and its parameter types in the filename.
 
 **The verification is the point.** With `--analyze`, both files are emitted
 and analyzed and the tool compares path count, `PATHOUT` flag and the set
@@ -218,10 +240,21 @@ outside reader's "split `fn_0` at `L_1`" back into advice about
 
 ## When the slice is not the right container
 
-**C++.** The body of `demo::Widget::f(int)` extracts fine, but the class it
-belongs to needs its method declarations, its namespace, and possibly
-templates reconstructed, and the slicer does not do that (the fixture's
-slice emits with "function not emitted"). Use the whole preprocessed TU:
+**C++ methods and namespaces.** A C++ *free function* slices: callees are
+declared under their source spelling (the tree carries `id` beside the
+mangled `name`), a static member function it calls is declared back inside
+its class together with any nested enum that member's parameters use, a
+flexible array member prints as `[]`, and the `__func__` static that
+logging macros build prints with a name. That was established against a
+large real-world C++ function (2026.3.0, C++17) --
+76 recoverable errors before, clean after, and the slice reproduced the
+TU's `FORWARD_NULL_pass2` PATHOUT -- and is regression-tested here by
+`evals/fixtures/nested_members.cpp` (2026.6.0). What the slicer still does
+not do: the target being a **non-static method** (its class would need its
+method declarations, and possibly its namespace and templates,
+reconstructed; the fixture's `demo::Widget::f(int)` emits with "function
+not emitted" and leaks `demo` and `Widget` through the `review` line). For
+those, use the whole preprocessed TU:
 
 ```bash
 cov-manage-emit --dir <idir> --ticker-mode none --tu <N> preprocess

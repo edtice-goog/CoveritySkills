@@ -181,8 +181,11 @@ the original TU minus include paths, analyzes the one-file idir with
 `--print-paths`, and prints the function's `wur:` and `Pathed out` lines.
 `setup_env`: 906 lines, clean emit, `REVERSE_INULL` pathed out at 5001 as in
 the original -- in 15 seconds, editable, repeatable. That is the loop for
-Steps 4 and 5. C++ needs the preprocessed-TU route instead; both are in
-`references/standalone-reproducer.md`.
+Steps 4 and 5. C++ free functions work too, including calls to static
+members of classes with nested enums (the declarations are placed back
+inside the class); a **non-static method** as the target, or a namespace,
+is where the slicer stops and the preprocessed-TU route takes over. Both
+are in `references/standalone-reproducer.md`.
 
 If the file has to go somewhere the code may not, Step 6 makes an
 obfuscated twin of it and proves the twin analyzes the same.
@@ -258,7 +261,7 @@ python3 tools/slice_function.py --dir <idir> --bin $BIN --tu <N> --name <name> -
 | file | what | where it may go |
 |---|---|---|
 | `<name>.slice.c` | the plain slice, real names | stays |
-| `<name>.obf.c` | the twin: project identifiers renamed by kind, strings masked, comments gone | this is the only file that leaves |
+| `fn_0.obf.c` | the twin: project identifiers renamed by kind, strings masked, comments gone. Named after the *new* name on purpose: a C++ mangled `--name` would put the function and its parameter types in the filename | this is the only file that leaves |
 | `<name>.obf.map.json` | every new name with what it was; every kept name with why | stays; it is how the outside reader's advice about `fn_0` and `L_1` is translated back |
 
 **Read four lines of the output before handing anything over:**
@@ -269,9 +272,11 @@ python3 tools/slice_function.py --dir <idir> --bin $BIN --tu <N> --name <name> -
    same PATHOUT flag, same pathed-out checkers`. This is the acceptance
    test. If it says `DIFFERS`, stop: the twin does not represent the
    function, and the tool has a bug worth reporting with the two files.
+   If it says `COULD NOT VERIFY`, the function was not analyzed at all
+   (usually a recoverable error in the emit), which is also a stop.
    Do not hand over a twin that differs and do not explain it away.
 3. `review : ... identifiers neither renamed nor classified as library`.
-   Usually absent. If present, look at each name in `<name>.obf.c`: it is
+   Usually absent. If present, look at each name in `fn_0.obf.c`: it is
    something the tool could not attribute, and a human decides whether it
    identifies the project. Renaming it by hand *and re-running the
    verification* is fine; skipping the verification is not.
@@ -289,7 +294,7 @@ are gone. Numeric constants are kept on purpose: known constants are the
 state that multiplies (see *What "paths" means*), and changing them would
 change the very thing being diagnosed.
 
-**Hand over** `<name>.obf.c` alone. Not the map, not the plain slice, not
+**Hand over** `fn_0.obf.c` alone. Not the map, not the plain slice, not
 the analysis log (it contains the real name and paths). The tool's own
 `obfusc.  analysis:` lines are safe to quote because they name only the
 new name and the checker.
@@ -321,7 +326,7 @@ did *not* take past Step 1 (rule 22).
   missing one `->` access breaks the file; neither is visible by reading.
   `--obfuscate --analyze` is the only path that ends in evidence.
 - Sending the plain slice, the map, or the analysis log along with the
-  obfuscated twin. Only `<name>.obf.c` leaves.
+  obfuscated twin. Only `fn_0.obf.c` leaves.
 - Using a different Coverity version than the one that wrote the idir.
 - Re-running `cov-analyze` into the only copy of the idir and losing the
   original log.
@@ -359,5 +364,6 @@ coverity-pathout/
     ├── evals.json
     └── fixtures/
         ├── ifs_known_vs_unknown.c       # same CFG, one explodes, one does not
-        └── overloads.cpp                # C++: mangled names, one overload explodes
+        ├── overloads.cpp                # C++: mangled names, one overload explodes
+        └── nested_members.cpp           # C++ free function: static member, nested enum, __func__
 ```
