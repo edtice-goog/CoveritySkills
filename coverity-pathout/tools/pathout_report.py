@@ -32,7 +32,7 @@ RE_SUMMARY_COUNT = re.compile(r"^summary: paths_exceeded count: (\d+)")
 # wur: gen1059 4 102632 4703 7340 4703 5001 PATHOUT=1 n: setup_env in TU 77
 # wur: gen646 15 1058527 ... 38650 PATHOUT=4 nr=20 n: batch 645
 RE_WUR = re.compile(
-    r"^wur: ([a-z]+)(\d+) .*? (\d+) PATHOUT=(\d+)(?: nr=(\d+))? n: (.+?)(?: in TU (\d+))?$")
+    r"^wur: ([a-z]+)(\d+) .*? (\d+) PATHOUT=(\d+)(?: nr=(\d+))? n: (.+?)(?: in TU (\d+))?(?: with extra_info)?$")
 # wur_diagnostics: Pathed out: 5001 paths traversed by REVERSE_INULL in "setup_env(pool *, ...)"
 RE_PATHED_OUT = re.compile(
     r"^wur_diagnostics: (?:\w+: )?Pathed out: (\d+) paths traversed by (\S+) in \"(.*)\"$")
