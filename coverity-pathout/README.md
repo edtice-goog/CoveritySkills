@@ -67,7 +67,11 @@ PATHOUT functions reproduce this way, and a random sample of 40 proftpd
 functions re-emitted 40 for 40 with no recoverable errors. C++ uses the
 preprocessed TU as its container instead.
 
-**And it can leave the building.** `--obfuscate` writes a twin with every
+For most users that is the whole job: the function is out, as the analyzer
+saw it, and it compiles and analyzes alone. The rest is for two less common
+needs -- diagnosing *why* it pathed out, and the one below.
+
+**And, when it must, it can leave the building.** `--obfuscate` writes a twin with every
 project identifier renamed by kind, every string literal masked to a
 same-length placeholder, comments gone, and library names and constants
 kept -- then emits and analyzes both and reports whether the analyzer

@@ -187,8 +187,14 @@ inside the class); a **non-static method** as the target, or a namespace,
 is where the slicer stops and the preprocessed-TU route takes over. Both
 are in `references/standalone-reproducer.md`.
 
-If the file has to go somewhere the code may not, Step 6 makes an
-obfuscated twin of it and proves the twin analyzes the same.
+**This is where most requests end.** A function that was asked for has
+been extracted, exactly as the analyzer saw it, and it compiles and
+analyzes on its own. Report that as the result (the slice path, the line
+counts, the `cov-emit: emitted` line, and the reproduced `wur:` line if
+`--analyze` was run). Steps 4 and 5 are for when the question is *why* it
+pathed out and what to do about it; Step 6 is only for the uncommon case
+where the file has to be shown outside the project. Do not run Step 6
+unasked.
 
 ## Step 4: Diagnose -- read the body with the checker in mind
 
@@ -236,17 +242,23 @@ functions normally hit the limit -- but it is paid on every function on
 every run. Prefer a value the measurement justifies (`setup_env` needs
 10000, not 200000) and say what it cost in time.
 
-## Step 6: Obfuscate it before it leaves
+## Step 6 (uncommon): Obfuscate it before it leaves
 
-Use this when the user wants the function seen by someone who must not see
-the source: another model, a vendor, a colleague outside the project. The
-request may be phrased as "obfuscate", "anonymize", "rename the variables",
-"strip the identifying parts", or "make a version I can send". The
-structure is what the outside reader needs and the names are what identify
-the codebase, so the tool renames and masks, keeps everything the analyzer
-reasons about, and then **proves** the analyzer treats the twin like the
-original. Do not obfuscate by hand or with `sed`; a rename that misses one
-position produces a file that looks fine and analyzes differently.
+Most workflows never need this step. Extraction (Step 3) is the normal
+deliverable, and the slice stays where the code lives. Use this step only
+when the user **asks** for the function to be seen by someone who must not
+see the source: another model, a vendor, a colleague outside the project.
+The request may be phrased as "obfuscate", "anonymize", "rename the
+variables", "strip the identifying parts", or "make a version I can send".
+The case it was built for: taking a real customer function out of a
+zero-retention environment so a larger workflow could be tested on it.
+
+The structure is what the outside reader needs and the names are what
+identify the codebase, so the tool renames and masks, keeps everything the
+analyzer reasons about, and then **proves** the analyzer treats the twin
+like the original. Do not obfuscate by hand or with `sed`; a rename that
+misses one position produces a file that looks fine and analyzes
+differently.
 
 **Run** (same `--tu` and `--name` as Step 3; `--analyze` is what makes it
 verified):
