@@ -185,6 +185,31 @@ about an idir you did not create, prove freshness first from `build-cwd.txt`,
 This is the exact counterpart of the build-fidelity trap where a capture that
 emitted nothing yields binaries byte-identical to native.
 
+**Staleness is only one of the ways a reused directory misleads.** Each of
+these disqualifies reuse on its own:
+
+- **Files deleted, renamed or moved.** The documented one: the admin guide's
+  incremental-analysis section says `cov-analyze` "cannot detect when a file
+  has been deleted or removed from the build" and advises starting from
+  scratch periodically, "particularly if you've moved or deleted files from
+  your source tree or build". Measured below.
+- **Paths changed.** Translation units are keyed by absolute path, so the
+  same code captured from another checkout root or build directory is added
+  beside the old set, not in place of it (reasoned from rule 31).
+- **Configuration changed.** Rule 6: units captured under different compiler
+  configurations do not mix, and reconfiguring does not fix what is already
+  in the directory.
+- **Analyzer version changed.** Rule 3: the emit format must match exactly.
+- **Provenance unknown.** A directory you did not create carries no freshness
+  evidence at all, which is worse than a known-stale one.
+
+**Reuse also assumes the analysis options did not move.** Incremental mode is
+documented as reusing results when `cov-analyze` runs again on the same
+directory "with the same command-line options as your previous cov-analyze
+run". Changing the checker set, the aggressiveness level or a `--distrust-*`
+flag between two runs on one reused directory does not give the clean
+before/after comparison it looks like.
+
 **Stale translation units are not removed, and are still counted as
 successes.** Measured on 2026.6.0 by deleting a captured source and re-running
 `coverity list` against the unchanged idir: the file kept status `Succeeded`
@@ -212,7 +237,11 @@ So on a `cov-build` idir, do not treat an empty *Captured files not found on
 disk* as evidence of freshness — it is empty either way. Prove freshness from
 timestamps and `build-cwd.txt`, or capture fresh.
 
-Source: verified against 2026.6.0 — `CALIBRATION.md`.
+Source: the stale-unit behaviour and the capture-path asymmetry are verified
+against 2026.6.0 (`CALIBRATION.md`); the deleted-file case and the
+same-options requirement are documented (admin guide, *Incremental
+analysis*, checked in the 2026.6.0 installation); the path, configuration
+and version triggers are reasoned from rules 31, 6 and 3.
 
 ### 33. If you move an intermediate directory, preserve its timestamps
 
@@ -423,8 +452,22 @@ the *project directory* and can therefore see files that were never compiled —
 which the emit database structurally cannot. It works against a plain
 `cov-build` idir, not only a `coverity capture` one.
 
-Source: verified (runs against a `cov-build` idir; output structure). The
-hiding behaviour is documented but not yet reproduced against such a tree.
+**The flag itself is undocumented.** `--all` does not appear in the
+`coverity` CLI reference of 2026.3.0 or 2026.6.0 (`doc/en/help/
+cov-coverity.help.txt` has no such option; the documented `--all` flags
+belong to `cov-analyze` and `cov-make-library`). Treat it like rule 13's
+subcommand: it works, and it may be absent or renamed on another version.
+What *is* documented is what it defeats -- the default capture exclusions in
+the CLI guide: files under directories named `vendor/`, `node_modules/` or
+`__MACOSX`; files under hidden directories (name starting with `.`), except
+`.terraform/`; and `Carthage/` or `Pods/` when their manifest is present.
+If `--all` is missing, account for those directories yourself rather than
+reporting the default view as the whole tree.
+
+Source: verified (runs against a `cov-build` idir; output structure); the
+absence of `--all` from the CLI reference and the exclusion list were read in
+the 2026.3.0 and 2026.6.0 documentation. The hiding behaviour is not yet
+reproduced against such a tree.
 
 ### 13. Use `cov-manage-emit list-capture-diagnostics` for per-TU truth
 
@@ -462,7 +505,7 @@ be determined" while these are available:
 | Is this TU analyzable? | `cov-manage-emit list` marks a TU lacking ASTs with a ` (no ASTs)` suffix; `list-json` carries the documented boolean `hasASTs` |
 | Did it parse completely / fail? | `coverity list` capture status — `Succeeded`, `Incomplete`, `Failed`, `Ignored` |
 | Lines of code | `coverity list` *Code Lines* column, `LINES OF CODE` total |
-| Recoverable errors | `BUILD.metrics.xml` `recoverable-errors` (build-level; there is no documented per-TU form) |
+| Recoverable errors | `cov-manage-emit --dir <idir> --tu-pattern 'had_recoverable_errors("true")' list` -- documented, per TU; its example output marks the unit ` (recoverable errors)` |
 | Which revision was captured | `list-json` `primaryFileHash`, `primaryFileSizeInBytes` |
 
 Note that the `list-json` reference asks you to ignore attributes it does not

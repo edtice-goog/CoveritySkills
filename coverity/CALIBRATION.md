@@ -181,7 +181,7 @@ documented and covers most of what Method A2 currently takes from
 | Is this TU analyzable? | `had-abstract-syntax-trees` | **`list-json` -> `hasASTs`**, documented with an example. Also `cov-manage-emit list`, which suffixes such a TU with ` (no ASTs)` -- the literal is present in the 2026.6.0 binary; the marker itself has not been triggered in a live run (queue item 4) and the `list` documentation mentions only ID and filename |
 | Did this TU parse completely? | `capture-percentage`, `astFidelityPercent` | `coverity list` capture status **`Incomplete`** -- categorical rather than a percentage, but it is the actionable distinction |
 | Did this TU fail? | `had-failures`, `isFailure` | `coverity list` status **`Failed`** and the `FAILED` count |
-| Recoverable errors | `had-recoverable-errors` (per TU) | `BUILD.metrics.xml` `recoverable-errors` -- build-level only; no documented per-TU equivalent |
+| Recoverable errors | `had-recoverable-errors` (per TU) | `cov-manage-emit --tu-pattern 'had_recoverable_errors("true")' list` -- documented per TU, with an example, in the 2026.3.0 and 2026.6.0 references |
 | Size / identity | `file-size-in-bytes`, `last-modified` | `list-json` `primaryFileSizeInBytes`, `primaryFileHash` |
 | Lines of code | `code-line-count` | `coverity list` *Code Lines* column and `LINES OF CODE` |
 
@@ -191,9 +191,12 @@ interoperability, please ignore any attribute that is not documented."* That
 is explicit guidance against building on `astFidelityPercent`, `isFailure`,
 and `hadRecoverableErrors`, all of which appear in real output.
 
-Only two things have no documented per-TU equivalent: a numeric parse-fidelity
-percentage, and recoverable errors per translation unit. Both have documented
-categorical or aggregate forms.
+Only one thing has no documented per-TU equivalent: a numeric parse-fidelity
+percentage, whose documented form is the categorical `Incomplete` status.
+Recoverable errors per translation unit were listed here as a second gap
+until 2026-09-10; that was wrong -- the `had_recoverable_errors("true")`
+translation-unit pattern is documented with example output, and rule 13's
+fallback table now says so. Found by reading the reference, not by a run.
 
 ## From documentation, not yet executed
 
