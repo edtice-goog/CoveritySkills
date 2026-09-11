@@ -46,7 +46,7 @@ wur: gen4 2 4070 5578 343 5547 5001 PATHOUT=1 n: _ZN4demo6Widget1fEi in TU 2
 - `PATHOUT=1`: the flag.
 - `n: <name> in TU <n>`: the function -- **plain identifier for C, mangled
   name for C++** -- and its translation unit. Both go straight into
-  `cov-manage-emit find` (`references/function-extraction.md`).
+  `cov-manage-emit find` (`coverity-function-slice/references/function-extraction.md`).
 - `mem=... max=...` appears on some lines and is memory, not paths. The
   other integers are timing and size fields; none is needed for this.
 

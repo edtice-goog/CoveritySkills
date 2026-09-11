@@ -46,7 +46,7 @@ original event chain. Stub every callee on the candidate's path.
 
 ## The harness
 
-`evals/escape-hunt/harness.c` is the pattern. One byte stream feeds
+`evals/harness.c` is the pattern. One byte stream feeds
 everything:
 
 ```c
@@ -80,7 +80,7 @@ on this toolchain, so an UNINIT shape needs another oracle.
 
 ## Measured
 
-Fixture (`evals/escape-hunt/lookup.c` + `use.c`, 2026.6.0): `lookup`
+Fixture (`evals/lookup.c` + `use.c`, 2026.6.0): `lookup`
 returns NULL when its argument is out of range; `escaped` null-tests the
 result inside `if (r && r->value)` and dereferences it after the closing
 brace. The shape checker flags `use.c:18`. The slice of `escaped` has two
@@ -116,6 +116,6 @@ The stub generator handles the generic module's return, identity,
 allocation, dereference and write edges. It does not yet read the `uninit`
 module (which outputs a callee initializes), does not size allocations from
 types, and emits stubs one callee at a time; wiring it into
-`slice_function.py` as `--stubs`, producing `stubs.c` for every prototype
+`coverity-function-slice/tools/slice_function.py` as `--stubs`, producing `stubs.c` for every prototype
 in a slice with the fuzz-driven `__stub_choice`, is the next step, and the
 fixture above is its acceptance test.

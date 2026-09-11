@@ -31,5 +31,5 @@ writes.
 A pull request that fixed real C++ gaps in `slice_function.py` quoted the
 symbols it had been debugged on in its code comments and description. The
 history was rewritten and the description edited. The fixes were good; the
-examples were not. `coverity-pathout/evals/fixtures/nested_members.cpp` is
+examples were not. `coverity-function-slice/evals/fixtures/nested_members.cpp` is
 the fixture that should have carried them.

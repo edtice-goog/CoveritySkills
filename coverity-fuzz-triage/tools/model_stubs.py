@@ -5,7 +5,7 @@
 
 Appended to a slice, the stub gives the callee exactly the behaviours the
 analyzer believes it has, selected per call by __stub_choice(n) -- which a
-libFuzzer harness feeds from the input (see evals/escape-hunt/harness.c),
+libFuzzer harness feeds from the input (see evals/harness.c),
 so the fuzzer explores the callee behaviours as well as the arguments.
 See references/fuzz-confirmation.md.
 

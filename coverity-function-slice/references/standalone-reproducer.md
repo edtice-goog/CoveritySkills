@@ -219,7 +219,7 @@ What changes, and what deliberately does not:
 | project functions, globals, typedefs, struct tags, fields, enumerators, parameters, locals, labels, the function itself | renamed by kind: `fn_3`, `g_1`, `T_4`, `S_2`, `f_17`, `e_1`, `p_2`, `v_12`, `L_1`, `fn_0` | the kind prefix keeps the code readable as structure |
 | functions, structs, fields, typedefs declared in a **system header** (`strlen`, `struct passwd`, `pw_uid`, `size_t`) | kept | Coverity models library functions by name; renaming `malloc` would change what RESOURCE_LEAK knows. "System" means declared under a recorded `--sys_include` path, `/usr/include`, Program Files, or the Coverity compat headers |
 | string literals | same length, same escapes, same `%` directives, everything else `x`; a small index keeps distinct literals distinct (`"6xxxx%sxxxx%i"`) | log messages and config keys are the biggest identity leak; length and format directives are what checkers use |
-| numeric constants | kept | known constants are exactly the state that multiplies; see `path-explosion.md` |
+| numeric constants | kept | known constants are exactly the state that multiplies; see `coverity-pathout/references/path-explosion.md` |
 | control flow, types' shapes, struct layout | kept | that is what the reader is meant to reason about |
 | comments, the provenance header | removed | file paths and the real name |
 

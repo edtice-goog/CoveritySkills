@@ -1,0 +1,52 @@
+{
+  "skill_name": "coverity-function-slice",
+  "evals": [
+    {
+      "id": 0,
+      "eval_name": "extract-a-cpp-overload",
+      "prompt": "I have an intermediate directory built by Coverity 2026.6.0 from evals/fixtures/overloads.cpp. Show me exactly what the analyzer saw for demo::Widget::f(int) -- not f(double) -- without preprocessing anything.",
+      "expected_output": "Runs cov-manage-emit find 'Widget' --kind f to list the overloads with their mangled names, then find '_ZN4demo6Widget1fEi$' --kind f --print-definitions to print the int overload only, and explains that the regex matches the mangled name.",
+      "assertions": [
+        "Uses cov-manage-emit find with --print-definitions",
+        "Selects the overload by mangled name (_ZN4demo6Widget1fEi), not by the bare identifier f",
+        "Does not use cov-preprocess, --preprocess-native, extract-files, or a text-parsing script"
+      ]
+    },
+    {
+      "id": 1,
+      "eval_name": "standalone-reproducer",
+      "prompt": "setup_env in modules/mod_auth.c (TU 77 of the proftpd idir at C:\\Data\\CoveritySkills\\coverity-demo-data-workspace\\idirs\\v1.3.9, Coverity 2025.9.0) hits the path limit. I want to try restructuring it, but the full build takes too long to iterate on. Give me that one function as a file I can cov-emit and cov-analyze by itself, and show me that it still reproduces the PATHOUT before I start editing.",
+      "expected_output": "Uses tools/slice_function.py --tu 77 --name setup_env --emit --analyze (or reproduces its method: body from find --print-definitions, declarations printed from the --print-debug tree and struct dumps, re-emit with the TU's recorded cov-emit flags minus -I/-D/--sys_include); reports a clean emit and the wur/Pathed out lines showing REVERSE_INULL at 5001 on the one-file idir; explains that callees are unmodeled prototypes and globals extern, and what that can change.",
+      "assertions": [
+        "Produces a single file containing the function plus its typedefs, struct definitions, extern globals and callee prototypes -- not a body alone, and not hand-written declarations",
+        "Obtains the declarations from the emit (cov-manage-emit find --print-debug), not from headers or preprocessed text",
+        "Re-emits with the flags recorded by print-compilation-info for TU 77 (language standard, gnu_version, type sizes, pre_preinclude compat headers), dropping include paths",
+        "Runs cov-analyze --print-paths on the one-file idir and shows the PATHOUT reproducing (REVERSE_INULL, 5001)",
+        "States the differences from the original analysis (unmodeled callees, extern globals) as a caveat on path counts"
+      ]
+    },
+    {
+      "id": 2,
+      "eval_name": "dropped-function-is-not-a-result",
+      "prompt": "Slice ngx_http_parse_request_line (TU 73) out of the nginx idir at C:\\Data\\pathout-campaign\\idirs\\nginx (Coverity 2026.6.0) and tell me whether it paths out on its own.",
+      "expected_output": "Runs slice_function.py --emit --analyze; reads the cov-emit line, which says NOT EMITTED because of the cast whose parentheses the pretty-printer dropped (`((uint32_t *)m[1] & 65535)`); reports COULD NOT VERIFY and exit 2 as 'no result yet', not as 'does not path out'; either hand-edits the two lines and re-runs, or says that is what would be needed.",
+      "assertions": [
+        "Does not report the slice's `paths_exceeded count: 0` as the answer",
+        "Quotes the cov-emit diagnostic and names the pretty-printer form that caused it",
+        "Either completes the hand edit and re-runs, or states exactly what edit is needed and that the question is open"
+      ]
+    },
+    {
+      "id": 3,
+      "eval_name": "obfuscate-only-when-asked",
+      "prompt": "Give me local_enum_forever from the fixture idir (TU 1, Coverity 2026.6.0) as a standalone file. I am going to paste it into another model to ask about the loop structure, so strip anything that identifies where it came from, and prove the stripped version is the same program as far as Coverity is concerned.",
+      "expected_output": "Runs slice_function.py with --obfuscate --emit --analyze; reads the four output lines (obfusc. cov-emit: emitted; verify: preserved; review: absent; kept: library names only); hands over fn_0.obf.c alone and says what the twin still carries (structure, constants, string lengths).",
+      "assertions": [
+        "Uses --obfuscate with --analyze, not sed or a hand rename",
+        "Quotes the verify line and would stop on DIFFERS or COULD NOT VERIFY",
+        "Hands over only fn_0.obf.c, not the map, the plain slice or the analysis log",
+        "Says what the twin still reveals"
+      ]
+    }
+  ]
+}

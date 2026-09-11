@@ -112,10 +112,10 @@ reasons are the catalogue of what a path-insensitive checker cannot know:
 | the function's own precondition | `parent_node` in `write_entry`: dereferenced unguarded under three `switch` cases, but `WRITE_ENTRY_ASSERT(parent_node \|\| entry->schedule == svn_wc_schedule_normal)` at the top says a null parent only arrives with the fourth. (The first reading missed the assertion and called this one real; the checker, which treats an assertion as an exit guard, had already dropped it.) |
 | allocate-if-null | `actual_node = MAYBE_ALLOC(actual_node, pool)` then `actual_node->x`: the macro is `(x) ? (x) : apr_pcalloc(...)`, so the test the checker saw is the allocation |
 | an invariant between two variables | `left_dirent`/`right_dirent` in `inner_dir_diff`: both come from hashes whose key union is being iterated, so they cannot both be null; `pUsing` in `selectExpander` is set whenever `fg.isUsing` is; `pTab` in `lookupName` is asserted |
-| a loop-condition guard | `for (i = 0; moved_nodes && i < moved_nodes->nelts; i++)`: the checker knows `if`, `?:`, `&&` and `\|\|` as guards, not loop conditions |
+| a loop-condition guard | `for (i = 0; moved_nodes && i < moved_nodes->nelts; i++)`: at the time the checker knew `if`, `?:`, `&&` and `\|\|` as guards, not loop conditions (it does now: `whileLoop` and `forLoopSimple` conditions guard their bodies) |
 | two variables with one name | `t_entry` in `delta_dirs`, `work` in `write_entry`: an inner declaration shadows the tested one; the front end had no mangled name for the locals, so the identifier fallback conflated them |
 
-The last two are checker gaps, recorded in `candidate-checkers.md`. The
+The last one is a checker gap, recorded in `candidate-checkers.md`; the loop-condition gap was closed the same day. The
 first four are what reading is for. Do it before building anything: it
 took about an hour for 27 candidates, and left nothing to fuzz.
 
@@ -124,7 +124,7 @@ executable on its own, the derived models make its callees behave exactly
 as the analyzer believes they do, and a sanitizer is the oracle. A crash at
 the candidate's dereference, reached through a stub taking its
 `returnsnull` branch, is the confirmation; the analyzer would have accepted
-that path as feasible had it reached it. `references/fuzz-confirmation.md`
+that path as feasible had it reached it. `coverity-fuzz-triage/references/fuzz-confirmation.md`
 has the recipe, the verdict tiers, and the fixture where the whole chain
 runs in about a minute: candidate flagged, sliced, stubbed from the model,
 built with clang-cl and ASan, crashing at the right line on a four-byte

@@ -167,7 +167,7 @@ it CCM), `pce`/`pcs` the acyclic path counts (APC and APC-S, statements only),
 `lc` lines of code, `hf`/`hr` Halstead effort/errors, `be`/`fe` back/forward
 edge counts. The field-to-column mapping is inferred from Connect's *Functions
 view* column definitions in the platform guide; the short keys themselves
-are not documented. `tools/pathout_report.py` does this join for you.
+are not documented. `coverity-pathout/tools/pathout_report.py` does this join for you.
 
 ## The other `find` outputs, and why they are not the tool for this
 

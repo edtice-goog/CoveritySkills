@@ -4,13 +4,16 @@ Part of [CoveritySkills](../README.md).
 
 Diagnoses a Coverity **PATHOUT** notice: a function on which `cov-analyze`
 hit its per-function path limit (`--paths`, default 5000) and stopped. The
-skill finds the functions, names the checker that ran out of paths, puts the
-function in front of you exactly as the analyzer saw it, and measures what
-the cut-off cost -- so the recommendation is "raise `--paths` to 10000,
-verified on the translation unit, zero defects changed" or "split it here",
-not a guess from cyclomatic complexity.
+skill finds the functions, names the checker that ran out of paths, runs a
+catalogue of path-insensitive shape checkers over the idir to see what that
+checker might have said about the code it never finished walking, gets the
+function in front of you as the analyzer saw it, and measures what the
+cut-off cost -- so the recommendation is "two candidates behind the limit,
+one confirmed by execution; raise `--paths` to 35,000, verified on the
+whole project, zero defects changed" or "split it here", not a guess from
+cyclomatic complexity.
 
-## The two things it knows that save the most time
+## The three things it knows that save the most time
 
 **The limit counts paths x state, not control-flow paths.** Two functions
 with identical control flow (14 independent `if`s, complexity 15, 16,384
@@ -29,100 +32,68 @@ wur_diagnostics: Pathed out: 5001 paths traversed by REVERSE_INULL in "setup_env
 log's own `PATHOUT=` lines are per-batch and name nothing (on a large
 project under `--all --aggressiveness-level high`, that is 186 of 189).
 
-**The function comes out of the emit, from the AST, in under a second.**
+**Inside a PATHOUT function, nobody looked -- so look there with a checker
+that does not need paths.** The checker that pathed out finished nowhere
+in that function. A *path-insensitive* CodeXM checker for the shape of
+what it looks for runs over the whole idir in seconds, and its hits are
+filtered to the PATHOUT functions where that checker was the one cut off;
+everywhere else the path-sensitive checker finished and was right to stay
+quiet. Twelve tested shapes live in
+[pathout-shapes](https://github.com/edtice-goog/pathout-shapes) and run in
+one pass; the filter is `tools/pathout_filter.py --relevant auto`. On
+nginx: 159 hits, 4 in PATHOUT functions, 2 where the relevant checker
+pathed out. On subversion, keyed on an escaped null dereference: 503, 115,
+0 (27 with the reverse shape counted; all 27 refuted by reading). The
+survivors are read, and what reading cannot settle goes to
+`coverity-fuzz-triage` to be run.
 
-```bash
-cov-manage-emit --dir <idir> --ticker-mode none --tu 77 find '^setup_env$' --kind f --print-definitions
-```
-
-509 lines for a 963-line function, macros expanded, `sizeof` folded, types
-canonical: what the checker actually walked, including the branches that
-live inside macros. No `cov-preprocess`, no extracting files, no scripts
-that parse `.i` text. C++ is addressed by mangled name, so overloads are
-never confused; static functions with the same name are separated by `--tu`.
-
-**And the function becomes a file that compiles and analyzes on its own.**
-A body alone will not re-emit -- it needs the typedefs, structs, globals and
-callee prototypes that came from headers. Those are in the emit too: the
-function's own debug tree carries every callee's full prototype (including
-ones `find` cannot look up, like `strlen`), every global's type and every
-typedef's target, and each struct's fields are one more query away.
-`tools/slice_function.py` closes over all of it, prints C declarations back
-out of the tree in dependency order, appends the body, re-emits the file
-with the flags recorded for the original translation unit, and re-analyzes
-it:
-
-```
-$ python3 tools/slice_function.py --dir <idir> --bin <bin> --tu 77 --name setup_env --emit --analyze
-slice   : .../setup_env.slice.c  (906 lines)
-contents: 42 typedefs, 18 struct definitions (+13 forward-declared only), 0 enums, 9 globals, 74 prototypes
-cov-emit: emitted
-analysis: wur: gen1 ... 5001 PATHOUT=1 n: setup_env in TU 1
-analysis: Pathed out: 5001 paths traversed by REVERSE_INULL in "setup_env(pool *, cmd_rec *, char const *, char *)"
-```
-
-Fifteen seconds, and the notice reproduces on the one-file idir with the
-same checker at the same count. Edit the slice, run again. All four proftpd
-PATHOUT functions reproduce this way, and a random sample of 40 proftpd
-functions re-emitted 40 for 40 with no recoverable errors. C++ uses the
-preprocessed TU as its container instead.
-
-For most users that is the whole job: the function is out, as the analyzer
-saw it, and it compiles and analyzes alone. The rest is for two less common
-needs -- diagnosing *why* it pathed out, and the one below.
-
-**And, when it must, it can leave the building.** `--obfuscate` writes a twin with every
-project identifier renamed by kind, every string literal masked to a
-same-length placeholder, comments gone, and library names and constants
-kept -- then emits and analyzes both and reports whether the analyzer
-produced the same path count and the same pathed-out checkers. It did, for
-every function tried. The map stays local; the twin can go to a frontier
-model, or to the vendor, without carrying the codebase's name.
-
-**When a defect escaped, it hunts the siblings.** A later tool found a bug
-Coverity missed, and the reason was a PATHOUT. Raising the limit does not
-help (a real case still pathed out at 200,001). Instead: a
-*path-insensitive* CodeXM checker for the defect's shape runs over the
-whole idir in seconds, its hits are filtered to the PATHOUT functions where
-the relevant checker was cut off (on subversion: 503 hits, 115 in PATHOUT
-functions, 27 where a null-tracking checker was the one cut off, all 27
-refuted by reading), and each survivor is read, then fuzzed: the slice plus callee stubs generated from
-Coverity's own derived models, built with clang-cl and ASan, so a crash at
-the candidate's dereference is the confirmation. The fixture chain runs in
-about a minute (`evals/escape-hunt/run.sh`).
+**The cost of the notice is measured, on the whole project.** `--paths N
+--print-paths` on a copy says how many paths each function needed, and a
+defect diff between the default and raised runs says what the cut-off hid.
+Scoping with `--tu` is fast but drops the models of callees in other
+translation units: on nginx it reproduced 11 of 18 PATHOUTs. On nginx at
+50,000 the defect set was identical and two functions still did not
+finish; one of them drops from 5001 to 64 paths when its loop nest moves
+into a helper, measured on the slice.
 
 ## What is in it
 
 | | |
 |---|---|
-| `SKILL.md` | the procedure: log -> `--print-paths` -> extract -> diagnose -> measure -> report |
+| `SKILL.md` | the procedure: log -> `--print-paths` -> shape catalogue and filter -> body -> diagnose -> measure -> report |
 | `references/analysis-log.md` | where the notice lives (only `output/analysis-log.txt`), the four kinds of line, batches, what `--path-log-threshold` does not do |
-| `references/function-extraction.md` | `cov-manage-emit find` for C and C++, duplicates, reading the pretty-print, the metrics join, the other `find` outputs |
-| `references/standalone-reproducer.md` | how the slice is built from the tree, what it rewrites, what differs from the original and why that is fine, the preprocessed-TU route for C++ |
 | `references/path-explosion.md` | the evidence for paths x state, why APC and CCM do not predict it, which checkers path out most, what the limit costs |
 | `references/worked-example-setup-env.md` | proftpd's `setup_env` end to end, including the raised-limit defect diff |
+| `references/escape-hunt.md` | shape checker over the idir, PATHOUT filter, the refutation catalogue, what to hand back |
+| `references/candidate-checkers.md` | writing a path-insensitive CodeXM checker: the skeleton, the tree shapes, the grammar traps |
 | `tools/pathout_report.py` | one command: log + `FUNCTION.metrics` join, batch detection, optional AST extraction of every affected function |
-| `tools/slice_function.py` | one function as a standalone `.c` file, re-emitted with the TU's recorded flags and re-analyzed with `--print-paths` |
-| `references/escape-hunt.md`, `candidate-checkers.md`, `fuzz-confirmation.md` | the escape hunt: shape checker over the idir, PATHOUT filter, read-then-fuzz confirmation with model-derived stubs |
-| `tools/pathout_filter.py`, `tools/model_stubs.py`, `evals/escape-hunt/` | the filter, the stub generator, the tested checker, fixtures and harness |
-| `evals/` | the two fixtures and a script that builds, analyzes and checks them on your installation |
+| `tools/pathout_filter.py` | keep the shape checkers' hits that sit in PATHOUT functions where a relevant checker pathed out (`--relevant auto` for the catalogue) |
+| `evals/` | the paths-x-state fixture, the tested shape checker with its fixture, and a script that runs them on your installation |
+| `CALIBRATION.md` | what was measured, on what, and what was not |
+
+The function body, the standalone slice and the obfuscated twin are
+[`coverity-function-slice`](../coverity-function-slice/README.md); running a
+candidate to confirm or refute it is
+[`coverity-fuzz-triage`](../coverity-fuzz-triage/README.md). This skill
+calls both; install the three together.
 
 ## Requirements
 
 - A local Coverity Analysis installation **of the version that wrote the
   intermediate directory** (`emit/version`, line 1). Developed and measured
   against 2025.9.0, 2026.3.0 and 2026.6.0 on Windows.
-- Python 3 for the report tool (standard library only).
+- Python 3 for the tools (standard library only).
+- `git` to fetch the shape catalogue.
 
 ## Install
 
 ```bash
-cp -r coverity-pathout ~/.claude/skills/
+cp -r coverity-pathout coverity-function-slice coverity-fuzz-triage ~/.claude/skills/
 ```
 
 Then: "the analysis log says 189 functions exceeded the path limit -- which
-ones, and is it a problem?" or "show me what Coverity saw for
-`sqlite3_str_vappendf`".
+ones, and is it a problem?" or "here is my idir and there is a PATHOUT;
+what is hiding behind it?"
 
 ## Development notes
 
@@ -132,4 +103,7 @@ written to falsify the obvious hypothesis (that branch count predicts
 PATHOUT) and did; the subversion runs were repeated under two
 configurations to establish that the notice count is a property of the
 checker set; the worked example includes the measured defect difference at
-a raised limit, which for that function was zero.
+a raised limit, which for that function was zero. A blind run of the skill
+by another model on nginx (2026-09-10) did Steps 0-2 and 4-6 well and
+skipped the catalogue because nothing had escaped; Step 3 is worded the way
+it is because of that.

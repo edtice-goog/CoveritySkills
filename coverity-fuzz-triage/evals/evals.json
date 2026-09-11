@@ -1,0 +1,42 @@
+{
+  "skill_name": "coverity-fuzz-triage",
+  "evals": [
+    {
+      "id": 0,
+      "eval_name": "confirm-a-shape-candidate",
+      "prompt": "A path-insensitive checker flagged use.c:18 in the fixture idir (Coverity 2026.6.0; sources evals/lookup.c and evals/use.c): `escaped` null-tests the result of lookup() inside `if (r && r->value)` and dereferences r after the closing brace. Coverity did not report it in the run I care about because the function pathed out. Is it real?",
+      "expected_output": "Reads the function first; slices `escaped` with coverity-function-slice; gets lookup's model with cov-find-function --save --module generic and turns it into a stub with model_stubs.py (two behaviours: non-null object, returnsnull); builds slice + stub + harness with clang-cl -fsanitize=fuzzer,address; reports the ASan crash at the dereference line, the crashing input, and that the choice byte selected the returnsnull branch; verdict 'confirmed by crash under model stubs'.",
+      "assertions": [
+        "Generates the stub from the derived model, not by hand",
+        "The stub's dereference edges are unconditional",
+        "One fuzz input feeds both the arguments and the stub choices",
+        "Reports the verdict with its tier and the stub behaviours the crash relied on",
+        "Does not present a parameter set to NULL by the harness as the confirmation"
+      ]
+    },
+    {
+      "id": 1,
+      "eval_name": "model-says-impossible",
+      "prompt": "Coverity reports a NULL_RETURNS on the result of svn_dirent_skip_ancestor() being passed into relpath_depth() in fetch_conflict_details (subversion idir at C:\\Data\\tool-interop\\coverity\\idirs\\svn-augmented-post-enrichment, Coverity 2026.3.0). Before I file it, tell me whether the null can actually arrive there.",
+      "expected_output": "Saves both callees' generic models; notes that svn_dirent_skip_ancestor's model has a returnsnull edge and relpath_depth's has dereference(<arg 0>), so the claim is consistent with the analyzer's own knowledge; stubs both (the finding needs both ends of the chain) and fuzzes the slice; reports the outcome with its tier, and separately whether the null-producing branch corresponds to a real behaviour of svn_dirent_skip_ancestor (it does: ancestor not a prefix).",
+      "assertions": [
+        "Inspects the callee models before building anything and states what edges they have",
+        "Stubs every callee on the path, not only the first",
+        "Distinguishes 'the model allows it' from 'a real caller produces it'",
+        "Gives a tiered verdict and the budget used"
+      ]
+    },
+    {
+      "id": 2,
+      "eval_name": "batch-triage",
+      "prompt": "Here are the FORWARD_NULL and NULL_RETURNS findings from our latest run (cov-format-errors --json-output-v10 at C:\\work\\findings.json, idir at C:\\work\\idir, Coverity 2026.6.0). Triage them by execution rather than by eye; I want to know which ones I can dismiss.",
+      "expected_output": "For each finding names the claim, the target function and line, and the callees on the event path; reads first and refutes what reading settles; checks the models for edges that can produce the bad value; slices, stubs and fuzzes the rest under a stated budget; returns one tiered verdict per finding and the totals, including how many were not taken past Step 0.",
+      "assertions": [
+        "Reads before fuzzing and reports refutations by reading with the reason",
+        "Reports 'unconfirmed after N seconds' as unconfirmed, not as dismissed",
+        "Keeps parameter-sourced nulls in their own tier",
+        "States the count of findings not taken past Step 0"
+      ]
+    }
+  ]
+}

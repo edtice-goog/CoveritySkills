@@ -855,7 +855,7 @@ line 1); any other refuses with a version-mismatch error.
 from the same emit, not from headers: the function's `--print-debug` tree
 carries every callee's prototype (including ones `find` cannot look up),
 every global's type and every typedef's target, and `find <tag> --kind c
---print-debug` gives each struct's fields. `coverity-pathout`'s
+--print-debug` gives each struct's fields. `coverity-function-slice`'s
 `slice_function.py` closes over those, prints the declarations back out in
 dependency order, re-emits the file with the TU's recorded `cov-emit` flags
 minus include paths, and re-analyzes it -- `setup_env` reproduced its
@@ -863,7 +863,7 @@ PATHOUT on the same checker at the same count in 15 seconds. C++ uses the
 preprocessed TU (`cov-manage-emit --tu N preprocess`, then `cov-emit` the
 `.i` with the same flags) as the container instead.
 
-Source: verified -- `coverity-pathout`, `references/function-extraction.md`,
+Source: verified -- `coverity-function-slice`, `references/function-extraction.md`,
 `references/standalone-reproducer.md`.
 
 ### 36. A path limit counts paths x state; ask the analyzer which checker hit it
@@ -886,11 +886,14 @@ finished in 3845 paths; one with APC 31104 did not finish in 5000.
 <N> --print-paths`. The log then says `Pathed out: 5001 paths traversed by
 REVERSE_INULL in "setup_env(...)"` -- the function *and* the checker, which
 names the kind of state that multiplied (nullness, index values, condition
-outcomes). This is also the only way to get names when the log's `PATHOUT=`
+outcomes). Scoping keeps the checker name honest but not the count: callees
+in other TUs lose their models, and on nginx a scoped run reproduced 11 of
+18 PATHOUTs. This is also the only way to get names when the log's `PATHOUT=`
 lines are per-batch (`PATHOUT=4 nr=20 n: batch 645`), which on a large
 project under `--all --aggressiveness-level high` is nearly all of them (3
 named of 189). Then measure what the cut-off cost: raise `--paths` on the
-same scoped run and diff the defect sets with `cov-format-errors
+whole project (the scoped run only when every callee is in the TU) and diff
+the defect sets with `cov-format-errors
 --json-output-v10`. For `setup_env` the checker needed 6003 paths and the
 defect set did not change; for a function that needs 16,384 it may.
 

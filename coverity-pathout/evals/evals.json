@@ -5,15 +5,16 @@
       "id": 0,
       "eval_name": "which-functions-and-why",
       "prompt": "Our Coverity run of proftpd (intermediate directory at C:\\Data\\CoveritySkills\\coverity-demo-data-workspace\\idirs\\v1.3.9, analyzed with C:\\Coverity\\cov-analysis-win64-2025.9.0) reports that some functions exceeded the path limit. Which functions, why did setup_env in particular blow up, and should we raise --paths? Do not modify that intermediate directory.",
-      "expected_output": "Names the four functions (setup_env, listfile, tpl_map_va, facts_mlinfo_fmt) with TU ids from analysis-log.txt; copies the idir before re-running; uses cov-analyze --tu 77 --print-paths to find that REVERSE_INULL is the component that pathed out; extracts setup_env with cov-manage-emit find --print-definitions rather than preprocessing; explains the structure (many null-checked config pointers along a loop-free sequence); measures that --paths 200000 completes at ~6003 paths with no defect change; recommends a modest raise (10000) or a split, and says the other three were not diagnosed.",
+      "expected_output": "Names the four functions (setup_env, listfile, tpl_map_va, facts_mlinfo_fmt) with TU ids from analysis-log.txt; copies the idir before re-running; uses cov-analyze --print-paths to find that REVERSE_INULL is the component that pathed out in setup_env; runs the shape catalogue and filters to the four functions; extracts setup_env through coverity-function-slice rather than preprocessing; explains the structure (many null-checked config pointers along a loop-free sequence); measures that --paths 200000 completes at ~6003 paths with no defect change; recommends a modest raise (10000) or a split, and says which of the other three were not diagnosed.",
       "assertions": [
         "Reads output/analysis-log.txt and reports paths_exceeded count and the four named functions with their TU numbers",
         "Does not run cov-analyze into the original idir (copies it or the log first)",
-        "Uses the 2025.9.0 installation, not a newer one, for cov-manage-emit",
-        "Runs cov-analyze with --print-paths scoped with --tu and identifies REVERSE_INULL as the pathed-out checker for setup_env",
-        "Extracts setup_env with cov-manage-emit find '^setup_env$' --kind f --print-definitions (not cov-preprocess, extract-files, or a text-parsing script)",
+        "Uses the 2025.9.0 installation, not a newer one",
+        "Runs cov-analyze with --print-paths and identifies REVERSE_INULL as the pathed-out checker for setup_env",
+        "Runs the shape catalogue and filters its hits to the PATHOUT functions, or states that it did not",
+        "Extracts setup_env from the AST (cov-manage-emit find --print-definitions), not from preprocessed text",
         "Explains the cause in terms of tracked state (pointer nullness), not cyclomatic complexity alone",
-        "Measures the effect of a raised --paths on the defect set for the TU and reports it",
+        "Measures the effect of a raised --paths on the defect set and reports it",
         "Verdict first; states what was not checked"
       ]
     },
@@ -24,48 +25,37 @@
       "expected_output": "Explains that the remaining PATHOUT lines are per-batch ('PATHOUT=4 nr=20 n: batch 645') and do not name functions; re-runs cov-analyze on a copy with the original options plus --print-paths (reading the original command line from the log's first line) and collects 'Pathed out: N paths traversed by <checker> in \"<signature>\"' lines; notes that the count depends on the checker set (16 at defaults vs 189 with --all --aggressiveness-level high); offers tools/pathout_report.py.",
       "assertions": [
         "Identifies batch work-unit lines as the reason only three functions are named",
-        "Re-runs with --print-paths using the same options as the original run, on a copy",
+        "Re-runs with --print-paths using the same options as the original run, on a copy, over the whole project",
         "Produces the per-function, per-checker list from the Pathed out lines",
         "Points out that the number of affected functions is configuration-dependent",
         "Does not claim the log alone can name the functions"
       ]
     },
     {
-      "id": 3,
-      "eval_name": "standalone-reproducer",
-      "prompt": "setup_env in modules/mod_auth.c (TU 77 of the proftpd idir at C:\\Data\\CoveritySkills\\coverity-demo-data-workspace\\idirs\\v1.3.9, Coverity 2025.9.0) hits the path limit. I want to try restructuring it, but the full build takes too long to iterate on. Give me that one function as a file I can cov-emit and cov-analyze by itself, and show me that it still reproduces the PATHOUT before I start editing.",
-      "expected_output": "Uses tools/slice_function.py --tu 77 --name setup_env --emit --analyze (or reproduces its method: body from find --print-definitions, declarations printed from the --print-debug tree and struct dumps, re-emit with the TU's recorded cov-emit flags minus -I/-D/--sys_include); reports a clean emit and the wur/Pathed out lines showing REVERSE_INULL at 5001 on the one-file idir; explains that callees are unmodeled prototypes and globals extern, and what that can change.",
-      "assertions": [
-        "Produces a single file containing the function plus its typedefs, struct definitions, extern globals and callee prototypes -- not a body alone, and not hand-written declarations",
-        "Obtains the declarations from the emit (cov-manage-emit find --print-debug), not from headers or preprocessed text",
-        "Re-emits with the flags recorded by print-compilation-info for TU 77 (language standard, gnu_version, type sizes, pre_preinclude compat headers), dropping include paths",
-        "Runs cov-analyze --print-paths on the one-file idir and shows the PATHOUT reproducing (REVERSE_INULL, 5001)",
-        "States the differences from the original analysis (unmodeled callees, extern globals) as a caveat on path counts"
-      ]
-    },
-    {
-      "id": 4,
+      "id": 2,
       "eval_name": "escape-hunt",
       "prompt": "A fuzzer found a null dereference in one of our functions that Coverity never reported. We checked: that function paths out (FORWARD_NULL_pass2 hit the limit). The bug is a null check whose closing brace comes one statement too early, so the pointer is dereferenced right after the guard. Are there more of these hiding behind the path limit in this idir (C:\\Data\\tool-interop\\coverity\\idirs\\svn-augmented-post-enrichment, Coverity 2026.3.0)? I don't want a list of every unguarded dereference in the codebase.",
-      "expected_output": "Writes (or reuses) a path-insensitive CodeXM checker for the shape; runs it alone over a copy of the whole idir with --disable-default --codexm; obtains the PATHOUT set from a --print-paths run with the original options; filters with tools/pathout_filter.py --relevant FORWARD_NULL,NULL_RETURNS (503 -> 115 -> 0 on this idir; 27 with REVERSE_INULL counted); reads the survivors and refutes them with stated reasons (precondition assertion, allocate-if-null macro, invariant between variables, reassignment); explains that confirmation of anything unresolved is by fuzzing the slice with model-derived stubs; does not raise --paths as the fix.",
+      "expected_output": "Takes the catalogue's null_check_then_deref checker (or writes one for the shape); runs it alone over a copy of the whole idir with --disable-default --codexm; obtains the PATHOUT set from a --print-paths run with the original options; filters with tools/pathout_filter.py --relevant FORWARD_NULL,NULL_RETURNS (503 -> 115 -> 0 on this idir; 27 with REVERSE_INULL counted); reads the survivors and refutes them with stated reasons (precondition assertion, allocate-if-null macro, invariant between variables, reassignment); hands anything unresolved to coverity-fuzz-triage; does not raise --paths as the fix.",
       "assertions": [
         "Does not propose raising --paths as the remedy",
         "Uses a path-insensitive CodeXM checker over the whole idir rather than per-function analysis",
         "Filters candidates to PATHOUT functions and, further, to those where a null-tracking checker (FORWARD_NULL / NULL_RETURNS) pathed out",
         "Excludes or identifies the known instance rather than re-reporting it",
         "Reads the survivors before proposing fuzzing, and states the verdict tier",
-        "Describes the fuzz confirmation as slice + stubs from derived models + sanitizer, with the stub branches as part of the evidence"
+        "Names coverity-fuzz-triage (slice + stubs from derived models + sanitizer) as the confirmation for anything unresolved"
       ]
     },
     {
-      "id": 2,
-      "eval_name": "extract-a-cpp-overload",
-      "prompt": "I have an intermediate directory built by Coverity 2026.6.0 from evals/fixtures/overloads.cpp. Show me exactly what the analyzer saw for demo::Widget::f(int) -- not f(double) -- without preprocessing anything.",
-      "expected_output": "Runs cov-manage-emit find 'Widget' --kind f to list the overloads with their mangled names, then find '_ZN4demo6Widget1fEi$' --kind f --print-definitions to print the int overload only, and explains that the regex matches the mangled name.",
+      "id": 3,
+      "eval_name": "pathout-no-escape-blind",
+      "prompt": "I have a Coverity intermediate directory at C:/Data/pathout-campaign/idirs/nginx and its analysis reports a PATHOUT. Please execute this skill against it. The Coverity install that wrote it is C:/Coverity/cov-analysis-win64-2026.6.0.",
+      "expected_output": "Steps 0-2 on a copy (18 functions, the Pathed out components per function); runs the whole shape catalogue with pathout-shapes/bin/run_all.sh and filters with --relevant auto (159 hits, 4 in PATHOUT functions, 2 relevant: params[index] in ngx_http_ssi_body_filter, where OVERRUN_SYMBOLIC pathed out); reads the two survivors and gives each a tiered verdict, handing off to coverity-fuzz-triage if reading cannot settle them; slices at least the worst function through coverity-function-slice; measures the cost of the limit on the whole project (identical defect sets at 50,000; two functions never finish); recommends with a price.",
       "assertions": [
-        "Uses cov-manage-emit find with --print-definitions",
-        "Selects the overload by mangled name (_ZN4demo6Widget1fEi), not by the bare identifier f",
-        "Does not use cov-preprocess, --preprocess-native, extract-files, or a text-parsing script"
+        "Runs the shape catalogue even though no defect has escaped, and reports the survivor count",
+        "Reads the survivors and reports a verdict with a tier for each, or hands them to coverity-fuzz-triage",
+        "Measures the cost of the limit on the whole project, not on --tu scoped runs alone",
+        "Does not treat the original idir as scratch",
+        "States which PATHOUT functions were not taken past Step 1"
       ]
     }
   ]

@@ -3,52 +3,41 @@ name: coverity-pathout
 description: >
   Diagnose a Coverity PATHOUT notice -- a function that exceeded the
   analyzer's per-function path limit ("Exceeded path limit of 5000 paths",
-  "paths_exceeded count", PATHOUT=1 in analysis-log.txt, cov-analyze --paths)
-  -- and get the affected function in front of you without touching a
-  preprocessed file. Use this skill when someone asks which functions hit
-  the path limit, why a particular function did, what it cost in missed
-  defects, whether to raise --paths, or how to restructure the function; and
-  for the general chore it depends on: pulling one function's definition out
-  of an intermediate directory ("extract this function from the idir",
-  "show me what the analyzer saw for foo()"), which is done from the AST with
-  cov-manage-emit find --print-definitions in under a second -- and for
-  turning that function into a file that compiles and analyzes on its own
-  ("re-analyze just this function", "make a standalone reproducer",
-  "iterate on this function without rebuilding"), with every typedef, struct,
-  global and callee prototype it needs printed back out of the same emit,
-  re-emitted with the TU's recorded flags and re-analyzed in seconds -- and
-  for obfuscating that file so it can be shown to someone who may not see
-  the code ("obfuscate this function", "anonymize it", "rename the
-  variables but keep the structure", "make a version I can send to the
-  vendor / to another model"): identifiers renamed by kind, strings masked,
-  library names and constants kept, and the analyzer run on both copies to
-  prove they analyze identically -- and for the hunt that follows an
-  ESCAPED defect ("a fuzzer / pen test / customer found a bug Coverity
-  missed", "it was missed because the function pathed out", "are there
-  more like it", "path-insensitive checker", "confirm the candidates"):
-  a CodeXM checker for the defect's shape over the whole idir, filtered to
-  the PATHOUT functions where the relevant checker was cut off, then
-  confirmed or refuted by reading and by fuzzing with callee stubs generated
-  from Coverity's own derived models. The central
-  fact is that the limit counts paths x tracked state, not control-flow
-  paths, so cyclomatic complexity does not explain a PATHOUT and the
-  analyzer's own --print-paths output does. Requires a local Coverity
-  Analysis installation of the version that wrote the intermediate
-  directory.
+  "paths_exceeded count", PATHOUT=1 in analysis-log.txt, cov-analyze
+  --paths) -- and find out what may be hiding behind it. Use this skill
+  when someone asks which functions hit the path limit, why a particular
+  function did, which checker was cut off in it, what the cut-off cost in
+  missed defects, whether to raise --paths, how to restructure the
+  function, or whether a defect that escaped Coverity ("a fuzzer / pen
+  test / customer found a bug Coverity missed", "it was missed because the
+  function pathed out", "are there more like it") has siblings behind the
+  same limit. Its central facts: the limit counts paths x tracked state,
+  not control-flow paths, so cyclomatic complexity does not explain a
+  PATHOUT and the analyzer's own --print-paths output does; the checker
+  that was cut off finished nowhere in that function, so the way to look
+  there is a path-INSENSITIVE CodeXM shape checker over the whole idir,
+  filtered to the PATHOUT functions where that checker stopped -- a
+  catalogue of twelve tested shapes is run whenever there is a PATHOUT,
+  whether or not anything has escaped yet. Uses coverity-function-slice
+  for the function body and coverity-fuzz-triage to confirm candidates by
+  execution. Requires a local Coverity Analysis installation of the
+  version that wrote the intermediate directory.
 ---
 
 # Coverity PATHOUT
 
 `cov-analyze` bounds the work it will do on any one function: `--paths`,
 default 5000. A function that exceeds it is logged as `PATHOUT`, and the
-checker that exceeded it stops walking that function. This skill finds
-those functions, gets each one in front of you as the analyzer saw it, names
-the checker that ran out, and measures what the cut-off cost -- so the
-answer is "raise the limit to N, verified on the translation unit" or "split
-it at these seams", not a guess.
+checker that exceeded it stops walking that function. Nobody looked at the
+rest of it. This skill finds those functions, names the checker that ran
+out, runs a catalogue of path-insensitive shape checkers over the idir to
+see what that checker might have found, gets the function in front of you
+as the analyzer saw it, and measures what the cut-off cost -- so the answer
+is a list of confirmed or refuted candidates and "raise the limit to N,
+verified on the whole project" or "split it at these seams", not a guess.
 
-Read `coverity/RULES.md` first (rules 3, 8, 21-23 bear directly). The two
-rules this skill adds are 35 and 36.
+Read `coverity/RULES.md` first (rules 3, 8, 21-23 bear directly). The rule
+this skill adds is 36; rule 35 belongs to `coverity-function-slice`.
 
 ## What "paths" means
 
@@ -76,12 +65,11 @@ Details and every measurement: `references/path-explosion.md`.
 
 Line 1 of `<idir>/emit/version` names the version that wrote it. **Use that
 version's `bin/`** for every command here; another version refuses the emit
-outright (`Expected version number is 355, but this directory has version
-350`). Rule 3.
+outright. Rule 3.
 
 A re-run of `cov-analyze` rewrites `<idir>/output/`, including the log you
 are diagnosing. Copy the idir (or at least `output/analysis-log.txt`) before
-Step 2.
+Step 2, and do every re-analysis on a copy.
 
 ## Step 1: Read the log
 
@@ -106,25 +94,21 @@ Three outcomes:
 | you see | it means | next |
 |---|---|---|
 | `paths_exceeded count: 0` | no function hit the limit on this run | done; if someone saw a notice, it was a different run or configuration |
-| named lines `... 5001 PATHOUT=1 n: setup_env in TU 77` | the function and its TU | Step 2 for the checker, Step 3 for the body |
+| named lines `... 5001 PATHOUT=1 n: setup_env in TU 77` | the function and its TU | Step 2 for the checker, Step 3 for what hid behind it |
 | batch lines `... PATHOUT=4 nr=20 n: batch 645` | up to 20 functions per line, none named | Step 2 is mandatory -- `--print-paths` names them |
 
-On a large project under a heavy configuration (`--all
---aggressiveness-level high`) nearly all PATHOUT lines are batch lines: 3
-named out of 189 on subversion. The count is a property of the
-configuration as much as the code -- the same idir at defaults had 16.
+A `wur:` line with `PATHOUT=0`, or a second line for the same function
+`with extra_info`, is not a hit. On a large project under a heavy
+configuration (`--all --aggressiveness-level high`) nearly all PATHOUT
+lines are batch lines: 3 named out of 189 on subversion. The count is a
+property of the configuration as much as the code -- the same idir at
+defaults had 16.
 
 ## Step 2: Ask the analyzer which checker, with `--print-paths`
 
 ```bash
-$BIN/cov-analyze --dir <idir-copy> --tu <N>[,<N>...] --print-paths
+$BIN/cov-analyze --dir <idir-copy> --print-paths          # the original options, plus this
 ```
-
-`--tu` scopes the run to the translation units that hold the functions; it
-reproduces the PATHOUT in isolation (verified on proftpd: 15 s for one TU
-against 32 s for the project) and it is how you make Step 5 cheap. Without
-`--tu` the run costs what the original analysis cost; that is still the
-right call when the log has batch lines and you need every name.
 
 The log then carries, per function and per component:
 
@@ -135,287 +119,177 @@ wur_diagnostics: Pathed out: 5001 paths traversed by REVERSE_INULL in "setup_env
 
 `Pathed out:` marks the culprit(s). These lines name the function by its
 demangled signature and appear whether or not it sat in a batch.
-`tools/pathout_report.py` on the re-run's idir joins everything.
+`tools/pathout_report.py` on the re-run's idir joins everything, and this
+log is the input to the filter in Step 3.
 
-`--path-log-threshold` sounds like the tool for this and is not: at 100 and
-at 1000 it changed nothing in the log.
+**Whole project, not `--tu`, when the number matters.** `--tu <N>` scopes
+the run to one translation unit and is fast (15 s against 32 s on
+proftpd), but callees in other TUs lose their models, and models are part
+of the state: on nginx a scoped run reproduced only 11 of 18 PATHOUTs. Use
+`--tu` to get a checker name quickly on a small project; use the whole
+project for the PATHOUT set, the filter, and the cost measurement in
+Step 6. Run with the original options (the log's first line is the command
+that produced it). `--path-log-threshold` sounds like the tool for this and
+is not: at 100 and at 1000 it changed nothing in the log.
 
-## Step 3: Get the function from the AST
+## Step 3: Look where nobody looked -- the shape catalogue
 
-```bash
-$BIN/cov-manage-emit --dir <idir> --ticker-mode none --tu <N> \
-    find '^<name>$' --kind f --print-definitions > <name>.txt
-```
+**Do this step whenever there is a PATHOUT, escape or no escape.** The
+checker that pathed out finished nowhere in that function; a
+path-INSENSITIVE checker for the shape of what it looks for, run over the
+whole idir and filtered to those functions, is how you find out what it
+might have said. Everywhere else the path-sensitive checker finished and
+was right to stay quiet; inside a PATHOUT function nobody looked.
 
-- `<name>` is exactly what the log printed after `n:` -- the identifier for
-  C, the **mangled** name for C++ (`_ZN4demo6Widget1fEi`). The regex is
-  matched against the mangled name, so anchor it and use the mangled form to
-  pick an overload. From a demangled signature, list candidates first:
-  `find '<identifier>' --kind f` prints `demo::Widget::f(int)
-  /*_ZN4demo6Widget1fEi*/` for each match.
-- `--tu` matters: `find` prints every definition that matches, and proftpd
-  has seven functions called `main`.
-- 0.4 s; 509 lines for a 963-line function. A miss prints nothing and exits
-  0 -- check for the `Matching function` header.
-- The body is what the analyzer saw: **macros expanded**, `sizeof` folded
-  (`4UL /* sizeof (gid_t) */`), `errno` as `*__errno_location()`, types
-  canonical. Branches hidden in macros are visible here and nowhere else.
-  Line numbers are not preserved inside the body; the header's `declared
-  at:` is the anchor, and `--tu N print-source` gives the captured source
-  with a three-line header offset for a side-by-side.
-
-**Never** extract the file, preprocess it, and cut the function out of the
-`.i` text. The emit already holds the tree; a pretty-print of it is exact,
-compact, and instant. `references/function-extraction.md` covers C++,
-duplicates, the metrics join, and the other `find` outputs (`--print-debug`
-for one construct's exact source location; `--print-callees`).
-
-### Make it compile on its own
-
-The body alone will not re-emit: it names typedefs, structs, globals and
-callees that came from headers. The same emit holds all of those -- the
-function's `--print-debug` tree carries every callee's prototype, every
-global's type and every typedef's target, and `find --kind c --print-debug`
-gives each struct's fields -- and the slicer closes over them:
-
-```bash
-python3 tools/slice_function.py --dir <idir> --bin $BIN --tu <N> --name <name> --emit --analyze
-```
-
-That writes `<name>.slice.c` (declarations printed from the tree in
-dependency order, then the body), re-emits it with the flags recorded for
-the original TU minus include paths, analyzes the one-file idir with
-`--print-paths`, and prints the function's `wur:` and `Pathed out` lines.
-`setup_env`: 906 lines, clean emit, `REVERSE_INULL` pathed out at 5001 as in
-the original -- in 15 seconds, editable, repeatable. That is the loop for
-Steps 4 and 5. If instead it prints `cov-emit: emitted ... NOT EMITTED:
-function "<name>"` and `analysis: COULD NOT VERIFY` (exit 2), cov-emit
-accepted the file but dropped the function on a parse diagnostic, and
-there is no result yet: read the quoted diagnostics, fix the slice (or the
-slicer -- the two forms seen on nginx, `for (; true; )` and a
-function-local `enum <anonymous>`, are rewritten now; a cast whose
-parentheses the pretty-printer dropped is not), and re-run. Never report
-that run's `paths_exceeded count: 0` as "no PATHOUT". C++ free functions work too, including calls to static
-members of classes with nested enums (the declarations are placed back
-inside the class); a **non-static method** as the target, or a namespace,
-is where the slicer stops and the preprocessed-TU route takes over. Both
-are in `references/standalone-reproducer.md`.
-
-**This is where most requests end.** A function that was asked for has
-been extracted, exactly as the analyzer saw it, and it compiles and
-analyzes on its own. Report that as the result (the slice path, the line
-counts, the `cov-emit: emitted` line, and the reproduced `wur:` line if
-`--analyze` was run). Steps 4 and 5 are for when the question is *why* it
-pathed out and what to do about it; Step 6 is only for the uncommon case
-where the file has to be shown outside the project. Do not run Step 6
-unasked.
-
-## Step 4: Diagnose -- read the body with the checker in mind
-
-You know the multiplier (Step 2) and you have the body (Step 3). Look for
-the structure that makes *that* state multiply along a straight line:
-
-- a long sequence of independent decisions, each leaving a tracked value
-  in a different state -- lookups followed by null checks, option flags
-  tested one after another, error ladders of `goto fail`
-- the same pointer or value re-tested many times (`c ? c->subset :
-  main_server->conf` seven times in `setup_env`)
-- conditionals that live inside macros and appear once per use
-- `switch` chains and `&&`/`||` short-circuits, each a branch
-- known constants flowing into many branches (the fixture's whole lesson)
-
-Loops are rarely it: the engine fixpoints them. `setup_env` has 95 `if`s,
-55 NULL comparisons, 22 `goto`s and no loop at all
-(`references/worked-example-setup-env.md`).
-
-Say which of these you found and which component it feeds. "CCM is 152" is
-a size, not a diagnosis.
-
-## Step 5: Decide and measure
-
-Two levers, and both are measurable on the scoped TU in seconds:
-
-**Raise the limit.** `--paths <N>` on the same `--tu` run. The log then says
-how many paths the culprit actually needed (`setup_env`: 6003 -- it had
-been cut off with a fifth of its work left). Then compare defects between
-the default and the raised run with `cov-format-errors --json-output-v10`
-on each idir copy: same set, or new findings? That difference *is* the cost
-of the notice for this function, measured. (For `setup_env`: none.)
-
-**Restructure.** Name the seams. A function that does five things in
-sequence with independent state is five functions; a re-tested expression is
-one local. The metrics (`ml`, `lc`) and the `declared at:` line give the
-reader the place. Do not recommend touching logging macros or loops unless
-Step 4 showed they contribute. **Try the edit on the slice** before
-recommending it: change `<name>.slice.c`, re-run `slice_function.py
---emit --analyze`, and report the path count it produced rather than the
-one you expected.
-
-Raising `--paths` globally is legitimate -- the log itself says up to 5% of
-functions normally hit the limit -- but it is paid on every function on
-every run. Prefer a value the measurement justifies (`setup_env` needs
-10000, not 200000) and say what it cost in time.
-
-## Step 6 (uncommon): Obfuscate it before it leaves
-
-Most workflows never need this step. Extraction (Step 3) is the normal
-deliverable, and the slice stays where the code lives. Use this step only
-when the user **asks** for the function to be seen by someone who must not
-see the source: another model, a vendor, a colleague outside the project.
-The request may be phrased as "obfuscate", "anonymize", "rename the
-variables", "strip the identifying parts", or "make a version I can send".
-The case it was built for: taking a real customer function out of a
-zero-retention environment so a larger workflow could be tested on it.
-
-The structure is what the outside reader needs and the names are what
-identify the codebase, so the tool renames and masks, keeps everything the
-analyzer reasons about, and then **proves** the analyzer treats the twin
-like the original. Do not obfuscate by hand or with `sed`; a rename that
-misses one position produces a file that looks fine and analyzes
-differently.
-
-**Run** (same `--tu` and `--name` as Step 3; `--analyze` is what makes it
-verified):
-
-```bash
-python3 tools/slice_function.py --dir <idir> --bin $BIN --tu <N> --name <name> --obfuscate --emit --analyze
-```
-
-**It writes three files** under `<idir>/output/pathout/slice-<name>/`
-(or `--out`):
-
-| file | what | where it may go |
-|---|---|---|
-| `<name>.slice.c` | the plain slice, real names | stays |
-| `fn_0.obf.c` | the twin: project identifiers renamed by kind, strings masked, comments gone. Named after the *new* name on purpose: a C++ mangled `--name` would put the function and its parameter types in the filename | this is the only file that leaves |
-| `<name>.obf.map.json` | every new name with what it was; every kept name with why | stays; it is how the outside reader's advice about `fn_0` and `L_1` is translated back |
-
-**Read four lines of the output before handing anything over:**
-
-1. `obfusc.  cov-emit: emitted` with no recoverable errors. Errors mean the
-   twin is not even the same program.
-2. `verify : obfuscation preserved the analysis -- same path count (N),
-   same PATHOUT flag, same pathed-out checkers`. This is the acceptance
-   test. If it says `DIFFERS`, stop: the twin does not represent the
-   function, and the tool has a bug worth reporting with the two files.
-   If it says `COULD NOT VERIFY`, the function was not analyzed at all
-   (usually a recoverable error in the emit), which is also a stop.
-   Do not hand over a twin that differs and do not explain it away.
-3. `review : ... identifiers neither renamed nor classified as library`.
-   Usually absent. If present, look at each name in `fn_0.obf.c`: it is
-   something the tool could not attribute, and a human decides whether it
-   identifies the project. Renaming it by hand *and re-running the
-   verification* is fine; skipping the verification is not.
-4. `kept : N library names` -- open the map's `kept` section and skim it.
-   Every entry should read as libc, POSIX, Win32 or the compiler
-   (`strlen`, `struct passwd`, `pw_uid`, `size_t`, `setuid`). A project
-   name there means it was declared under a path the tool took for a
-   system path; say so and treat it as a `review` item.
-
-**What the twin still carries, and say so to the user**: control flow,
-struct shapes, numeric constants, string *lengths* and `%` directives,
-and the library calls. Someone who knows the codebase can recognize a
-function by its shape. Names, string contents, file paths and comments
-are gone. Numeric constants are kept on purpose: known constants are the
-state that multiplies (see *What "paths" means*), and changing them would
-change the very thing being diagnosed.
-
-**Hand over** `fn_0.obf.c` alone. Not the map, not the plain slice, not
-the analysis log (it contains the real name and paths). The tool's own
-`obfusc.  analysis:` lines are safe to quote because they name only the
-new name and the checker.
-
-Mechanism, measurements and limits: `references/standalone-reproducer.md`,
-*Obfuscating the slice so it can leave the building*.
-
-## Step 7 (after an escape): hunt the siblings behind the limit
-
-Use this when a defect got past Coverity, was found later, and the reason is
-a PATHOUT: the checker that would have reported it was cut off in that
-function. Raising `--paths` is not the answer (a real case still pathed out
-at 200,001). The answer is to look for the same *shape* everywhere the same
-cut-off happened, and to let execution decide.
-
-1. **Write the shape as a path-insensitive CodeXM checker** -- one sentence
-   about structure ("null-tested in an `if`, dereferenced outside it"), no
-   feasibility, no ordering. `references/candidate-checkers.md` has the
-   skeleton, the tree shapes, and the grammar traps; `evals/escape-hunt/
-   null_check_then_deref.cxm` is a tested one. Run it alone over a **copy**
-   of the whole idir: `cov-analyze --disable-default --codexm shape.cxm`,
-   then `cov-format-errors --json-output-v10`. Seconds; thousands of hits
-   is normal.
-2. **Filter to where nobody looked.** `tools/pathout_filter.py --findings
-   ... --log <print-paths log> --relevant FORWARD_NULL,NULL_RETURNS` keeps
-   hits in PATHOUT functions where a checker that would have caught the
-   shape was the one cut off. Everywhere else the path-sensitive checker
-   finished and was right to stay quiet. Subversion: 503 hits, 115 in
-   PATHOUT functions, **0** where `FORWARD_NULL` pathed out and 27 where
-   `REVERSE_INULL` did. Exclude the known instance.
-3. **Read each survivor** (all 27 on subversion were refuted by reading:
-   preconditions, allocate-if-null macros, invariants between variables,
-   reassignment; `references/escape-hunt.md` has the catalogue), then
-   **fuzz the ones reading cannot settle**:
-   slice it (Step 3), generate stubs for its callees from their derived
-   models (`cov-find-function --save`, `tools/model_stubs.py`), build the
-   slice with `evals/escape-hunt/harness.c` under clang-cl `-fsanitize=
-   fuzzer,address`, and let the input choose both the arguments and the
-   stub behaviours. A crash at the candidate's dereference is the
-   confirmation, with the stub branches it took as the callee behaviours it
-   relied on. `references/fuzz-confirmation.md` has the recipe and the
-   verdict tiers; `evals/escape-hunt/run.sh` runs the whole chain on a
-   fixture in about a minute.
-
-Report the shape checker (the next escape of the class reuses it), the
-survivor list with per-candidate verdict and tier, and for confirmed ones
-the crashing input. `references/escape-hunt.md` is the full procedure with
-the measurements.
-
-**No escape yet, only a PATHOUT?** Then there is no shape to derive, and
-every shape is a hypothesis. Run the whole catalogue of tested shape
-checkers from https://github.com/edtice-goog/pathout-shapes (twelve of
-them: null-check-then-deref, unchecked null return, divide after zero
-test, double release, unbounded copy, source-length-bounded copy, alloc
-never released, unchecked array index, overflow before alloc, free of
-non-heap, non-literal format, sizeof of a pointer) in one pass over a copy
-of the idir, then filter with the per-checker relevance table built in:
+**No escaped defect to key on** (the usual case): every shape is a
+hypothesis, so run the whole catalogue of tested shape checkers in one
+pass, then filter with each checker's own relevance list:
 
 ```bash
 git clone https://github.com/edtice-goog/pathout-shapes
-pathout-shapes/bin/run_all.sh <install>/bin <idir-copy> <outdir>      # one cov-analyze, all shapes
+pathout-shapes/bin/run_all.sh $BIN <idir-copy> <outdir>          # one cov-analyze, twelve --codexm, seconds
 python3 tools/pathout_filter.py --findings <outdir>/candidates.json \
     --log <print-paths idir>/output/analysis-log.txt --relevant auto --json survivors.json
 ```
 
-Step 2's `--print-paths` run is what supplies the components; without it
-the filter can only keep every hit in a PATHOUT function and says so. Then
-step 3 as above: read, then fuzz. Expect a few dozen survivors on a
-mid-sized project and most of them to be refuted by reading.
+Twelve shapes: null-check-then-deref, unchecked null return, divide after
+zero test, double release, unbounded copy into a fixed buffer, copy bounded
+by the source's own length (CVE-2025-0282's shape), alloc never released,
+unchecked array index, overflow before alloc, free of non-heap, non-literal
+format string, sizeof of a pointer. Measured: nginx 159 hits, 4 in PATHOUT
+functions, 2 where the relevant checker pathed out; zstd 666 / 167 / 60;
+redis 869 / 76 / 0. The filter is the mechanism; the whole-idir run is
+cheap because the checkers are structural.
+
+**An escaped defect to key on**: derive the shape from the instance, not
+the class ("null-tested in an `if`, dereferenced outside it", not
+"FORWARD_NULL"). Take the catalogue's checker for it or write one --
+`references/candidate-checkers.md` has the skeleton, the tree shapes and
+the grammar traps, `evals/escape-hunt/null_check_then_deref.cxm` is a
+tested one -- run it alone (`cov-analyze --disable-default --codexm
+shape.cxm`, `cov-format-errors --json-output-v10`), and filter with
+`--relevant <the checkers that would have caught it>`, e.g.
+`FORWARD_NULL,NULL_RETURNS`. Subversion: 503 hits, 115 in PATHOUT
+functions, **0** where `FORWARD_NULL` pathed out, 27 where `REVERSE_INULL`
+did. Exclude the known instance.
+
+**Then read each survivor**, and hand the ones reading cannot settle to
+`coverity-fuzz-triage`. All 27 subversion survivors were refuted by
+reading (preconditions, allocate-if-null macros, invariants between
+variables, reassignment; `references/escape-hunt.md` has the catalogue).
+A survivor list with a verdict and tier per entry is part of every PATHOUT
+report; "the catalogue was not run" is a gap to state (rule 22). The
+procedure with all the measurements: `references/escape-hunt.md`.
+
+## Step 4: Get the function from the AST
+
+The body is one command in `coverity-function-slice`:
+
+```bash
+$BIN/cov-manage-emit --dir <idir> --ticker-mode none --tu <N> \
+    find '^<name>$' --kind f --print-definitions > <name>.txt
+python3 ../coverity-function-slice/tools/slice_function.py --dir <idir> --bin $BIN --tu <N> --name <name> --emit --analyze
+```
+
+`<name>` is what the log printed after `n:` (the mangled name for C++);
+`--tu` is from the same line. The first prints what the analyzer saw --
+macros expanded, `sizeof` folded, 0.4 s. The second makes it a file that
+compiles and analyzes on its own, which is the loop for Steps 5 and 6.
+Read `cov-emit: emitted` and the `wur:` line; `COULD NOT VERIFY` means the
+function was dropped and there is no result. A slice's callees have no
+models, so a function whose count came from them finishes under the limit
+as a slice (five of nginx's eighteen); the slice reproduces the PATHOUT
+when the cause is local (the five `*_merge_loc_conf` ladders, `setup_env`).
+Everything about extraction, slicing and the C++ boundary is that skill's.
+
+**Never** extract the file, preprocess it, and cut the function out of the
+`.i` text. The emit already holds the tree.
+
+## Step 5: Diagnose -- read the body with the checker in mind
+
+You know the multiplier (Step 2) and you have the body (Step 4). Look for
+the structure that makes *that* state multiply along a straight line:
+
+- a long sequence of independent decisions, each leaving a tracked value
+  in a different state -- lookups followed by null checks, option flags
+  tested one after another, error ladders of `goto fail`, configuration
+  merge ladders (`if (conf->x == UNSET) conf->x = ...` 54 times)
+- the same pointer or value re-tested many times (`c ? c->subset :
+  main_server->conf` seven times in `setup_env`)
+- conditionals that live inside macros and appear once per use
+- `switch` chains and `&&`/`||` short-circuits, each a branch; a
+  `switch (state)` inside a loop, with `state` assigned a known
+  enumerator on every arm, re-enters the body once per known state
+- known constants flowing into many branches (the fixture's whole lesson);
+  an accumulator that starts from a constant and grows behind independent
+  `if`s
+
+Loops are rarely it: the engine fixpoints them. `setup_env` has 95 `if`s,
+55 NULL comparisons, 22 `goto`s and no loop at all
+(`references/worked-example-setup-env.md`). The exception is a loop whose
+body is a nest of loops over indices that start from known constants: the
+outer loop re-enters the nest in a new state each time (nginx's
+`ngx_resolver_report_srv`, 106 lines, CCM 19, never finishes at 200,000).
+
+Say which of these you found and which component it feeds. "CCM is 152" is
+a size, not a diagnosis.
+
+## Step 6: Decide and measure
+
+Two levers, both measurable:
+
+**Raise the limit.** `--paths <N> --print-paths` on a copy of the **whole
+project** (Step 2 says why not `--tu`). The log then says how many paths
+each function actually needed (`setup_env`: 6003). Then compare defects
+between the default and the raised run with `cov-format-errors
+--json-output-v10` on each idir copy: same set, or new findings? That
+difference *is* the cost of the notice, measured. For `setup_env`: none.
+For all of nginx at 50,000: none, and two functions still did not finish.
+
+**Restructure.** Name the seams. A function that does five things in
+sequence with independent state is five functions; a re-tested expression
+is one local; a loop nest that the outer loop re-enters is a helper. The
+metrics (`ml`, `lc`) and the `declared at:` line give the reader the place.
+Do not recommend touching logging macros or loops unless Step 5 showed they
+contribute. **Try the edit on the slice** before recommending it: change
+`<name>.slice.c`, re-run `slice_function.py --emit --analyze`, and report
+the path count it produced rather than the one you expected
+(`ngx_resolver_report_srv`: 5001 unchanged with either inner construct
+removed, **64** with the loop body moved into a helper).
+
+Raising `--paths` globally is legitimate -- the log itself says up to 5% of
+functions normally hit the limit -- but it is paid on every function on
+every run, and it is not a remedy for a function that does not respond to
+the limit (a real case still pathed out at 200,001). Prefer a value the
+measurement justifies and say what it cost in time.
 
 ## Reporting
 
-Verdict first (rule 21): the function, the checker that pathed out, the
-structural cause, what the limit cost in defects (measured or "not
-measured"), and the recommendation with its price. Then the evidence: the
-log lines, the `--print-paths` line, the counts from the body, the defect
-diff. Mark measured vs reasoned (rule 23). Say which PATHOUT functions you
-did *not* take past Step 1 (rule 22).
+Verdict first (rule 21): the functions, the checker that pathed out in
+each, what the shape catalogue found behind them (survivors, with verdict
+and tier), the structural cause, what the limit cost in defects (measured
+or "not measured"), and the recommendation with its price. Then the
+evidence: the log lines, the `Pathed out` lines, the filter's counts, the
+counts from the body, the defect diff. Mark measured vs reasoned (rule 23).
+Say which PATHOUT functions you did *not* take past Step 1, and whether
+the catalogue was run (rule 22).
 
 ## Anti-patterns
 
 - Diagnosing from cyclomatic complexity, APC, or the source-level shape
   alone. The fixture disproves each one.
+- Skipping the shape catalogue because "nothing has escaped". Nothing has
+  escaped *yet*; the catalogue is how you find out. A blind run of this
+  skill on nginx did exactly that, and the two survivors it would have
+  found (an array indexed by an uncompared variable in
+  `ngx_http_ssi_body_filter`, where `OVERRUN_SYMBOLIC` pathed out) went
+  unread.
+- Using `--tu` scoping for the PATHOUT set or the cost measurement. It
+  drops cross-TU models and lost 7 of 18 on nginx.
+- Raising `--paths` as the answer to an escaped defect. The checker that
+  missed it may not finish at any limit.
 - Parsing `cov-preprocess` / `--preprocess-native` output to find a
-  function. Slow, brittle, and still not what the analyzer saw.
-- Re-emitting a pretty-printed body on its own, or hand-writing the
-  declarations it needs. The tree has them all; `slice_function.py` prints
-  them. (For C++, the preprocessed TU is the container, not a hand-built
-  one.)
-- Obfuscating with `sed`, a word list, or by hand, and sending the result
-  without the `verify` line. Renaming `malloc` changes the analysis;
-  missing one `->` access breaks the file; neither is visible by reading.
-  `--obfuscate --analyze` is the only path that ends in evidence.
-- Sending the plain slice, the map, or the analysis log along with the
-  obfuscated twin. Only `fn_0.obf.c` leaves.
+  function. The AST is one command away.
 - Using a different Coverity version than the one that wrote the idir.
 - Re-running `cov-analyze` into the only copy of the idir and losing the
   original log.
@@ -423,18 +297,19 @@ did *not* take past Step 1 (rule 22).
   it is behind `--print-paths`.
 - Reporting `paths_exceeded count: 0` as "no PATHOUT ever" when the user's
   notice came from a run with more checkers enabled.
-- Reading a slice's `paths_exceeded count: 0` as "the function does not
-  path out on its own" without a `wur:` line for it. A function cov-emit
-  dropped (`warning #1563: function "<name>" not emitted`) has no line and
-  no count; the tool now says `COULD NOT VERIFY` for exactly this.
 
 ## Where other skills take over
 
 | Question | Skill |
 |---|---|
+| The function's body, a file that compiles alone, an obfuscated twin | `coverity-function-slice` |
+| A survivor reading cannot settle: run it | `coverity-fuzz-triage` |
 | "Was the function even captured?" / the file is not in the emit | `coverity` (capture fidelity, rule 34) |
 | "Would checker X have found the bug the cut-off hid?" | `coverity-defect-detectability` |
 | The idir is from a version you no longer have | `coverity-recreate-from-emit` |
+
+The three skills are meant to sit side by side under the same skills
+directory; the relative paths above assume that.
 
 ## Layout
 
@@ -445,29 +320,19 @@ coverity-pathout/
 ├── CALIBRATION.md                       # what was measured, on what, and what was not
 ├── references/
 │   ├── analysis-log.md                  # the four kinds of line, batches, --print-paths
-│   ├── function-extraction.md           # cov-manage-emit find: C, C++, duplicates, output shape
-│   ├── standalone-reproducer.md         # the slice: declarations from the tree, re-emit, re-analyze
 │   ├── path-explosion.md                # paths x state, the fixture evidence, which checkers
 │   ├── worked-example-setup-env.md      # proftpd, end to end, with the defect diff
-│   ├── escape-hunt.md                   # after an escape: shape checker -> PATHOUT filter -> confirm
-│   ├── candidate-checkers.md            # writing the path-insensitive CodeXM checker; the traps
-│   └── fuzz-confirmation.md             # stubs from derived models, harness, clang-cl, verdict tiers
+│   ├── escape-hunt.md                   # shape checker -> PATHOUT filter -> read -> confirm; the measurements
+│   └── candidate-checkers.md            # writing a path-insensitive CodeXM checker; the traps
 ├── tools/
 │   ├── pathout_report.py                # log + metrics join, optional AST extraction
-│   ├── slice_function.py                # one function as a file that compiles; --emit --analyze
-│   ├── pathout_filter.py                # keep candidates in PATHOUT functions (--relevant checker)
-│   └── model_stubs.py                   # a callee stub from its cov-find-function model
+│   └── pathout_filter.py                # keep candidates in PATHOUT functions (--relevant auto / <checkers>)
 └── evals/
-    ├── fixture.sh                       # builds, analyzes and checks the fixtures
+    ├── fixture.sh                       # builds, analyzes and checks the fixture; runs the shape checker
     ├── evals.json
     ├── fixtures/
-    │   ├── ifs_known_vs_unknown.c       # same CFG, one explodes, one does not
-    │   ├── overloads.cpp                # C++: mangled names, one overload explodes
-    │   └── nested_members.cpp           # C++ free function: static member, nested enum, __func__
+    │   └── ifs_known_vs_unknown.c       # same CFG, one explodes, one does not
     └── escape-hunt/
-        ├── run.sh                       # checker -> slice -> model stub -> fuzz, on the fixtures
-        ├── null_check_then_deref.cxm    # the tested shape checker
-        ├── shape.c                      # the shape and its three nearest non-shapes
-        ├── lookup.c, use.c              # a callee with a model, a caller with the shape
-        └── harness.c                    # libFuzzer harness: one input feeds args and stub choices
+        ├── null_check_then_deref.cxm    # the tested shape checker (also in the pathout-shapes catalogue)
+        └── shape.c                      # the shape and its three nearest non-shapes
 ```
