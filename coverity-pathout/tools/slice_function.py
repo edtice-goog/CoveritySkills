@@ -257,6 +257,7 @@ class Names:
         self.n = 0
         self.function_name = function_name
         self.local_tags = []      # (qualified name, tag) for types local to the function
+        self.unnamed_local = []   # (variable name or "", tag) for unnamed types local to the function
 
     def _local_of(self, name):
         """A type declared inside the function is named either `fn::tag` or,
@@ -276,12 +277,42 @@ class Names:
                     return m2.group(2)[:k]
         return None
 
+    def _unnamed_local_of(self, name):
+        """An unnamed type declared inside the function is named
+        `_ZZ<len>fnE$Uu<len>var_` when it is the type of a variable (`enum
+        {...} state;`) and `_ZZ<len>fnE$Ua<len>...` when it is not (`enum
+        {LIMIT = 3};`). Return the variable name, "" for the second form,
+        None when the name is not one of ours."""
+        fn = self.function_name
+        if not fn:
+            return None
+        m = re.match(r"^_ZZ(\d+)(.*)$", name)
+        if not m:
+            return None
+        n = int(m.group(1))
+        rest = m.group(2)
+        if rest[:n] != fn or rest[n:n + 1] != "E":
+            return None
+        m2 = re.match(r"^\$U([au])(\d+)(.*)$", rest[n + 1:])
+        if not m2:
+            return None
+        if m2.group(1) != "u":
+            return ""
+        k = int(m2.group(2))
+        return m2.group(3)[:k]
+
     def tag(self, name, kind="s"):
         if name in self.tags:
             return self.tags[name]
         if is_anonymous(name):
             self.n += 1
             t = "__cov_anon_%s%d" % (kind, self.n)
+            var = self._unnamed_local_of(name)
+            if var is not None:
+                # an unnamed type declared inside the function: hoisted to
+                # file scope under this tag; the body's `fn::[unnamed type of
+                # 'var']` spelling is pointed at it (see rewrite_body)
+                self.unnamed_local.append((var, t))
         elif self.function_name and self._local_of(name):
             # a struct/enum declared inside the function: hoist it to file scope
             # under its own tag; the body is rewritten to match (see rewrite_body)
@@ -620,6 +651,13 @@ class Slice:
                    "#define va_end(ap) __builtin_va_end(ap)\n"
                    "#define va_copy(dst, src) __builtin_va_copy(dst, src)"
                    % ("0" if self.cxx else "((void *)0)"))
+        if not self.cxx:
+            # `for (;;)` is pretty-printed as `for (; true; )`. `true` is a
+            # keyword in C++ but in C it is a <stdbool.h> macro the slice does
+            # not include, and cov-emit answers `identifier "true" is
+            # undefined` followed by `function "<name>" not emitted`, after
+            # which the analysis finds nothing to count.
+            out.append("#ifndef true\n#define true 1\n#define false 0\n#endif")
         # C++ members. A nested enum and a static member function are only
         # declarable inside their class, so partition them out before anything
         # is rendered: render_class puts them back in the class body.
@@ -802,18 +840,24 @@ class Slice:
         return "\n".join(head + lines[end + 1:])
 
     def rewrite_body(self, body):
-        """Three constructs the pretty-printer emits that are not C:
+        """Constructs the pretty-printer emits that are not C:
 
         1. `struct fn::tag` for a struct declared inside the function, plus a
            bare `struct tag;` re-declaration in the body. The definition was
            hoisted to file scope under `tag`; qualify-strip the uses and drop
            the inner re-declaration (which would otherwise shadow the file-scope
            type with a new incomplete one).
-        2. `TypeName({.member = value})` for a transparent-union argument
+        2. An *unnamed* enum/struct/union declared inside the function: the
+           declaration prints as `enum <anonymous>;` and each use as `enum
+           fn::[unnamed type of 'var'] var`. The definition is at file scope
+           under a synthetic tag (`__cov_anon_e1`); point the uses at it and
+           drop the declaration (its enumerators are the file-scope enum's).
+        3. `TypeName({.member = value})` for a transparent-union argument
            (glibc's __SOCKADDR_ARG). C spells that `(TypeName){.member = value}`.
-        3. NULL / va_arg: handled by the #defines at the top.
+        4. NULL / va_arg / `for (; true; )`: handled by the #defines at the top.
         """
         body = self.respell_header(body)
+        body = self.rewrite_unnamed_local(body)
         body = self.name_anonymous(body)
         for qualified, tag in self.names.local_tags:
             body = re.sub(r"\b(struct|union|enum)\s+" + re.escape(qualified) + r"\b", r"\1 " + tag, body)
@@ -846,6 +890,38 @@ class Slice:
                 out.append(body[m.start():m.end()])
                 i = m.end()
         return "".join(out)
+
+    UNNAMED_USE = re.compile(r"\b(struct|union|enum)\s+(?:[A-Za-z_]\w*)::\[unnamed type of '([A-Za-z_]\w*)'\]")
+    UNNAMED_DECL = re.compile(r"^[ \t]*(struct|union|enum)\s+<anonymous>;[ \t]*$\n?", re.M)
+
+    def rewrite_unnamed_local(self, body):
+        """`enum <anonymous>;` and `enum fn::[unnamed type of 'state'] state;`
+        for an unnamed enum (or struct/union) declared inside the function.
+        The emit names the type `_ZZ..fnE$Uu5state_`, so its definition was
+        fetched and rendered at file scope under a synthetic tag like any
+        other anonymous type; here the body is pointed at that tag.
+        """
+        if "[unnamed type of '" not in body and "<anonymous>;" not in body:
+            return body
+        fn = source_spelling(self.name)
+        by_var = {var: tag for var, tag in self.names.unnamed_local if var}
+        unresolved = set()
+
+        def use(m):
+            tag = by_var.get(m.group(2))
+            if tag is None:
+                unresolved.add(m.group(2))
+                return m.group(0)
+            return "%s %s" % (m.group(1), tag)
+
+        body = self.UNNAMED_USE.sub(use, body)
+        body = self.UNNAMED_DECL.sub("", body)
+        if unresolved:
+            self.notes.append(
+                "unnamed type of %s in %s: no `_ZZ..E$Uu` enum/struct with that variable in the tree; "
+                "the body still spells it `%s::[unnamed type of ...]` and will not parse"
+                % (", ".join(sorted(unresolved)), fn, fn))
+        return body
 
     def render_class(self, P, cls, indent="", tagless=False):
         key = cls.get("classKey", "struct")
@@ -1344,11 +1420,20 @@ def run_emit(bin_dir, flags, idir, slice_path, log_path):
     log = p.stdout + p.stderr
     with open(log_path, "w", encoding="utf-8", newline="\n") as f:
         f.write(" ".join(cmd) + "\n\n" + log)
-    errs = re.findall(r'"[^"]*", line (\d+): (?:error|warning #\d+)', log)
-    rec = re.search(r"(\d+) recoverable error", log)
+    # cov-emit wraps a diagnostic at about 80 columns and indents the
+    # continuation by ten spaces -- through the middle of the file name, or
+    # between `function` and its name -- so match against an unwrapped copy
+    flat = re.sub(r"\n {10}(?! )", " ", log)
+    errs = re.findall(r'"[^"]*", line (\d+): (?:error|warning #\d+)', flat)
+    rec = re.search(r"(\d+) recoverable error", flat)
     ok = "complete." in log and p.returncode == 0
+    # `warning #1563: function "<name>" not emitted, consider modeling it or
+    # review parse diagnostics to improve fidelity`: the emit "completed", but
+    # this function is not in it, and the analysis will have nothing to count.
+    not_emitted = re.findall(r'function "([^"]+)" not emitted', flat)
     return {"ok": ok, "rc": p.returncode, "recoverable": int(rec.group(1)) if rec else 0,
-            "error_lines": errs[:6], "log": log}
+            "error_lines": errs[:6], "not_emitted": not_emitted, "log": log, "flat": flat,
+            "log_path": log_path}
 
 
 def emit_symbol_name(bin_dir, idir, source_name):
@@ -1401,22 +1486,54 @@ def report_emit(label, r):
         line += "; %d recoverable errors" % r["recoverable"]
     if r["error_lines"]:
         line += "; first diagnostics at lines " + ", ".join(r["error_lines"])
+    if r["not_emitted"]:
+        line += '; NOT EMITTED: function "%s" (warning #1563, see %s)' % (
+            '", "'.join(r["not_emitted"]), r["log_path"])
     print(line)
     if not r["ok"]:
         for l in r["log"].splitlines():
             if "error" in l.lower():
                 print("    " + l[:200])
+    elif r["not_emitted"]:
+        # the diagnostics are what to fix: the first few, each with the source
+        # line cov-emit quotes under it (file name dropped: it is the slice)
+        shown = 0
+        lines = r["flat"].splitlines()
+        for i, l in enumerate(lines):
+            m = re.search(r'", (line \d+: (?:error|warning #\d+):.*)$', l)
+            if m:
+                msg = m.group(1)
+                if i + 1 < len(lines) and not lines[i + 1].startswith('"'):
+                    msg += " | " + lines[i + 1].strip()
+                print("    " + msg[:200])
+                shown += 1
+                if shown >= 6:
+                    break
 
 
-def report_analyze(label, r):
-    if r["wur"]:
-        print("%-9s analysis: %s" % (label, r["wur"]))
+def report_analyze(label, r, fn_name, emit_result=None):
+    """One line per fact from the analysis log. No `wur:` line for the
+    function is a failure, never "no PATHOUT": the log's `paths_exceeded
+    count: 0` says nothing about a function the emit dropped."""
+    if r["rc"] != 0:
+        print("%-9s analysis: cov-analyze FAILED (exit %d)" % (label, r["rc"]))
+        return False
+    if r["wur"] is None:
+        if emit_result and emit_result["not_emitted"]:
+            why = 'function "%s" not emitted, see %s' % (
+                '", "'.join(emit_result["not_emitted"]), emit_result["log_path"])
+        else:
+            why = ("the emit did not flag it; check cov-emit.log for recoverable errors and "
+                   "the analysis log for the name it used")
+        print("%-9s analysis: COULD NOT VERIFY -- no wur: line for %s in the one-file idir; %s"
+              % (label, fn_name, why))
+        return False
+    print("%-9s analysis: %s" % (label, r["wur"]))
     for comp, n in r["pathed_out"]:
         print("%-9s analysis: Pathed out: %d paths traversed by %s" % (label, n, comp))
     if r["count"] is not None:
         print("%-9s analysis: paths_exceeded count: %d" % (label, r["count"]))
-    if r["rc"] != 0:
-        print("%-9s analysis: cov-analyze FAILED (exit %d)" % (label, r["rc"]))
+    return True
 
 
 # ==========================================================================
@@ -1521,15 +1638,19 @@ def main():
     if obf_path:
         runs.append(("obfusc.", obf_path, obf_name, os.path.join(out_dir, "idir-obf")))
     results = {}
+    failed = False
     for label, path, fn_name, idir in runs:
         suffix = "" if label == "slice" else "-obf"
         er = run_emit(a.bin, flags, idir, path, os.path.join(out_dir, "cov-emit%s.log" % suffix))
         report_emit(label, er)
+        if not er["ok"] or er["not_emitted"]:
+            failed = True
         if not er["ok"] or not a.analyze:
             continue
         ar = run_analyze(a.bin, idir, fn_name, os.path.join(out_dir, "cov-analyze%s.log" % suffix), a.paths,
                          emit_name=emit_symbol_name(a.bin, idir, fn_name))
-        report_analyze(label, ar)
+        if not report_analyze(label, ar, fn_name, er):
+            failed = True
         results[label] = ar
     if "slice" in results and "obfusc." in results:
         s, o = results["slice"], results["obfusc."]
@@ -1548,6 +1669,11 @@ def main():
             print("verify  : DIFFERS -- slice %s/%s/%s vs obfuscated %s/%s/%s; do not trust the obfuscated "
                   "copy for this question" % (s["paths"], s["pathout"], [c for c, n in s["pathed_out"]],
                                               o["paths"], o["pathout"], [c for c, n in o["pathed_out"]]))
+    if failed:
+        # a slice that did not emit, or emitted without the function, or was
+        # analyzed without a line for it, is not a result; exit 2 so a script
+        # cannot read "paths_exceeded count: 0" as "no PATHOUT"
+        sys.exit(2)
 
 
 if __name__ == "__main__":

@@ -27,8 +27,11 @@ thing's type.
 Anonymous types have synthetic names (`_Z$Uu9session_t_` for the unnamed
 struct behind `typedef ... session_t`, `_ZN12json_node_st$Ua5bool__E` for an
 unnamed union member, `_Z$Ua8_ISupper_` for an unnamed enum); types declared
-inside the function are named `_ZZ9ext_matchE11patternlist`. All of them are
-findable by exact name (escape the `$`).
+inside the function are named `_ZZ9ext_matchE11patternlist`, and an *unnamed*
+type declared inside the function combines the two:
+`_ZZ26ngx_http_parse_complex_uriE$Uu5state_` is the `enum {...} state;` of
+that function (`$Uu` + the variable; `$Ua` + the first enumerator when there
+is no variable). All of them are findable by exact name (escape the `$`).
 
 So the slice is a closure computation over trees, not a text problem: walk
 the function's tree, collect what it references, fetch the fields of every
@@ -65,7 +68,16 @@ analysis: summary: paths_exceeded count: 1
   so the slice is parsed the way the original was.
 - `--analyze` runs `cov-analyze --print-paths` on the resulting one-file
   idir and prints the function's `wur:` line and its `Pathed out` lines.
-  `--paths N` passes the limit through.
+  `--paths N` passes the limit through. **No `wur:` line for the function
+  is reported as a failure**, not as "no PATHOUT": the tool prints
+  `analysis: COULD NOT VERIFY -- no wur: line for <fn> in the one-file idir`
+  with the reason, and exits 2. The usual reason is that `cov-emit`
+  accepted the file but dropped the function (`warning #1563: function
+  "<fn>" not emitted`, after a parse diagnostic in its body); the
+  `cov-emit:` line then says `NOT EMITTED` and quotes the first
+  diagnostics. Before this check, a dropped function produced only
+  `paths_exceeded count: 0`, which reads as a clean result -- eight of
+  nginx's eighteen PATHOUT functions were "verified" that way.
 - Output goes under `<idir>/output/pathout/slice-<name>/` unless `--out`
   says otherwise: the slice, `cov-emit.flags`, `cov-emit.log`,
   `cov-analyze.log`, and the idir.
@@ -103,14 +115,36 @@ int pr_auth_getgroups(pool *, const char *, array_header **, array_header **);
 static int setup_env(pool *p, cmd_rec *cmd, char const *user, char *pass) {
 ```
 
-Three things the body needed rewriting for, because the pretty-printer
-emits them in a form that is not C: `NULL` and the `va_*` family stay in
-macro form (defined at the top); a struct declared inside the function is
-printed as `struct ext_match::patternlist` with its definition dropped and a
-bare `struct patternlist;` left behind (the definition is hoisted to file
-scope, the uses qualify-stripped, the shadowing re-declaration removed);
-and a transparent-union argument comes out as `__SOCKADDR_ARG({.__sockaddr__
-= &peer})` (rewritten to the compound literal `(__SOCKADDR_ARG){...}`).
+Five things the body needed rewriting for, because the pretty-printer
+emits them in a form that is not C:
+
+- `NULL` and the `va_*` family stay in macro form (defined at the top).
+- `for (;;)` is printed as `for (; true; )` (and `for (i = 0; ; i++)` as
+  `for (i = 0; true; i++)`). `true` is a keyword in C++ but a `<stdbool.h>`
+  macro in C, and the slice includes nothing, so `cov-emit --c17` said
+  `identifier "true" is undefined` and dropped the function. A C slice
+  now carries `#define true 1` / `#define false 0` next to `NULL`
+  (seen in six nginx functions: `ngx_init_cycle`,
+  `ngx_http_fastcgi_process_header`, `ngx_http_header_filter`,
+  `ngx_http_ssi_parse`, `ngx_http_upstream_process_header`,
+  `ngx_http_upstream_process_upgraded`).
+- A struct declared inside the function is printed as `struct
+  ext_match::patternlist` with its definition dropped and a bare `struct
+  patternlist;` left behind: the definition is hoisted to file scope, the
+  uses qualify-stripped, the shadowing re-declaration removed.
+- An *unnamed* enum, struct or union declared inside the function is
+  printed as `enum <anonymous>;` followed by `enum
+  ngx_http_parse_complex_uri::[unnamed type of 'state'] state;`. Its
+  definition is in the tree under `_ZZ..E$Uu5state_` (enumerators
+  included) and is rendered at file scope under a synthetic tag like any
+  other anonymous type; the body's `fn::[unnamed type of 'var']` is
+  respelled to that tag and the `<anonymous>;` declaration dropped (seen
+  in nginx's `ngx_http_parse_complex_uri` and
+  `ngx_http_parse_request_line`; regression-tested by
+  `evals/fixtures/local_enum_forever.c`, which also covers an unnamed
+  struct and an enum with no variable).
+- A transparent-union argument comes out as `__SOCKADDR_ARG({.__sockaddr__
+  = &peer})` (rewritten to the compound literal `(__SOCKADDR_ARG){...}`).
 
 ## What is different from the original, and why it does not matter here
 
@@ -128,7 +162,9 @@ and a transparent-union argument comes out as `__SOCKADDR_ARG({.__sockaddr__
 - **Static callees lose `static`.** A prototype is a prototype.
 - **Anonymous types get tags** (`__cov_anon_s5`). Named fields of anonymous
   type reference the tag; true anonymous members are defined in place,
-  untagged.
+  untagged. An unnamed type declared inside the function moves to file
+  scope under such a tag, so its enumerators become file-scope names --
+  which is where the body's uses of them already resolved.
 - **Struct layout is reconstructed from field types**, not copied. Bit-field
   widths are not carried by the tree (no width key exists in the field
   nodes seen), so a bit-field becomes a full field; `sizeof` of such a
