@@ -97,9 +97,16 @@ yields 27 more candidates in 7 (function, variable) pairs.
 
 Two things the filter does not do, and says so: it keeps every candidate in
 a relevant function even though the checker did explore ~5,000 paths there
-before stopping, so some of them were in fact examined; and it does not yet
+before stopping, so some of them were in fact examined; and it does not
 pull in callers of functions whose *derivers* pathed out, although a
-truncated model weakens every caller.
+truncated model weakens every caller. The second is an accepted limit
+rather than a to-do: it only matters when one PATHOUT function calls
+another, and the shape checkers use no models. The filter prints a note
+with the counts whenever a deriver is among the pathed-out components, so
+the report can carry them. Should an escaped defect ever sit in such a
+caller, an issue at https://github.com/edtice-goog/CoveritySkills/issues
+with the counts and component names (nothing from the codebase) is the
+signal to build the callers tier.
 
 ## Stage 4: confirm or refute
 

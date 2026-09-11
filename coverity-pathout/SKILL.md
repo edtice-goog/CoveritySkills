@@ -181,6 +181,20 @@ A survivor list with a verdict and tier per entry is part of every PATHOUT
 report; "the catalogue was not run" is a gap to state (rule 22). The
 procedure with all the measurements: `references/escape-hunt.md`.
 
+**One accepted limit, and what to do if it bites.** When a *model
+deriver* (`generic_DERIVERS`, `uninit_DERIVERS`, ...) is what pathed out
+in a function, every caller of that function was analyzed against a
+weaker model, and those callers are not PATHOUT functions, so the filter
+does not keep their hits. It only matters when one PATHOUT function calls
+another, and the shape checkers use no models, so it is left as a known
+limit; the filter prints a note with the counts whenever it applies. Put
+the note's numbers in the report. If an escaped defect ever turns out to
+sit in such a caller, open an issue at
+https://github.com/edtice-goog/CoveritySkills/issues with the counts and
+the component names only -- never a function name, a path, or code from
+the idir -- and the authors will build the callers tier. Ask the user
+before opening it; it is an outward action from their environment.
+
 ## Step 4: Get the function from the AST
 
 The body is one command in `coverity-function-slice`:

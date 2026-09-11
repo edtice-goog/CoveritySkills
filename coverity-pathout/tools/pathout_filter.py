@@ -140,7 +140,19 @@ def main():
         else:
             dropped += 1
     if a.callers:
-        print("note: --callers is not implemented yet; only findings inside PATHOUT functions are kept", file=sys.stderr)
+        print("note: --callers is not implemented; only findings inside PATHOUT functions are kept", file=sys.stderr)
+    derivers = sorted(fn for fn, v in po.items() if any(c.endswith("_DERIVERS") for c in v["components"]))
+    if derivers:
+        # Known, accepted limit: a model deriver that pathed out leaves every
+        # caller of that function analyzed against a weaker model, and those
+        # callers are not PATHOUT functions themselves, so nothing here keeps
+        # their hits. It only bites when one PATHOUT function calls another,
+        # and the shape checkers do not use models. Say so, with numbers only.
+        print("note: a model deriver pathed out in %d of the %d PATHOUT functions; their callers are analyzed "
+              "with a weaker model and are NOT included here (known limit, not built). If a real escape "
+              "turns out to sit in such a caller, report it at "
+              "https://github.com/edtice-goog/CoveritySkills/issues with these counts and the component "
+              "names -- no function names, no code." % (len(derivers), len(po)), file=sys.stderr)
 
     print("findings: %d total, %d in PATHOUT functions (kept), %d elsewhere (dropped)%s%s"
           % (len(issues), len(kept), dropped,
