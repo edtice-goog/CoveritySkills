@@ -188,7 +188,14 @@ the original TU minus include paths, analyzes the one-file idir with
 `--print-paths`, and prints the function's `wur:` and `Pathed out` lines.
 `setup_env`: 906 lines, clean emit, `REVERSE_INULL` pathed out at 5001 as in
 the original -- in 15 seconds, editable, repeatable. That is the loop for
-Steps 4 and 5. C++ free functions work too, including calls to static
+Steps 4 and 5. If instead it prints `cov-emit: emitted ... NOT EMITTED:
+function "<name>"` and `analysis: COULD NOT VERIFY` (exit 2), cov-emit
+accepted the file but dropped the function on a parse diagnostic, and
+there is no result yet: read the quoted diagnostics, fix the slice (or the
+slicer -- the two forms seen on nginx, `for (; true; )` and a
+function-local `enum <anonymous>`, are rewritten now; a cast whose
+parentheses the pretty-printer dropped is not), and re-run. Never report
+that run's `paths_exceeded count: 0` as "no PATHOUT". C++ free functions work too, including calls to static
 members of classes with nested enums (the declarations are placed back
 inside the class); a **non-static method** as the target, or a namespace,
 is where the slicer stops and the preprocessed-TU route takes over. Both
@@ -416,6 +423,10 @@ did *not* take past Step 1 (rule 22).
   it is behind `--print-paths`.
 - Reporting `paths_exceeded count: 0` as "no PATHOUT ever" when the user's
   notice came from a run with more checkers enabled.
+- Reading a slice's `paths_exceeded count: 0` as "the function does not
+  path out on its own" without a `wur:` line for it. A function cov-emit
+  dropped (`warning #1563: function "<name>" not emitted`) has no line and
+  no count; the tool now says `COULD NOT VERIFY` for exactly this.
 
 ## Where other skills take over
 

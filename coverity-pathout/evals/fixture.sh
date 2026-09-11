@@ -5,6 +5,9 @@
 #   - demo::Widget::f(int) trips it and is logged under its mangled name
 #   - --print-paths adds "Pathed out: N paths traversed by <CHECKER>" lines
 #   - find --print-definitions returns the function from the AST
+#   - a slice of a C function with for(;;) and function-local unnamed types
+#     emits and analyzes (local_enum_forever.c: the two forms that dropped
+#     eight nginx functions from their slices)
 #
 #   usage: fixture.sh <install>/bin [workdir]
 set -euo pipefail
@@ -16,6 +19,7 @@ rm -rf "$IDIR"
 
 "$BIN/cov-emit" --dir "$IDIR" --c "$HERE/fixtures/ifs_known_vs_unknown.c" | tail -1
 "$BIN/cov-emit" --dir "$IDIR" --c++ "$HERE/fixtures/overloads.cpp" | tail -1
+"$BIN/cov-emit" --dir "$IDIR" --c "$HERE/fixtures/local_enum_forever.c" | tail -1
 "$BIN/cov-analyze" --dir "$IDIR" --print-paths > "$WORK/analyze.stdout" 2>&1 || { tail -20 "$WORK/analyze.stdout"; exit 1; }
 
 LOG="$IDIR/output/analysis-log.txt"
@@ -35,6 +39,12 @@ echo "== the slice: ifs_from_zero as a standalone file, re-emitted and re-analyz
 python3 "$HERE/../tools/slice_function.py" --dir "$IDIR" --bin "$BIN" --tu 1 --name ifs_from_zero --out "$WORK/slice" --obfuscate --emit --analyze
 echo "== the obfuscated twin (the 'verify' line above says whether the analysis matched)"
 head -30 "$WORK/slice/fn_0.obf.c"
+
+echo "== C: for(;;) and function-local unnamed enum/struct (the pretty-printer writes 'for (; true; )' and"
+echo "==    'enum fn::[unnamed type of ...]'; without the rewrites cov-emit drops the function and no wur: line appears)"
+python3 "$HERE/../tools/slice_function.py" --dir "$IDIR" --bin "$BIN" --tu 3 --name local_enum_forever --out "$WORK/slice-local" --obfuscate --emit --analyze
+echo "== the rewritten forms in the slice"
+grep -n '^#define true\|^enum __cov_anon\|^struct __cov_anon\|for (; true; )\|^  enum __cov_anon\|^  struct __cov_anon' "$WORK/slice-local/local_enum_forever.slice.c"
 
 echo "== C++: a free function calling a static member, nested enum, flexible array member, __func__"
 CXXDIR="$WORK/idir-pathout-cxx"

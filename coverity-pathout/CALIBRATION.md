@@ -140,6 +140,12 @@ All dates 2026-09-09.
 - `evals/fixture.sh` end to end on 2026.6.0: both expected PATHOUT lines,
   `Pathed out` lines for four components each, `50.00%` summary line,
   zero console mentions, the C++ definition by mangled name, and the report.
+  Re-run 2026-09-10 with `local_enum_forever.c` as a third TU: three PATHOUT
+  lines, `60.00%`, count 3; the report lists all three; the new slice emits
+  clean, reproduces its PATHOUT (5001; `OVERRUN_pass1`, `generic_DERIVERS`,
+  `uninit_DERIVERS`) and its obfuscated twin verifies identical; the slice
+  carries `#define true 1`, `enum __cov_anon_e3 state = st_start;`, `struct
+  __cov_anon_s1 tally = {0, 0};` and `for (; true; ) {`.
 
 ### The standalone slice (`tools/slice_function.py`)
 
@@ -237,6 +243,70 @@ All dates 2026-09-09.
   preserved when neither file produced an analysis line. It now reports
   `COULD NOT VERIFY` in that case. Found by the fixture above, before the
   `constexpr` fix.
+- **Two pretty-printer forms that are not C, found on nginx (2026-09-10;
+  nginx 1.26.0 idir captured with linux64-2026.6.0 under WSL, gcc 13.3,
+  `--c17`; sliced with win64-2026.6.0).** Of the 18 PATHOUT functions,
+  8 sliced to a file cov-emit accepted (`Emit ... complete.`) but with
+  `warning #1563: function "<name>" not emitted`; the analysis log then had
+  no `wur:` line for the function and the tool printed only
+  `paths_exceeded count: 0`, which read as "no PATHOUT".
+  - `for (;;)` is pretty-printed as `for (; true; )` and `for (i = 0; ;
+    i++)` as `for (i = 0; true; i++)`. `true` is not a keyword in C17 and
+    the slice includes no `<stdbool.h>`: `identifier "true" is undefined`.
+    Six functions: `ngx_init_cycle` (TU 25),
+    `ngx_http_fastcgi_process_header` (107), `ngx_http_header_filter` (83),
+    `ngx_http_ssi_parse` (86), `ngx_http_upstream_process_header` and
+    `ngx_http_upstream_process_upgraded` (79). Fixed by `#define true 1` /
+    `#define false 0` in a C slice (not in C++, where they are keywords).
+  - A function-local unnamed enum is pretty-printed as `enum <anonymous>;`
+    and each use as `enum ngx_http_parse_complex_uri::[unnamed type of
+    'state'] state;`. The emit names it
+    `_ZZ26ngx_http_parse_complex_uriE$Uu5state_` (`find --kind e
+    --print-debug` returns its `enumerators`), and the slicer already
+    rendered it at file scope as `enum __cov_anon_e10 {...}`; only the
+    body was wrong. Two functions, both in TU 73:
+    `ngx_http_parse_complex_uri` and `ngx_http_parse_request_line`. Fixed
+    by respelling the body's `fn::[unnamed type of 'var']` to the tag and
+    dropping the `<anonymous>;` declaration. The same form covers an
+    unnamed struct (`$Uu5tally_`) and an unnamed enum with no variable
+    (`$Ua5LIMIT_`, listed by `find` as `[unnamed enclosing type of
+    'LIMIT']`), both exercised by `evals/fixtures/local_enum_forever.c`.
+  - After the fixes, 7 of the 8 emit clean and analyze:
+    `ngx_http_header_filter` 5001 PATHOUT (`OVERRUN_pass1`,
+    `generic_DERIVERS`; original: those two plus `FORWARD_NULL_pass2`,
+    `OVERRUN_SYMBOLIC_pass1`, `uninit_DERIVERS`), `ngx_http_parse_complex_uri`
+    PATHOUT on `DEADCODE_pass2` at 10001 (original: same),
+    `ngx_init_cycle` 2683 paths, `ngx_http_fastcgi_process_header` 3603,
+    `ngx_http_upstream_process_upgraded` 348,
+    `ngx_http_upstream_process_header` 110, `ngx_http_ssi_parse` 0 (the
+    originals of those five all pathed out at 5001 or, for `ssi_parse`,
+    7151 on the `with extra_info` line: the loss of callee models is what
+    the slice's caveat says it is, and for these five it takes the count
+    under the limit).
+  - **Still failing: `ngx_http_parse_request_line`.** A third form: nginx's
+    `ngx_str6cmp` macro contains `(((uint32_t *) m)[1] & 0xffff)`, which the
+    pretty-printer writes as `((uint32_t *)m[1] & 65535)` -- the
+    parentheses around the cast are dropped, so the subscript binds first
+    and cov-emit says `expression must have integral type` (slice lines 452
+    and 456). Not rewritten: the printed text is the same for a genuine
+    `(T *)m[1]`, so a textual fix would be a guess. Edit the two lines by
+    hand in the slice, or read the function from the preprocessed TU.
+  - `--analyze` now reports the missing `wur:` line as `COULD NOT VERIFY`
+    (with `function "<name>" not emitted, see cov-emit.log` when cov-emit
+    said so), suppresses the misleading count line, and exits 2; the
+    `cov-emit:` line says `NOT EMITTED` and quotes the first diagnostics.
+    Exercised on the fixture slice with the `true`/`false` defines removed
+    by hand: `NOT EMITTED: function "local_enum_forever" (warning #1563
+    ...)`, `line 48: warning #20: identifier "true" is undefined`, `COULD NOT
+    VERIFY`. Also exercised on the nginx slice above, whose diagnostics
+    cov-emit wraps at 80 columns with the function name on the
+    continuation line: the detector unwraps the log first.
+  - Two Windows facts from the same run: cov-emit fails with `Could not
+    create unique lock file ... emit-db.creation-lock-<32 hex>` when the
+    output idir path is long (a 230-character `--out` under the session
+    scratch directory; the same slices emitted from a 60-character path),
+    and `evals/fixture.sh` must be given a short `workdir` for the same
+    reason.
 - Preprocessed-TU route: `cov-manage-emit --tu 1 preprocess` on the
   subversion idir (2026.3.0, MSVC) wrote `output/preprocessed/fs-util.c.1.i`
   in 7 s; `cov-emit` of that file with the recorded flags minus
