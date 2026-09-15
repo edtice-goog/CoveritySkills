@@ -118,6 +118,11 @@ lines are batch lines: 3 named out of 189 on subversion. The count is a
 property of the configuration as much as the code -- the same idir at
 defaults had 16.
 
+**If the count is more than a couple of dozen, read *Budget* (after Step
+3) before doing anything per function.** Steps 1-3 cost the same whether
+there are 18 PATHOUT functions or 4,000; Steps 4-6 and the survivor
+verdicts cost per function, and 4,000 of them is not a run, it is a bill.
+
 ## Step 2: Ask the analyzer which checker, with `--print-paths`
 
 ```bash
@@ -170,10 +175,12 @@ Twelve shapes: null-check-then-deref, unchecked null return, divide after
 zero test, double release, unbounded copy into a fixed buffer, copy bounded
 by the source's own length (CVE-2025-0282's shape), alloc never released,
 unchecked array index, overflow before alloc, free of non-heap, non-literal
-format string, sizeof of a pointer. Measured: nginx 159 hits, 4 in PATHOUT
-functions, 2 where the relevant checker pathed out; zstd 666 / 167 / 60;
-redis 869 / 76 / 0. The filter is the mechanism; the whole-idir run is
-cheap because the checkers are structural.
+format string, sizeof of a pointer. Measured with the current catalogue:
+nginx 155 hits over the idir, 2 in PATHOUT functions where the relevant
+checker pathed out; zstd 488 / 3; redis 814 / 0 (before the catalogue
+learned that `exit` and an expanded `assert` are exit guards, zstd had
+60). The filter is the mechanism; the whole-idir run is cheap because the
+checkers are structural.
 
 **An escaped defect to key on**: derive the shape from the instance, not
 the class ("null-tested in an `if`, dereferenced outside it", not
@@ -213,6 +220,48 @@ https://github.com/edtice-goog/CoveritySkills/issues with the counts and
 the component names only -- never a function name, a path, or code from
 the idir -- and the authors will build the callers tier. Ask the user
 before opening it; it is an outward action from their environment.
+
+## Budget: pilot one function, price the rest, then ask
+
+Everything up to here is per idir and cheap: the log, one `--print-paths`
+run, one catalogue run, one filter. Everything from here on is per
+function and paid in tokens and minutes: extracting a body and reading it
+(a 900-line function is about 20 KB, roughly 5,000 tokens, read at least
+once), slicing and re-analyzing it (20 s of tool time, few tokens), the
+verdicts on its survivors (the body again, per survivor), a fuzz harness
+(minutes of build and run), restructure experiments (many re-reads of
+the body; the most expensive thing in this skill). On a log with 4,000
+PATHOUT functions that is a bill the user did not ask for.
+
+So, whenever the PATHOUT count is more than a couple of dozen:
+
+1. **Rank, do not iterate.** From the filter's output, the functions with
+   survivors are the ones that can hide a defect; everything else gets
+   its one-line row from `pathout_report.py` and nothing more unless the
+   user asks. Within the survivors, the function with the most, or with
+   the highest path count, is the pilot.
+2. **Run the whole per-function procedure on that one function** (Step 4
+   through the verdicts on its survivors, Step 6 only if the user wants
+   the cost of the limit) and write down what it cost: wall time, and
+   tokens estimated from what was read -- the body's size (the report
+   tool prints lines per extracted definition; about 12 tokens per line)
+   times the number of times it was read, plus the tool output. Say the
+   number and how it was estimated.
+3. **Price the rest and stop.** Multiply by the number of functions that
+   would get the same treatment, once for "survivors only" and once for
+   "all", and put both in front of the user with the pilot's result:
+   *"18 of 4,000 have survivors; the pilot took 11 minutes and about
+   60,000 tokens; the 18 would be about 1.1 M tokens and three hours;
+   all 4,000 about 240 M."* Then wait. Do not continue past the pilot
+   without an answer, and do not silently take the cheaper option either;
+   the choice is the user's.
+4. **At scale, skip what does not scale.** Restructure experiments (Step
+   6) and reading every dropped candidate are pilot-only unless asked.
+   The cost-of-the-limit measurement (`--paths N` on the whole project) is
+   one run, not per function, so it stays.
+
+Say in the report which functions got the full treatment, which got only
+the row, and what the user chose.
 
 ## Step 4: Get the function from the AST
 
@@ -304,13 +353,17 @@ and tier), the structural cause, what the limit cost in defects (measured
 or "not measured"), and the recommendation with its price. Then the
 evidence: the log lines, the `Pathed out` lines, the filter's counts, the
 counts from the body, the defect diff. Mark measured vs reasoned (rule 23).
-Say which PATHOUT functions you did *not* take past Step 1, and whether
-the catalogue was run (rule 22).
+Say which PATHOUT functions you did *not* take past Step 1, whether the
+catalogue was run, and, on a large log, what the pilot cost and what the
+user chose to spend (rule 22).
 
 ## Anti-patterns
 
 - Diagnosing from cyclomatic complexity, APC, or the source-level shape
   alone. The fixture disproves each one.
+- Working every PATHOUT function on a large log without a pilot and a
+  confirmed budget. Steps 4-6 are per function; the user decides how many
+  functions, after seeing what one costs.
 - Skipping the shape catalogue because "nothing has escaped". Nothing has
   escaped *yet*; the catalogue is how you find out. A blind run of this
   skill on nginx did exactly that, and the two survivors it would have

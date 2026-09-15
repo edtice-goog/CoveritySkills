@@ -194,6 +194,21 @@ All dates 2026-09-09.
   pointer value on purpose; it now requires the pointer to be the direct
   destination or source, and reports 0 there.
 
+- **A call that never returns is an exit guard (found by the zstd blind
+  run, 2026-09-11; fixed in the catalogue 2026-09-15).** 57 of zstd's 60
+  survivors were dereferences behind an expanded `assert(p != NULL)` or an
+  `if (!p) exit(1)`; the null checker knew `return`/`goto`/`break`/
+  `continue` as exits, not calls. Three forms were needed, each measured
+  on zstd: `if (!p) exit(1);` (178 -> 51 hits over the idir, 60 -> 20
+  survivors), the ternary `(p) ? (void)0 : __assert_fail(..)` (no change
+  on zstd, kept for other libcs), and glibc's actual expansion, a
+  statement expression holding `if (p != NULL); else __assert_fail(..)`
+  (51 -> 0 hits, 20 -> **3** survivors, the `marks[markNb]` trio).
+  `zero_check_then_divide` takes the same three forms. The noreturn list
+  is `exit`, `_exit`, `_Exit`, `abort`, `quick_exit`, the `__assert*`
+  spellings, `__builtin_trap`/`__builtin_unreachable`, `longjmp`/
+  `siglongjmp`, `err`/`errx`/`verr`/`verrx`; a project's own noreturn
+  wrappers are not known and still produce candidates.
 - **Same-named functions (found by the redis blind run, 2026-09-11; fixed
   2026-09-15).** Both tools joined by function name alone. redis has five
   `main`s: `pathout_report.py` attributed the PATHOUT one (TU 272,

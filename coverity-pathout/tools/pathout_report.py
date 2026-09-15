@@ -408,6 +408,24 @@ def main():
             if "signature" in e:
                 print("  -> %s" % (e.get("path") or ("FAILED: " + e.get("error", "")[:160])))
     print()
+    # The per-function work downstream (reading the body, verdicts on its
+    # survivors, slicing, experiments) is paid in tokens; say what a full
+    # pass would cost before anyone starts one on a 4,000-function log.
+    n_fn = len(rows) + len(orphan_sigs)
+    if n_fn:
+        got = [e for e in extracted if "lines" in e]
+        if got:
+            total_lines = sum(e["lines"] for e in got)
+            est = total_lines * 12
+            print("budget: %d PATHOUT functions; %d definitions extracted, %d lines in all, about %s tokens "
+                  "to read every body once (12 tokens/line; a survivor verdict re-reads its function)."
+                  % (n_fn, len(got), total_lines, "{:,}".format(est)))
+        else:
+            print("budget: %d PATHOUT functions; pass --bin to extract the definitions and size the reading."
+                  % n_fn)
+        if n_fn > 24:
+            print("        More than a couple of dozen: pilot ONE function through the per-function steps, "
+                  "measure what it cost, price the rest, and ask before continuing (SKILL.md, Budget).")
     print("APC = acyclic path count, the static estimate in FUNCTION.metrics; it is not what the\n"
           "engine explored. The engine's count is paths x tracked state -- see references/path-explosion.md.")
 
