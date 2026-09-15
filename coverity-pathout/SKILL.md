@@ -126,8 +126,17 @@ verdicts cost per function, and 4,000 of them is not a run, it is a bill.
 ## Step 2: Ask the analyzer which checker, with `--print-paths`
 
 ```bash
-$BIN/cov-analyze --dir <idir-copy> --print-paths          # the original options, plus this
+$BIN/cov-analyze --dir <idir-copy> --print-paths > <idir-copy>/analyze.stdout 2>&1   # the original options, plus this
 ```
+
+**Redirect it, and never read the result yourself.** `--print-paths`
+writes one diagnostic line per function per component: redis's log is
+318,000 lines and 33 MB, 295,000 of them diagnostics, and the same lines
+go to stdout. The tools parse the log with regular expressions
+(`tools/pathout_report.py`, `tools/pathout_filter.py`); by hand, `grep
+'Pathed out'` gives the 80 lines that matter. A model that opens the log
+or the console output spends its context on the analyzer's bookkeeping
+and learns nothing the tools do not print.
 
 The log then carries, per function and per component:
 
@@ -321,8 +330,10 @@ a size, not a diagnosis.
 Two levers, both measurable:
 
 **Raise the limit.** `--paths <N> --print-paths` on a copy of the **whole
-project** (Step 2 says why not `--tu`). The log then says how many paths
-each function actually needed (`setup_env`: 6003). Then compare defects
+project** (Step 2 says why not `--tu`), stdout redirected as in Step 2.
+The log then says how many paths each function actually needed
+(`setup_env`: 6003): `pathout_report.py --dir <copy>` reads it, or `grep
+'Pathed out\|PATHOUT=1'`; do not open the log. Then compare defects
 between the default and the raised run with `cov-format-errors
 --json-output-v10` on each idir copy: same set, or new findings? That
 difference *is* the cost of the notice, measured. For `setup_env`: none.
@@ -381,6 +392,8 @@ user chose to spend (rule 22).
   original log.
 - Reading batch lines as "there is no function name to be had". There is;
   it is behind `--print-paths`.
+- Reading a `--print-paths` log or console output into the conversation.
+  It is hundreds of thousands of lines; the tools and `grep` read it.
 - Reporting `paths_exceeded count: 0` as "no PATHOUT ever" when the user's
   notice came from a run with more checkers enabled.
 

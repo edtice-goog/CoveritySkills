@@ -79,10 +79,12 @@ names come from `--print-paths`.**
 
 ## `--print-paths`: which function, and which checker
 
-Re-run `cov-analyze` with `--print-paths` (scope it with `--tu` to the TUs
-you care about; a whole-project re-run costs what the original analysis
-cost -- 4.5 minutes for the subversion run above). Every component then logs
-its path count per function, and the ones that hit the limit are flagged:
+Re-run `cov-analyze` with `--print-paths`, stdout redirected to a file, on
+the whole project (it costs what the original analysis cost -- 4.5 minutes
+for the subversion run above; `--tu` scoping is faster but drops the models
+of callees in other TUs, and on nginx reproduced 11 of 18 PATHOUTs). Every
+component then logs its path count per function, and the ones that hit the
+limit are flagged:
 
 ```
 wur_diagnostics: 4956 paths traversed by DEADCODE_pass2 in "setup_env(pool *, cmd_rec *, char const *, char *)"
@@ -102,7 +104,13 @@ wur_diagnostics: Pathed out: 5001 paths traversed by REVERSE_INULL in "setup_env
   `tools/pathout_report.py` folds those.
 - The console gets the same lines with a phase prefix
   (`wur_diagnostics: gen36: Pathed out: ...`) interleaved with the progress
-  stars. Read the log, not the console.
+  stars. Redirect stdout to a file and read neither: the log is one
+  diagnostic line per function per component (nginx 55,206 lines; zstd
+  73,441; redis 295,635, a 33 MB log), and the `Pathed out` lines that
+  matter are under a hundred of them. `tools/pathout_report.py` and
+  `tools/pathout_filter.py` parse the log with regular expressions; by
+  hand, `grep 'Pathed out' <log>` is the whole extraction. Never open the
+  log or the console output in a conversation.
 - One function was logged `Pathed out` (`DEADCODE_pass2`, 10001) while its
   `wur:` line said 735 paths and carried no `PATHOUT=` flag. The two
   signals agree almost everywhere but not exactly; when they disagree,

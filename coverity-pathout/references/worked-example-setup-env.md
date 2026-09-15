@@ -41,13 +41,18 @@ modest function by any coding standard.
 
 ## 3. Which checker -- scoped re-run with `--print-paths`
 
-Copy the idir (a re-run rewrites `output/`), then analyze **only TU 77**:
+Copy the idir (a re-run rewrites `output/`), then analyze **only TU 77**,
+with stdout sent to a file (the diagnostics are one line per function per
+component; nobody reads them, `grep 'Pathed out'` does):
 
 ```
-$ cov-analyze --dir idir-copy --tu 77 --print-paths
+$ cov-analyze --dir idir-copy --tu 77 --print-paths > idir-copy/analyze.stdout 2>&1
 ```
 
-15 seconds instead of 32, and the notice reproduces in isolation:
+15 seconds instead of 32, and the notice reproduces in isolation. (It
+did here because `setup_env`'s callees are in its own TU; on nginx the
+same scoping lost 7 of 18 PATHOUTs, so the skill now measures on the
+whole project.)
 
 ```
 wur: gen36 4 33880 2266 7450 2266 5001 PATHOUT=1 n: setup_env in TU 77
