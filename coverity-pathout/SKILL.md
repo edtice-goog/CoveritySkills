@@ -406,7 +406,7 @@ user chose to spend (rule 22).
 | A survivor reading cannot settle: run it | `coverity-fuzz-triage` |
 | "Was the function even captured?" / the file is not in the emit | `coverity` (capture fidelity, rule 34) |
 | "Would checker X have found the bug the cut-off hid?" | `coverity-defect-detectability` |
-| The idir is from a version you no longer have | `coverity-recreate-from-emit` |
+| The idir is from a version you do not have installed | stop and ask. This skill is for current development, where the version that wrote the idir (`emit/version`, line 1) is installable; say which version is needed and let the user install it or re-run the capture. `coverity-recreate-from-emit` rebuilds an analyzable idir without the toolchain and is expensive; it is a last resort the user must ask for, not a step to take on your own |
 
 The three skills are meant to sit side by side under the same skills
 directory; the relative paths above assume that.
