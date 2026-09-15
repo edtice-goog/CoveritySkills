@@ -109,8 +109,9 @@ wur_diagnostics: Pathed out: 5001 paths traversed by REVERSE_INULL in "setup_env
   73,441; redis 295,635, a 33 MB log), and the `Pathed out` lines that
   matter are under a hundred of them. `tools/pathout_report.py` and
   `tools/pathout_filter.py` parse the log with regular expressions; by
-  hand, `grep 'Pathed out' <log>` is the whole extraction. Never open the
-  log or the console output in a conversation.
+  hand, `grep 'Pathed out' <log>` is the whole extraction. When something
+  needs a look, `grep` for the function or the phrase and read those lines;
+  opening the log or the console output whole is the waste to avoid.
 - One function was logged `Pathed out` (`DEADCODE_pass2`, 10001) while its
   `wur:` line said 735 paths and carried no `PATHOUT=` flag. The two
   signals agree almost everywhere but not exactly; when they disagree,
