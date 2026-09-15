@@ -759,7 +759,10 @@ class Slice:
         pr = []
         for nm in sorted(self.functions):
             f = self.functions[nm]
-            if nm.startswith("__builtin_"):
+            # compiler builtins: `__builtin_*`, and the `__atomic_*` family,
+            # which the front end knows by its own generic prototype; a
+            # declaration of either would clash with that knowledge
+            if nm.startswith("__builtin_") or nm.startswith("__atomic_") or nm.startswith("__sync_"):
                 continue
             ft = f.get("type")
             if not isinstance(ft, Node) or ft.tag != "function_type_t":
@@ -781,8 +784,12 @@ class Slice:
             pr.append("%s;" % P.decl(ft, f.get("id") or nm))
         if pr:
             out.append("\n/* callees (prototypes only: the analysis sees them as unmodeled) */\n" + "\n".join(pr))
-        out.append("\n/* the function */\n" + self.rewrite_body(body_text).rstrip() + "\n")
-        return "\n".join(out)
+        # the body, and where it starts in the rendered file: a cov-emit
+        # diagnostic at slice line L is body line L - body_offset (1-based)
+        self.rendered_body = self.rewrite_body(body_text).rstrip()
+        prefix = "\n".join(out) + "\n\n/* the function */\n"
+        self.body_offset = prefix.count("\n")
+        return prefix + self.rendered_body + "\n"
 
     # A declaration whose declarator is missing: the token before `[` is a type
     # keyword or `*`/`&`, never an identifier, and a string literal initialises
@@ -863,6 +870,23 @@ class Slice:
         3. `TypeName({.member = value})` for a transparent-union argument
            (glibc's __SOCKADDR_ARG). C spells that `(TypeName){.member = value}`.
         4. NULL / va_arg / `for (; true; )`: handled by the #defines at the top.
+        5. `fn::name` on a function-local typedef (`FIO_compressZstdFrame::
+           speedChange_e speedChange`): the typedef itself is at file scope,
+           so the qualifier goes.
+        6. `1e+09.`: a `.` after an exponent ("extra text after expected end
+           of number"). The dot goes.
+        7. `[[maybe_unused]]` and other `[[...]]` attributes on a C function:
+           not C17. Dropped for C, kept for C++.
+        8. A comma expression as a declaration initializer (`size_t offBase =
+           ((void)0) , ((void)0) , 1;`): in an assignment the pretty-printer
+           parenthesizes it, in a declaration it does not. Parenthesized.
+        9. `__atomic_load(8UL, p, &tmp, order)`: the front end's lowered form
+           of the generic builtin, with the size folded in first. The builtin
+           takes `(p, &tmp, order)`; the size goes (and no prototype for the
+           builtin is emitted, see render).
+
+        Two more are applied only where cov-emit objects, because the printed
+        text is ambiguous: see `line_rewrites`.
         """
         body = self.respell_header(body)
         body = self.rewrite_unnamed_local(body)
@@ -870,6 +894,19 @@ class Slice:
         for qualified, tag in self.names.local_tags:
             body = re.sub(r"\b(struct|union|enum)\s+" + re.escape(qualified) + r"\b", r"\1 " + tag, body)
             body = re.sub(r"^\s*(struct|union|enum)\s+" + re.escape(tag) + r";\s*$\n?", "", body, flags=re.M)
+        # 5. a function-local typedef spelled fn::name
+        fn = source_spelling(self.name)
+        if fn:
+            body = re.sub(r"\b" + re.escape(fn) + r"::(?=[A-Za-z_])", "", body)
+        # 6. `1e+09.`
+        body = re.sub(r"(\b\d+(?:\.\d*)?[eE][+-]?\d+)\.(?![\d.])", r"\1", body)
+        # 7. [[attributes]] in C
+        if not self.cxx:
+            body = re.sub(r"\[\[[^\]]*\]\][ \t]*", "", body)
+        # 8. comma expression as a declaration initializer
+        body = "\n".join(wrap_comma_initializer(l) for l in body.split("\n"))
+        # 9. the lowered __atomic_* forms
+        body = re.sub(r"\b(__atomic_(?:load|store|exchange|compare_exchange))\(\s*\d+[uUlL]*\s*,\s*", r"\1(", body)
         # TypeName({ ... }) -> (TypeName){ ... }
         out = []
         i = 0
@@ -1414,6 +1451,136 @@ class Obfuscator:
 
 
 # ==========================================================================
+# text rewrites that need a line to work on
+
+def _depth0_split(s):
+    """Positions of commas at parenthesis/bracket/brace depth 0 in s."""
+    depth, out, i, n = 0, [], 0, len(s)
+    while i < n:
+        c = s[i]
+        if c == '"' or c == "'":
+            q = c
+            i += 1
+            while i < n and s[i] != q:
+                if s[i] == "\\":
+                    i += 1
+                i += 1
+        elif c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        elif c == "," and depth == 0:
+            out.append(i)
+        i += 1
+    return out
+
+
+DECL_INIT = re.compile(r"^(?P<lead>[ \t]*(?:[A-Za-z_][\w:]*[ \t]+)+[*&\s]*[A-Za-z_]\w*(?:\[[^\]]*\])*[ \t]*=[ \t]*)(?P<init>.*);[ \t]*$")
+DECLARATOR_TAIL = re.compile(r"^\s*[*&]*\s*[A-Za-z_]\w*\s*(?:=|;|,|\[|$)")
+
+
+def wrap_comma_initializer(line):
+    """`size_t offBase = ((void)0) , ((void)0) , 1;` -> `... = (((void)0) , ((void)0) , 1);`.
+    A comma at depth 0 in a declaration's initializer is a comma expression
+    the pretty-printer left bare -- unless what follows the comma is another
+    declarator (`int a = 1, b = 2;`), which is left alone."""
+    m = DECL_INIT.match(line)
+    if not m:
+        return line
+    init = m.group("init")
+    commas = _depth0_split(init)
+    if not commas:
+        return line
+    if DECLARATOR_TAIL.match(init[commas[0] + 1:]):
+        return line
+    return "%s(%s);" % (m.group("lead"), init)
+
+
+CAST_SUBSCRIPT = re.compile(
+    r"\((?P<cast>(?:const[ \t]+|volatile[ \t]+)?(?:struct[ \t]+|union[ \t]+|enum[ \t]+)?[A-Za-z_]\w*(?:[ \t]+(?:const|volatile|unsigned|signed|int|long|short|char))*[ \t]*\*+(?:[ \t]*const)?)\)"
+    r"[ \t]*(?P<base>[A-Za-z_]\w*)[ \t]*\[")
+
+
+def _balanced_back(s, close):
+    """Index of the '(' matching the ')' at s[close], or -1."""
+    depth = 0
+    i = close
+    while i >= 0:
+        if s[i] == ")":
+            depth += 1
+        elif s[i] == "(":
+            depth -= 1
+            if depth == 0:
+                return i
+        i -= 1
+    return -1
+
+
+def line_rewrites(line):
+    """The two forms whose printed text is ambiguous, so they are applied only
+    to a line cov-emit rejected (and reported, so the reader knows):
+
+      (T *)p[i]            -> ((T *)p)[i]     the pretty-printer drops the
+                                              parentheses of a cast under a
+                                              subscript; the same text is a
+                                              genuine (T *)(p[i]), which is
+                                              why this waits for a diagnostic
+      a - (b)[i]           -> (a - (b))[i]    likewise for a binary operand
+                                              under a subscript
+
+    Returns (new line, [rule names applied])."""
+    applied = []
+    new, n = CAST_SUBSCRIPT.subn(lambda m: "((%s)%s)[" % (m.group("cast"), m.group("base")), line)
+    if n:
+        applied.append("cast under subscript, %d site%s" % (n, "s" if n > 1 else ""))
+        line = new
+    # a op (b)[ ... where a is an identifier and op is + or -
+    out, i, hits = [], 0, 0
+    pat = re.compile(r"(?P<a>[A-Za-z_]\w*)[ \t]*(?P<op>[-+])[ \t]*\(")
+    while True:
+        m = pat.search(line, i)
+        if not m:
+            out.append(line[i:])
+            break
+        # find the ')' that closes the '(' at m.end()-1
+        depth, j = 0, m.end() - 1
+        while j < len(line):
+            if line[j] == "(":
+                depth += 1
+            elif line[j] == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        k = j + 1
+        while k < len(line) and line[k] in " \t":
+            k += 1
+        if j < len(line) and k < len(line) and line[k] == "[":
+            out.append(line[i:m.start()])
+            out.append("(%s %s %s)" % (m.group("a"), m.group("op"), line[m.end() - 1:j + 1]))
+            i = j + 1
+            hits += 1
+        else:
+            out.append(line[i:m.end()])
+            i = m.end()
+    if hits:
+        applied.append("binary operand under subscript, %d site%s" % (hits, "s" if hits > 1 else ""))
+        line = "".join(out)
+    return line, applied
+
+
+def diagnostic_lines(emit_result):
+    """Slice line numbers cov-emit complained about (errors and warnings
+    with a line), in order, without duplicates."""
+    seen, out = set(), []
+    for n in re.findall(r'", line (\d+): (?:error|warning #\d+)', emit_result["flat"]):
+        if n not in seen:
+            seen.add(n)
+            out.append(int(n))
+    return out
+
+
+# ==========================================================================
 # emit + analyze one file
 
 def run_emit(bin_dir, flags, idir, slice_path, log_path):
@@ -1647,9 +1814,60 @@ def main():
         runs.append(("obfusc.", obf_path, obf_name, os.path.join(out_dir, "idir-obf")))
     results = {}
     failed = False
+    first_emit = None
+    # The plain slice goes first, and if cov-emit drops the function on a
+    # diagnostic, the two ambiguous pretty-printer forms are rewritten on the
+    # lines it named and the emit is repeated (at most three rounds). The
+    # twin is regenerated from the rewritten body so both files agree.
+    label, path, fn_name, idir = runs[0]
+    er = run_emit(a.bin, flags, idir, path, os.path.join(out_dir, "cov-emit.log"))
+    rounds = 0
+    while er["ok"] and er["not_emitted"] and rounds < 3:
+        rounds += 1
+        blines = sl.rendered_body.split("\n")
+        applied = []
+        for ln in diagnostic_lines(er):
+            k = ln - sl.body_offset - 1
+            if 0 <= k < len(blines):
+                new, rules = line_rewrites(blines[k])
+                if rules:
+                    blines[k] = new
+                    applied.append((ln, "; ".join(rules)))
+        if not applied:
+            break
+        for ln, what in applied:
+            print("rewrote : line %d: %s (cov-emit rejected the line; the pretty-printer drops these parentheses)"
+                  % (ln, what))
+            sl.notes.append("line %d rewritten after a cov-emit diagnostic: %s" % (ln, what))
+        body = "\n".join(blines)
+        text = sl.render(body, a.dir)
+        with open(slice_path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+        if obf_path:
+            ob = Obfuscator(sl, (meta or {}).get("sys_includes", []), callees)
+            obf_text, mapping, unclassified = ob.apply(sl.render(body, a.dir, ob))
+            obf_text = obf_text  # header comment is re-added below
+            with open(obf_path, "w", encoding="utf-8", newline="\n") as f:
+                f.write("/* Obfuscated slice: project identifiers renamed by kind (fn_ p_ v_ g_ T_ S_ E_ e_ f_ L_),\n"
+                        " * string literals masked to same-length placeholders, comments removed. Library\n"
+                        " * functions, types and standard typedefs keep their names so the analyzer's models\n"
+                        " * still apply. Numeric constants and all control flow are unchanged. */\n" + obf_text)
+        er = run_emit(a.bin, flags, idir, path, os.path.join(out_dir, "cov-emit.log"))
+    first_emit = er
+    if er["ok"] and not er["not_emitted"]:
+        # the same two forms may be present on lines cov-emit accepted, where
+        # the other reading is what was compiled; the reader should know
+        amb = sum(1 for l in sl.rendered_body.split("\n") if CAST_SUBSCRIPT.search(l))
+        if amb:
+            print("note    : %d cast-under-subscript site%s compiled as written, i.e. as (T *)(p[i]); if the "
+                  "source reads ((T *)p)[i], the pretty-printer dropped the parentheses -- check them"
+                  % (amb, "s" if amb > 1 else ""))
     for label, path, fn_name, idir in runs:
         suffix = "" if label == "slice" else "-obf"
-        er = run_emit(a.bin, flags, idir, path, os.path.join(out_dir, "cov-emit%s.log" % suffix))
+        if label == "slice":
+            er = first_emit
+        else:
+            er = run_emit(a.bin, flags, idir, path, os.path.join(out_dir, "cov-emit%s.log" % suffix))
         report_emit(label, er)
         if not er["ok"] or er["not_emitted"]:
             failed = True

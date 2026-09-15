@@ -215,12 +215,29 @@ All dates 2026-09-09.
   back to the whole emit for tags the TU only declares. Verified here:
   `main` (TU 272) and `stats_arena_bins_print` (TU 168) emit clean; the
   fixture passes unchanged. The blind run's own four-line patch fixed
-  five of its six; the sixth (`genRedisInfoString`) fails on
-  `__atomic_load` with a folded `sizeof`, which is a pretty-printer form
-  not yet rewritten. Other forms that run found and hand-edited: `1e+09.`
-  (a `.` after an exponent), cast parentheses dropped before a subscript,
-  a comma expression as an initializer, `[[maybe_unused]]` on a C
-  function, and a function-local typedef printed with a scope qualifier.
+  five of its six; the sixth (`genRedisInfoString`) failed on
+  `__atomic_load` with a folded `sizeof` (below).
+- **Six pretty-printer forms from the zstd and redis blind runs
+  (2026-09-11), rewritten 2026-09-15** and verified on the five real
+  functions that had needed hand edits, each now emitting clean and
+  reproducing its original PATHOUT as a slice (win64-2026.6.0 against the
+  WSL-captured idirs): zstd `BMK_benchMemAdvancedNoAlloc` (`1e+09.` x2;
+  four `(BYTE const *)srcBuffer[u]` sites rewritten after cov-emit
+  rejected them; `OVERRUN_SYMBOLIC_pass1` 5001), `ZSTD_compressBlock_lazy_
+  generic` (`[[maybe_unused]]`, `size_t offBase = ((void)0) , ((void)0) ,
+  1;`, and `start - (...)[-1]` rewritten after a diagnostic;
+  `DEADCODE_pass2` 10001), `FIO_compressZstdFrame`
+  (`FIO_compressZstdFrame::speedChange_e`; 10001), redis
+  `genRedisInfoString` (seven `__atomic_load(8UL, p, &tmp, order)` sites
+  and the emitted `__atomic_load` prototype; `DEADCODE_pass2` 10001, as in
+  the original), nginx `ngx_http_parse_request_line` (the `ngx_str6cmp`
+  cast, the one PR #2 left; 5001 on the same seven components). The
+  diagnostic-driven retry ran once for each of the three that needed it;
+  the ambiguous form compiled nowhere as written, so no `note` fired.
+  `evals/fixtures/pretty_forms.c` reproduces five of the six under bare
+  `cov-emit --c` (`[[maybe_unused]]` does not parse there, so it is not in
+  the fixture); `__ATOMIC_RELAXED` has to be defined in the fixture because
+  bare mode has no gcc predefines.
 - Preprocessed-TU route: `cov-manage-emit --tu 1 preprocess` on the
   subversion idir (2026.3.0, MSVC) wrote `output/preprocessed/fs-util.c.1.i`
   in 7 s; `cov-emit` of that file with the recorded flags minus

@@ -38,6 +38,16 @@ grep -n '^#define true\|^enum __cov_anon\|^struct __cov_anon\|for (; true; )\|^ 
 echo "== the obfuscated twin (the 'verify' line above says whether the analysis matched)"
 head -30 "$WORK/slice-local/fn_0.obf.c"
 
+echo "== C: the zstd/redis pretty-printer forms (1e+09., cast and operand parentheses dropped under a subscript,"
+echo "==    comma initializer, fn::typedef, __atomic_load with the size folded in)"
+PDIR="$WORK/idir-slice-pretty"
+rm -rf "$PDIR"
+"$BIN/cov-emit" --dir "$PDIR" --c "$HERE/fixtures/pretty_forms.c" | tail -1
+"$BIN/cov-analyze" --dir "$PDIR" > "$WORK/analyze-pretty.stdout" 2>&1 || { tail -20 "$WORK/analyze-pretty.stdout"; exit 1; }
+python3 "$HERE/../tools/slice_function.py" --dir "$PDIR" --bin "$BIN" --tu 1 --name pretty_forms --out "$WORK/slice-pretty" --obfuscate --emit --analyze
+echo "== the rewritten forms in the slice (no 1e+09., parenthesized casts and initializer, no fn::, three-argument __atomic_load)"
+grep -n '1e+09\|(BYTE const \*)src)\[\|offBase = (\|speedChange_e speed\|__atomic_load(\|(offBase - 3)))\[' "$WORK/slice-pretty/pretty_forms.slice.c"
+
 echo "== C++: a free function calling a static member, nested enum, flexible array member, __func__"
 CXXDIR="$WORK/idir-slice-cxx"
 rm -rf "$CXXDIR"

@@ -146,6 +146,40 @@ emits them in a form that is not C:
 - A transparent-union argument comes out as `__SOCKADDR_ARG({.__sockaddr__
   = &peer})` (rewritten to the compound literal `(__SOCKADDR_ARG){...}`).
 
+Six more came out of the zstd and redis blind runs (2026-09-11; fixed
+2026-09-15; `evals/fixtures/pretty_forms.c` reproduces the five that bare
+`cov-emit --c` can parse):
+
+- A function-local **typedef** is printed with the function as a scope
+  qualifier (`FIO_compressZstdFrame::speedChange_e speedChange`) while the
+  typedef itself is rendered at file scope one line above. The qualifier
+  is stripped.
+- A double literal with an exponent is printed with a trailing dot:
+  `1e+09. /* 1 * 1000000000ULL */` ("extra text after expected end of
+  number"). The dot is dropped.
+- `[[maybe_unused]]` (any `[[...]]` attribute) on a C function: not C17.
+  Dropped from a C slice, kept in C++.
+- A comma expression as a declaration initializer is printed bare:
+  `size_t offBase = ((void)0) , ((void)0) , 1;` (the same expression in an
+  assignment is parenthesized). The initializer is parenthesized when its
+  first depth-0 comma is not followed by another declarator.
+- The generic atomic builtins are printed in the front end's lowered form
+  with the size folded in first: `__atomic_load(8UL, p, &tmp,
+  memory_order_relaxed)`, and a prototype for `__atomic_load` is emitted
+  among the callees. cov-emit knows the builtin as `__atomic_load(p, &tmp,
+  order)` and answers "expression must be a pointer to a complete object
+  type". The size argument is dropped and no prototype is emitted for an
+  `__atomic_*` / `__sync_*` / `__builtin_*` name (redis's
+  `genRedisInfoString`, seven sites).
+- **Parentheses dropped under a subscript.** `((BYTE const *)p)[i]` is
+  printed as `(BYTE const *)p[i]`, and `(a - (b))[i]` as `a - (b)[i]`. The
+  printed text is also what a genuine `(BYTE const *)(p[i])` prints as, so
+  these two are rewritten **only on a line cov-emit rejected** (`--emit`
+  retries up to three times, re-rendering both the slice and the twin, and
+  prints `rewrote : line N: ...` for each). Where the form compiled as
+  written the tool prints a `note` with the count, because the other
+  reading may be what the source meant; that is the one hand check left.
+
 ## What is different from the original, and why it does not matter here
 
 - **Callees have no bodies.** In the original analysis every callee had a
