@@ -39,16 +39,24 @@ chain were stubbed from their models.
 It is the confirmation stage of the PATHOUT escape hunt
 (`coverity-pathout` produces the candidates), and it stands on its own:
 a batch of ordinary findings in, a verdict with evidence per finding out.
-If that holds up on real findings, triage stops being a reading exercise.
-That is the experiment this skill exists to run; `CALIBRATION.md` says
-what has and has not been measured so far.
+The first real batch -- ten proftpd findings, `CALIBRATION.md` -- came
+out 0 confirmed, 5 refuted with the finding's line reached hundreds of
+thousands of times and the claim never false, 2 refuted as model gaps
+(the analyzer's generic model records no writes to globals, and the stub
+reproduced the analyzer's own false positive with the missing write
+named), 2 reachable only through a value the harness supplied, and one
+real one-byte stack overflow found next to a false OVERRUN. Every
+"confirmation" on that batch fell to reading the stub choices behind it,
+which is why the trace exists and why "confirmed" always lists them.
 
 ## What is in it
 
 | | |
 |---|---|
-| `SKILL.md` | the procedure: name the claim -> slice -> stubs from models -> harness and oracle -> verdict with tier |
-| `references/fuzz-confirmation.md` | why the model is the stub, the harness, the Windows toolchain facts, the verdict tiers, what is not built |
+| `SKILL.md` | the procedure: name the claim -> slice -> models -> assemble (focused, then free) -> verdict with tier |
+| `references/fuzz-confirmation.md` | why the model is the stub, the harness, the proftpd batch, the verdict tiers, what is not built |
+| `tools/fz_target.py` | slice + saved models + harness snippet -> `target.c`: libc left real, model stubs with their behaviours listed, `--claim` inserted at the finding's line, `--pin-normal --free` focused mode, `--semantic` copy semantics |
+| `tools/fz_support.h` | the byte stream, the per-stub choice trace printed on a crash, pins, the per-input arena, pointer-filled objects, the claim counter; builds with clang and clang-cl |
 | `tools/model_stubs.py` | a callee stub from its `cov-find-function --save` model |
 | `evals/` | `lookup.c` (a callee with a model), `use.c` (a caller with an unguarded dereference), `harness.c`, and `run.sh`, which runs the chain end to end |
 | `CALIBRATION.md` | what was measured, on what, and what was not |

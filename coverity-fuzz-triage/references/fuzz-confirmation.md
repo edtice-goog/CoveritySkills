@@ -100,22 +100,44 @@ is the chain, which does not depend on the analyzer finishing.
 
 | verdict | meaning |
 |---|---|
-| **refuted by reading** | the candidate's variable is reassigned or otherwise guarded in a way the shape checker cannot see; say what |
-| **confirmed by crash under model stubs** | the sanitizer fired at the candidate's dereference; record the input and the stub branches it took, since those are the callee behaviours the crash relies on -- all of them are in the analyzer's model of those callees |
-| **reachable only if a caller passes NULL** | the pointer is a parameter, so the harness supplied the null itself; whether any caller does is a question about the callers, not this function |
-| **unconfirmed after N seconds** | nothing found under the budget; not a refutation, but if the producing callee's model has no `returnsnull` edge the analyzer's own knowledge says the null cannot arrive, which is a strong triage answer |
-| **model gap** | the crash needed a behaviour outside the model; feed it back as a user model (tool-interop's enrichment loop), not as a confirmed defect |
+| **refuted by reading** | the finding's variable is reassigned, asserted, or otherwise guarded in a way the analyzer did not see; say what |
+| **refuted by execution** | focused run: the finding's line reached N times, the claim never false, with real libc or `--semantic` copies where the claim depended on them. Evidence, not proof: say N and the budget |
+| **refuted by execution, a path the analyzer missed** | the claim was false at the line in a way that refutes the *finding* (a REVERSE_INULL check reached with NULL is not redundant) |
+| **model says impossible** | no callee model on the path has an edge that produces the bad value; needs no build |
+| **confirmed by crash under model stubs** | the claim was false at the line; list the stub choices and check each against the real callee. Only when every behaviour relied on is one the real callee has is this a defect |
+| **model over-approximates the callee** | the crash relied on a stub behaviour the real callee cannot have (`pstrdup` returning a buffer without its source's slash). Refuted; `--semantic` or a user model closes it |
+| **model gap** | the crash relied on the model's silence: a global the callee writes and the generic model does not record (`session.d`, `delay_tab.dt_data`). Refuted for the finding; the gap is the analyzer's false positive too, and a user model fixes both |
+| **parameter-, global-, hook-sourced** | the harness supplied the NULL (a parameter, `main_server`, a `fatal` hook that returns). A question about callers and configuration, not this function |
+| **unconfirmed after N seconds** | the line was reached but not often, or not at all; say which. Not a refutation |
+| **bycatch** | a crash elsewhere in the function under a model-permitted behaviour (an unchecked `returnsnull`; an overflow in another branch). Report it separately; on proftpd one of them was real |
 
-Keep the parameter-sourced tier separate. A harness can hand NULL to any
-parameter, which would confirm every such candidate; the tier is what
-stops that from masquerading as evidence.
+Keep the harness-sourced tiers separate. A harness can hand NULL to any
+parameter or global and make any hook return, which would confirm every
+such candidate; the tiers are what stop that from masquerading as
+evidence.
+
+## The proftpd batch, and what it taught the tooling
+
+`CALIBRATION.md` has the ten verdicts. What they taught, in the order the
+tooling had to learn it: build a Linux capture under WSL; no system
+headers in the support code; one stub choice per call; scalar returns
+follow the model's return edges; variadic and function-pointer prototypes;
+`write(...)` edges reproduced only for complete structs; `pstrdup`'s model
+cannot say the copy equals the source, hence `--semantic`; a zeroed object
+asserts NULL fields and a pointer-filled one makes integers huge, so the
+harness sets the integers that bound loops; the arena and
+`-detect_leaks=0` for long runs; seeds on the analyzer's path; and above
+all **focused mode**: with every stub free, each run ended on a bycatch
+`returnsnull` of some pool allocator before the finding's line, three in a
+row on one function.
 
 ## What is not built yet
 
 The stub generator handles the generic module's return, identity,
-allocation, dereference and write edges. It does not yet read the `uninit`
-module (which outputs a callee initializes), does not size allocations from
-types, and emits stubs one callee at a time; wiring it into
-`coverity-function-slice/tools/slice_function.py` as `--stubs`, producing `stubs.c` for every prototype
-in a slice with the fuzz-driven `__stub_choice`, is the next step, and the
-fixture above is its acceptance test.
+allocation, dereference and non-null write edges. It does not read the
+`uninit` module, does not size allocations from types, and cannot record
+global writes because the generic model does not carry them. Harnesses
+are written per target from the pattern in `evals/harness.c`; generating
+the argument block from the target's signature (scalars, strings, objects,
+and a choice byte where the finding is about the parameter) is the next
+step, and variadic targets are outside it.

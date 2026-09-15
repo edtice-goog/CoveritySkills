@@ -1,20 +1,16 @@
-/* libFuzzer harness: the fuzz input feeds (a) the target's scalar arguments
-   and (b) every __stub_choice() made inside the model-derived stubs. */
-#include <stdint.h>
-#include <stddef.h>
-#include <stdlib.h>
-#include <string.h>
-static const uint8_t *cur; static size_t left;
-static int take(void) { if (left == 0) return 0; left--; return *cur++; }
-int __stub_nondet(void) { return take(); }
-void *__stub_alloc(int n) { return calloc(1, n > 0 ? n : 1); }
-void *__stub_object(int n) { static char obj[4096]; return obj; }
-int unknown(int x) { return take(); }
+/* libFuzzer harness for the fixture target `escaped(int id, int flag)`.
+ * The pattern every harness follows: FZ_BEGIN, FZ_PINS_DEFAULT, define the
+ * globals the slice declares extern, build the arguments from the byte
+ * stream, call the target. tools/fz_support.h supplies fz_take, fz_string,
+ * __stub_object and the claim counter; fz_target.py appends this file to the
+ * slice and the model stubs. */
+int unknown(int x) { (void)x; return fz_take(); }
 void sink(int x) { (void)x; }
-int escaped(int id, int flag);
-int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
-  cur = data; left = size;
-  int id = take(); int flag = take();
-  (void)escaped(id, flag);
+
+int LLVMFuzzerTestOneInput(const fz_u8 *data, unsigned long size) {
+  FZ_BEGIN(data, size);
+  FZ_PINS_DEFAULT();
+  { int id = fz_take(); int flag = fz_take();
+    (void)escaped(id, flag); }
   return 0;
 }
