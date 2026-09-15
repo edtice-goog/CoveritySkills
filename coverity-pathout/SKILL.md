@@ -39,6 +39,20 @@ verified on the whole project" or "split it at these seams", not a guess.
 Read `coverity/RULES.md` first (rules 3, 8, 21-23 bear directly). The rule
 this skill adds is 36; rule 35 belongs to `coverity-function-slice`.
 
+**This skill is one of a bundle of three**, and it calls the other two by
+relative path: `coverity-function-slice` (the function body, the
+standalone slice) and `coverity-fuzz-triage` (an execution verdict on a
+candidate). If you have only this file -- fetched from a URL, or copied
+alone -- clone the repository and work from the clone before starting:
+
+```bash
+git clone https://github.com/edtice-goog/CoveritySkills
+```
+
+The three sit side by side under `CoveritySkills/`, with `coverity/RULES.md`
+above them. Do not substitute your own extraction, slicing or fuzzing for
+the sibling skills; they carry the measured procedure and the tools.
+
 ## What "paths" means
 
 **The limit counts paths x state.** The engine walks the same code again
@@ -177,6 +191,11 @@ did. Exclude the known instance.
 `coverity-fuzz-triage`. All 27 subversion survivors were refuted by
 reading (preconditions, allocate-if-null macros, invariants between
 variables, reassignment; `references/escape-hunt.md` has the catalogue).
+Reading is inference, and it is what the skill exists to replace where
+inference cannot reach a verdict; so when the user asks for execution
+verdicts, or says the run is a test of the pipeline, send **every**
+survivor to `coverity-fuzz-triage` and report the reading verdict beside
+the execution verdict rather than instead of it.
 A survivor list with a verdict and tier per entry is part of every PATHOUT
 report; "the catalogue was not run" is a gap to state (rule 22). The
 procedure with all the measurements: `references/escape-hunt.md`.

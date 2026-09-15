@@ -518,7 +518,13 @@ class Slice:
                 self.enums[e] = self.fetch_enum(e)
 
     def fetch_class(self, name):
-        out = manage_emit(self.bin, self.idir, ["find", find_regex(name), "--kind", "c", "--print-debug"])
+        # TU-scoped first: a project can define the same tag differently in
+        # different TUs (redis has hiredis's `dict` beside its own), and the
+        # wrong one drops the function at emit time with "struct has no
+        # field". Fall back to the whole emit for tags the TU only declares.
+        out = manage_emit(self.bin, self.idir, ["--tu", str(self.tu), "find", find_regex(name), "--kind", "c", "--print-debug"])
+        if "Matching" not in out:
+            out = manage_emit(self.bin, self.idir, ["find", find_regex(name), "--kind", "c", "--print-debug"])
         for header, root in parse_debug(out):
             cls = root.get("class")
             if isinstance(cls, Node) and cls.get("name") == name:
@@ -529,7 +535,9 @@ class Slice:
         return None
 
     def fetch_enum(self, name):
-        out = manage_emit(self.bin, self.idir, ["find", find_regex(name), "--kind", "e", "--print-debug"])
+        out = manage_emit(self.bin, self.idir, ["--tu", str(self.tu), "find", find_regex(name), "--kind", "e", "--print-debug"])
+        if "Matching" not in out:
+            out = manage_emit(self.bin, self.idir, ["find", find_regex(name), "--kind", "e", "--print-debug"])
         for header, root in parse_debug(out):
             en = root.get("enum")
             if isinstance(en, Node) and en.get("name") == name:

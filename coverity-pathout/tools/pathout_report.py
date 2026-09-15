@@ -114,8 +114,10 @@ RE_FNMETRIC = re.compile(
 
 
 def parse_metrics(path):
-    """name -> {file, metrics}. Names are as the analyzer keys them: plain
-    identifiers for C, mangled for C++."""
+    """name -> [{file, metrics}, ...]. Names are as the analyzer keys them:
+    plain identifiers for C, mangled for C++. A C project can define one
+    name in several files (redis has five `main`s), so every definition is
+    kept and the join picks by TU."""
     out = {}
     if not os.path.exists(path):
         return out
@@ -134,8 +136,44 @@ def parse_metrics(path):
             if ":" in kv:
                 k, v = kv.split(":", 1)
                 d[k] = v
-        out[fn] = {"file": fname, "metrics": d}
+        out.setdefault(fn, []).append({"file": fname.replace("\\", "/"), "metrics": d})
     return out
+
+
+RE_DECLARED_AT = re.compile(r"declared at:\s*\n\s*(\S+?):\d+:\d+-", re.M)
+
+
+def declared_file(bin_dir, idir, name, tu):
+    """The file that defines `name` in TU `tu`, from the emit's `find` header
+    (`declared at: <file>:<line>`). None when it cannot be found."""
+    args = ["--tu", str(tu)] if tu is not None else []
+    args += ["find", "^" + re.escape(name) + "$", "--kind", "f"]
+    rc, out, err, cmd = manage_emit(bin_dir, idir, args)
+    m = RE_DECLARED_AT.search(out) if rc == 0 else None
+    return m.group(1).replace("\\", "/") if m else None
+
+
+def metrics_for(mets, name, tu, bin_dir, idir):
+    """The metrics entry for the definition of `name` in TU `tu`: the only
+    one when there is one; the one whose file the emit names when there are
+    several and --bin was given; else a marked ambiguity, never a silent
+    guess (the first blind run on redis attributed the PATHOUT `main` to
+    server.c's; it was redis-benchmark.c's)."""
+    entries = mets.get(name, [])
+    if len(entries) == 1:
+        return entries[0]
+    if not entries:
+        return {}
+    if bin_dir:
+        f = declared_file(bin_dir, idir, name, tu)
+        if f:
+            for e in entries:
+                if e["file"] == f:
+                    return e
+            return {"file": f, "metrics": {}, "note": "defined in %s per the emit; no metrics entry has that file" % f}
+    return {"file": "ambiguous: %d definitions named %s (%s); pass --bin to resolve by TU"
+                    % (len(entries), name, ", ".join(os.path.basename(e["file"]) for e in entries)),
+            "metrics": {}, "ambiguous": True}
 
 
 # --------------------------------------------------------------------------
@@ -244,7 +282,7 @@ def main():
     for rec in info["named"]:
         name = rec["name"]
         ident = identifier_of(name)
-        m = mets.get(name, {})
+        m = metrics_for(mets, name, rec["tu"], a.bin, idir)
         md = m.get("metrics", {})
         comps = []
         for sig, lst in info["pathed_out"].items():
@@ -256,6 +294,7 @@ def main():
             "work_unit": rec["work_unit"], "paths": rec["paths"],
             "file": m.get("file"), "line": md.get("ml"),
             "ccm": md.get("cc"), "apc": md.get("pce"), "loc": md.get("lc"),
+            "metrics_ambiguous": bool(m.get("ambiguous")),
             "pathed_out": sorted(comps, key=lambda c: -c["paths"]),
         })
     # Pathed-out signatures with no named wur line (functions that sat in a batch)
@@ -340,7 +379,12 @@ def main():
     if rows:
         print("%-40s %5s %8s %6s %10s %6s  %s" % ("function", "TU", "paths", "CCM", "APC", "LOC", "file:line"))
         for r in rows:
-            loc = ("%s:%s" % (r["file"], r["line"])) if r["file"] else "(no metrics entry)"
+            if not r["file"]:
+                loc = "(no metrics entry)"
+            elif r["line"]:
+                loc = "%s:%s" % (r["file"], r["line"])
+            else:
+                loc = r["file"]
             print("%-40s %5s %8d %6s %10s %6s  %s" % (
                 r["name"][:40], r["tu"], r["paths"], r["ccm"] or "?", r["apc"] or "?", r["loc"] or "?", loc))
             for c in r["pathed_out"]:

@@ -33,6 +33,16 @@ finding out.
 
 Read `coverity/RULES.md` first (rules 3, 21-23, 35).
 
+**This skill is one of a bundle of three** in the CoveritySkills
+repository. It needs `coverity-function-slice` beside it (Step 1 calls its
+slicer by relative path) and is called by `coverity-pathout` for the
+candidates behind a path limit. If you have only this file, clone the
+repository and work from the clone:
+
+```bash
+git clone https://github.com/edtice-goog/CoveritySkills
+```
+
 ## What makes it honest
 
 Three things, and each one is the answer to a way this could lie:

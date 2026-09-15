@@ -194,6 +194,19 @@ All dates 2026-09-09.
   pointer value on purpose; it now requires the pointer to be the direct
   destination or source, and reports 0 there.
 
+- **Same-named functions (found by the redis blind run, 2026-09-11; fixed
+  2026-09-15).** Both tools joined by function name alone. redis has five
+  `main`s: `pathout_report.py` attributed the PATHOUT one (TU 272,
+  redis-benchmark.c:1733) to server.c's metrics; it now keeps every
+  metrics entry per name and picks by the TU's `find` header when `--bin`
+  is given (redis-benchmark.c:1733, measured), and prints `ambiguous: 5
+  definitions named main` when it is not. `pathout_filter.py` kept 6
+  findings from same-named functions in other files (`main` in
+  redis-cli.c, `parseOptions` in redis-benchmark.c); with `--dir --bin` it
+  resolves the name through the emit and drops them (76 -> 70 on redis,
+  the number the blind run reached by hand), and without them it keeps
+  them marked `ambiguous` and says so.
+
 ## Reasoned, not measured
 
 - That the `_pass2` suffix is the FPP-enabled second pass described in the

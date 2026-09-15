@@ -205,6 +205,22 @@ All dates 2026-09-09.
     scratch directory; the same slices emitted from a 60-character path),
     and `evals/fixture.sh` must be given a short `workdir` for the same
     reason.
+- **Struct and enum lookups are TU-scoped (found by the redis blind run,
+  2026-09-11; fixed 2026-09-15).** `fetch_class`/`fetch_enum` searched the
+  whole emit, so six of redis's thirty slices received another TU's
+  definition of `dict` (hiredis's beside redis's), `dictType` or `config`
+  (redis-cli's, for the benchmark `main`) and cov-emit dropped the
+  function (`warning #136: struct "dict" has no field "ht_used"`, then
+  `#1563 not emitted`). The lookup now tries `--tu <N>` first and falls
+  back to the whole emit for tags the TU only declares. Verified here:
+  `main` (TU 272) and `stats_arena_bins_print` (TU 168) emit clean; the
+  fixture passes unchanged. The blind run's own four-line patch fixed
+  five of its six; the sixth (`genRedisInfoString`) fails on
+  `__atomic_load` with a folded `sizeof`, which is a pretty-printer form
+  not yet rewritten. Other forms that run found and hand-edited: `1e+09.`
+  (a `.` after an exponent), cast parentheses dropped before a subscript,
+  a comma expression as an initializer, `[[maybe_unused]]` on a C
+  function, and a function-local typedef printed with a scope qualifier.
 - Preprocessed-TU route: `cov-manage-emit --tu 1 preprocess` on the
   subversion idir (2026.3.0, MSVC) wrote `output/preprocessed/fs-util.c.1.i`
   in 7 s; `cov-emit` of that file with the recorded flags minus

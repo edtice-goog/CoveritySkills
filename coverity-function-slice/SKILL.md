@@ -31,6 +31,17 @@ asked, the obfuscated twin that can leave the building (Step 3).
 
 Read `coverity/RULES.md` first (rules 3 and 35 bear directly).
 
+**This skill is one of a bundle of three** in the CoveritySkills
+repository, beside `coverity-pathout` (which calls this one for the body
+of a function that hit the path limit) and `coverity-fuzz-triage` (which
+uses the slice as its fuzz target). It stands alone, but if you have only
+this file, clone the repository and work from the clone so the rules and
+the siblings are where the text says they are:
+
+```bash
+git clone https://github.com/edtice-goog/CoveritySkills
+```
+
 ## Step 0: Pin the installation
 
 Line 1 of `<idir>/emit/version` names the version that wrote the idir.
