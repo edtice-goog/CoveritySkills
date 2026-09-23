@@ -222,6 +222,29 @@ All dates 2026-09-09.
   the number the blind run reached by hand), and without them it keeps
   them marked `ambiguous` and says so.
 
+- **Two INTEGER_OVERFLOW shapes (2026-09-23, after a customer run showed an
+  INTEGER_OVERFLOW path-out)**. `overflow_before_alloc` covered only `*`
+  and `<<` written directly in an allocation size; it is replaced by
+  `unbounded_arithmetic_into_sink` (`+ - * <<` and `+= -= *= <<=` on a
+  never-compared variable, reaching an allocation size, a memory routine's
+  length, or an array index -- a pointer subscript is a dereference of
+  `p + i` in the tree -- directly or through a never-compared variable;
+  the checker reference's own `size = y * sizeof(struct)` / `malloc(size)`
+  example is a fixture case) and joined by `narrowing_cast_of_arithmetic`
+  (such arithmetic cast, explicitly or implicitly, to an `intType` with
+  fewer `sizeInBits`; same width with different signedness is not
+  reported). Both pass their fixtures on 2026.6.0; the whole catalogue of
+  thirteen still runs in one pass. Over the campaign idirs (all thirteen,
+  `--relevant auto`): nginx 365 hits, 2 kept; zstd 821 hits, 3 kept; redis
+  1,195 hits, 0 kept -- the two new checkers contribute 210, 344 and 382
+  raw hits and no survivors, because no INTEGER_OVERFLOW pathed out in
+  those three projects. Return statements are a default INTEGER_OVERFLOW
+  sink and are deliberately not one here. Learned: on the default
+  `cov-emit` target `unsigned long` is 32 bits, so a fixture that needs a
+  64-bit operand must say `unsigned long long`; `castOperator` exposes its
+  operand only through `.children`, and `intType` has `sizeInBits` and
+  `isSigned`.
+
 ## Reasoned, not measured
 
 - That the `_pass2` suffix is the FPP-enabled second pass described in the

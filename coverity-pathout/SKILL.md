@@ -17,7 +17,7 @@ description: >
   that was cut off finished nowhere in that function, so the way to look
   there is a path-INSENSITIVE CodeXM shape checker over the whole idir,
   filtered to the PATHOUT functions where that checker stopped -- a
-  catalogue of twelve tested shapes is run whenever there is a PATHOUT,
+  catalogue of thirteen tested shapes is run whenever there is a PATHOUT,
   whether or not anything has escaped yet. Uses coverity-function-slice
   for the function body and coverity-fuzz-triage to confirm candidates by
   execution. Requires a local Coverity Analysis installation of the
@@ -175,16 +175,17 @@ pass, then filter with each checker's own relevance list:
 
 ```bash
 git clone https://github.com/edtice-goog/pathout-shapes
-pathout-shapes/bin/run_all.sh $BIN <idir-copy> <outdir>          # one cov-analyze, twelve --codexm, seconds
+pathout-shapes/bin/run_all.sh $BIN <idir-copy> <outdir>          # one cov-analyze, thirteen --codexm, seconds
 python3 tools/pathout_filter.py --findings <outdir>/candidates.json \
     --log <print-paths idir>/output/analysis-log.txt --relevant auto --json survivors.json
 ```
 
-Twelve shapes: null-check-then-deref, unchecked null return, divide after
+Thirteen shapes: null-check-then-deref, unchecked null return, divide after
 zero test, double release, unbounded copy into a fixed buffer, copy bounded
 by the source's own length (CVE-2025-0282's shape), alloc never released,
-unchecked array index, overflow before alloc, free of non-heap, non-literal
-format string, sizeof of a pointer. Measured with the current catalogue:
+unchecked array index, unbounded arithmetic into a size, length or index
+(INTEGER_OVERFLOW's shape), a narrowing cast of such arithmetic, free of
+non-heap, non-literal format string, sizeof of a pointer. Measured with the current catalogue:
 nginx 155 hits over the idir, 2 in PATHOUT functions where the relevant
 checker pathed out; zstd 488 / 3; redis 814 / 0 (before the catalogue
 learned that `exit` and an expanded `assert` are exit guards, zstd had

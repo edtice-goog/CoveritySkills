@@ -50,7 +50,7 @@ written for this shape as the worked example (`evals/escape-hunt/
 null_check_then_deref.cxm`) and the language gotchas that cost time.
 
 Before writing one, look in the catalogue: https://github.com/edtice-goog/pathout-shapes
-holds twelve tested shape checkers (each with a fixture and the components
+holds thirteen tested shape checkers (each with a fixture and the components
 whose path-out makes its hits relevant), and the escaped shape is often one
 of them or a small variant.
 
@@ -67,7 +67,7 @@ there, and it is not what you are looking for.
 **When nothing has escaped yet** -- a PATHOUT is known and that is all --
 there is no instance to derive a shape from, so run the whole catalogue in
 one pass (`pathout-shapes/bin/run_all.sh <install>/bin <idir-copy> <outdir>`,
-one `cov-analyze` with twelve `--codexm`) and let the filter apply each
+one `cov-analyze` with thirteen `--codexm`) and let the filter apply each
 checker's own relevance list (`--relevant auto`). The hit counts are
 larger, the survivors after the relevance filter are not: every shape only
 survives in functions where its own checker was cut off.
