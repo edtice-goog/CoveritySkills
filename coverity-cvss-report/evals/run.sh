@@ -64,7 +64,32 @@ cp "$HERE/fixtures/"*.c "$WORK/proj/"
     --strip-path "$WORK/proj/" | sed -n '/Defect occurrences/,$p'
 
 echo
+echo "== 6. the same code under MISRA C 2012, which is where the gap lives"
+# Ordinary quality-and-security analysis of this fixture hits no
+# zero-by-default CWE at all, and neither did three real C/C++ projects.
+# A coding-standard analysis does, because MISRA's CWEs (1177, 1164, 1076,
+# 691, 664, 682, 696, 908) are the ones that postdate the generator's 2017
+# CWE data.  That contrast is the point of running both.
+MISRA_CFG="$(dirname "$BIN")/config/coding-standards/misrac2012/misrac2012-all.config"
+if [ -f "$MISRA_CFG" ]; then
+    rm -rf "$WORK/idir_misra"
+    cp -r "$WORK/idir" "$WORK/idir_misra"
+    "$BIN/cov-analyze" --dir "$WORK/idir_misra" \
+        --coding-standard-config "$MISRA_CFG" \
+        --strip-path "$WORK/proj/" | sed -n '/Defect occurrences/,$p' | head -6
+else
+    echo "  (no misrac2012-all.config in this install; skipped)"
+fi
+
+echo
 echo "workdir: $WORK"
 echo "  cwe_childof.json  the generator's real ancestor graph"
 echo "  mapping.csv       every CWE, its class, its vector and both scores"
 echo "  idir              the sample defects, ready to cov-commit-defects"
+echo "  idir_misra        the same code with the MISRA C 2012 checkers"
+echo
+echo "The Connect half is SKILL.md Steps 2-4, and it writes:"
+echo "  tools/cvss_attributes.py setup                 the four triage attributes"
+echo "  cov-commit-defects --stream <s> --dir <idir>"
+echo "  cov-generate-cvss-report --scores / --report"
+echo "  tools/cvss_issue_export.py <project>           the CWEs, for --issues"

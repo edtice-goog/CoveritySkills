@@ -120,33 +120,119 @@ quietly fixed:**
 - Writing through `int *p = (int *)&c` where `c` is a `char` reports as
   OVERRUN, not INCOMPATIBLE_CAST. Coverity says the more specific thing.
 
+## The live run
+
+Against Connect 2025.12.0 at `localhost:8080`, Reports 2025.3.0, in a
+project created for this (`cvss-audit-sample`) with its own triage store
+(`cvss-audit-triage`) so nothing written here reaches another project's
+defects.
+
+**Standing it up.** The four attributes cannot be created by
+`cov-manage-im` (it sets attribute *values* on defects) nor by REST
+(`/api/v2/checkerAttributes` exposes only `displayType`,
+`displayCategory`, `checker`). `createAttribute` on the v9 SOAP
+configuration service works, with `attributeType` `STRING` and
+`LIST_OF_VALUES` — **not** the lowercase spellings; the accepted values
+are in the API reference's "Attribute type (attributeType)" table, not in
+the reports guide. `--mode triage` creates a triage store, not
+`--mode triage-stores`. `project-contact-email` is validated as an email,
+so `example.invalid` is rejected.
+
+**Snapshot 10037, 19 defects, plain `--all --aggressiveness-level high`.**
+`--scores` then `--report` both completed. Every one of the 19 predictions
+the offline audit made was exact — CWE, vector, score and severity:
+
+| CWE | checker | vector impact | score | severity |
+|---|---|---|---|---|
+| 120 | BUFFER_SIZE, STRING_OVERFLOW | S:C/C:H/I:H/A:H | 9.89 | Critical |
+| 676 | DC.STRING_BUFFER | S:U/C:N/I:H/A:N | 6.43 | Medium |
+| 119 | OVERRUN (write) | S:C/C:L/I:L/A:L | 7.39 | High |
+| 125 | OVERRUN (read) | S:U/C:L/I:N/A:N | 4.25 | Medium |
+| 476 | FORWARD_NULL | S:C/C:L/I:L/A:L | 7.39 | High |
+| 789 | TAINTED_SCALAR | S:C/C:L/I:L/A:L | 7.39 | High (inherited from 400) |
+| 457 | UNINIT | S:C/C:N/I:L/A:L | 6.3 | Medium |
+| 404 | RESOURCE_LEAK | S:U/C:L/I:N/A:L | 5.35 | Medium |
+| 482 | NO_EFFECT (test/assign) | S:U/C:N/I:L/A:L | 5.35 | Medium |
+| 190 | OVERFLOW_BEFORE_WIDEN | S:C/C:N/I:N/A:L | **4.91** | Medium |
+| 561, 563, 570 | DEADCODE, UNUSED_VALUE, NO_EFFECT | all N | 0.0 | None by design |
+| (none) | PW.EXPR_HAS_NO_EFFECT | all N | 0.0 | None |
+
+- **The rounding defect, on live data.** CWE-190 is recorded as `4.91`,
+  not the specified `5.0`. `cvss_profile_audit.py verify` on the run's own
+  `WRITE_ISSUES_JSON`: 13 of 19 disagree with the CVSS v3 roundup, 0
+  disagree with half-up-to-two-decimals, 0 change severity band.
+- **The no-CWE path, in the product's own words.** The run printed
+  `Assigning a CVSS vector whose CVSS score is zero, for defect:
+  Optional[13702] as there isn't any cwe associated for this defect.`
+  CID 13702 is the `PW.EXPR_HAS_NO_EFFECT`.
+- **`WRITE_ISSUES_JSON` does not contain the CWE.** `optCweId` serializes
+  as `{"empty": false, "present": true}` — the Optional's bean properties
+  with the value dropped. It carries `cvssVector`, `cvssScore` and
+  `cvssSeverity`, so it can verify the arithmetic and cannot drive a
+  per-project CWE audit. That needs a REST export with the `cwe` column.
+- **Custom attributes in REST are `column_custom_<Name>`** —
+  `column_custom_CVSS_Score` and so on. `cov-manage-im --mode defects`
+  has no CWE field at all, and the issues search returns 0 rows for
+  `snapshotScope.show.scope: "last"`; an explicit snapshot id works.
+
+**The gap, measured on four real populations.** Read-only REST exports of
+the CWEs each project actually carries, audited against the mapping:
+
+| population | CWEs | gap |
+|---|---|---|
+| `cvss-audit-sample`, 19 defects | 13 | **none** |
+| proftpd 1.3.9, 112 issues | 12 | **none** |
+| Contiki-NG, 39 issues | 8 | **none** |
+| subversion + sqlite, 130 issues | 13 | **none** |
+
+So on ordinary C/C++ quality-and-security analysis the master profile
+covers what Connect assigns. **The 209-of-502 figure is a ceiling over the
+whole checker inventory, not a prediction for a project**, and saying
+otherwise would overstate it.
+
+**Snapshot 10038: the same code under MISRA C 2012**
+(`--coding-standard-config misrac2012-all.config`), 130 issues, 22 CWEs —
+and the gap appears, because MISRA's CWEs are the ones that postdate the
+2017 graph:
+
+- **114 of 130 issues scored 0.0.** 79 of those are zero by design
+  (CWE-710 ×66 "Improper Adherence to Coding Standards", 704 ×7, 561 ×5,
+  570 ×1 — entirely reasonable for MISRA). **35 are zero by default**,
+  across 8 CWEs, and the audit named all 8 in advance:
+  CWE-1177 ×16 (Rules 21.3, 21.6, Directive 4.12), 691 ×6 (Rule 15.5),
+  664 ×4 (Rules 10.3, 10.6), 1164 ×3 (Rule 17.7), 1076 ×2 (Rule 14.4),
+  682 ×2 (Rule 10.4), 696 ×1 (Directive 4.13), 908 ×1 (Rule 9.1).
+- 1177, 1164 and 1076 have **no node in the 2017 graph**; 664, 682, 691,
+  696 and 908 have nodes but no mapped ancestor along `ChildOf`.
+- The generator says so itself: `Assigning a CVSS vector whose CVSS score
+  is zero, as corresponding cwe: "Optional[1164]" isn't available in
+  either profile or master cwe - cvss mappings json file`.
+
+**One claim this run retired.** The taxonomy lists several CWEs per issue
+type, and I had expected that to mean the same checker could score 7.39 or
+0.00 depending on which CWE it drew. It does not: across 149 observed
+issues every issue type — checker plus subcategory — carried one stable
+CWE, and where a checker spans CWEs it is the subcategory that decides
+(`OVERRUN` write → 119, read → 125). The gap CWEs all arrived from MISRA
+rules, not from a familiar checker changing its mind. The many-to-many
+taxonomy listing is therefore a weaker signal than it looks, and the
+skill says so rather than keeping the scarier version.
+
 ## Reasoned, not yet measured
 
-- **Which CWE a multi-CWE issue type actually receives.** The taxonomy
-  gives `overrun:write` six CWEs and `integer_overflow` three, the defect
-  carries exactly one, and the spread between them is 7.39 versus 0.00.
-  Which one Connect attaches is not decidable from the generator's files;
-  it takes a run. This is the single most consequential open question in
-  the skill, and the fixtures exist to settle it.
-- **That Connect's CWE assignment can name a CWE absent from the 2017
-  graph.** The 49-CWE list is derived from the generator's own taxonomy;
-  demonstrating that a real defect lands on one of them (CWE-1164 from
-  `deadcode` is the cheapest candidate) needs the run.
-- **The procedure in SKILL.md Steps 2-4** — creating the four triage
-  attributes, `config.yaml`, `--scores`, `--report`, `WRITE_ISSUES_JSON`
-  — follows the reports guide for 2025.12 and the `--help` output, and
-  has **not been executed**. The claim that `--scores` writes attributes
-  onto every non-audited defect in the project comes from the
-  documentation and from `generateCVSSVector` iterating
-  `defectHolder.defectInfoList` unfiltered; it has not been observed
-  against an instance.
+- **A user `<security-profile>.json` overriding the master.** The lookup's
+  profile-first branch was read in the bytecode and is implemented in the
+  audit tool, but no run used a profile, so the precedence is verified by
+  disassembly only.
+- **That `--scores` writes every non-audited defect in a project.** Both
+  runs here scored every defect in their snapshot, and
+  `generateCVSSVector` iterates `defectHolder.defectInfoList` unfiltered,
+  but no run was made where `CVSS_Audited` was `Yes` on some defects to
+  watch them be skipped. All 19 and all 130 were `No`.
 - **Whether a newer Reports release changes any of this.** Only 2025.3.0
-  was audited. The audit is re-runnable against any install, which is the
-  point of it being a tool rather than a table.
-
-## Not yet verified
-
-No Coverity Connect instance was written to. No project, stream,
-snapshot, triage attribute, or report was created. Every number above
-comes from reading the installed generator, disassembling it, or
-analyzing local fixtures.
+  was audited, against a 2025.12.0 instance. The audit is re-runnable
+  against any install, which is the point of it being a tool rather than a
+  table.
+- **Non-C languages.** Everything here is C. The 49 graph-less CWEs
+  include Java (CWE-1134..1153) and web/IaC (Sigma) entries that no
+  fixture exercised.

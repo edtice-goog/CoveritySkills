@@ -29,6 +29,7 @@ report shows a vector and a score for it like any other row.
     graph       dump the generator's real ancestor graph (needs a JDK)
     audit       classify every CWE; print the gap report
     resolve     explain the lookup for particular CWEs, step by step
+    verify      check a finished run's own scores against the specification
     score       compute the CVSS base score of a vector (spec vs. reported)
 
 Run `graph` first and pass its output to `audit --graph`.  Without it the
@@ -402,15 +403,48 @@ def resolve(cwe, master, user, tax, graph=None):
 # inputs describing a real run
 
 
-def cwes_from_issues(path):
-    """CWEs observed in a run, from the generator's WRITE_ISSUES_JSON file.
+def load_issue_dump(path):
+    """Read an issue export.  Returns (kind, docs).
 
-    Set WRITE_ISSUES_JSON=<file> before cov-generate-cvss-report to get it.
-    The shape has moved between releases, so this walks the structure for
-    anything that looks like a CWE field rather than assuming a schema.
+    Two different files turn up here and they carry different things:
+
+    REST export -- rows from Connect's /api/v2/issues/search with the `cwe`
+    column.  Has the CWE per defect, which is what an audit needs.
+
+    WRITE_ISSUES_JSON -- what the generator itself dumps.  Carries
+    `cvssVector`, `cvssScore` and `cvssSeverity` per defect, but NOT the
+    CWE: `optCweId` serializes as {"empty": false, "present": true}, the
+    Optional's bean properties with the value dropped.  So it can verify
+    what the generator computed and cannot tell you which CWE produced it.
     """
     with open(path, "r", encoding="utf-8-sig") as f:
         doc = json.load(f)
+    if isinstance(doc, dict) and "defectInfoList" in doc:
+        return "generator", doc["defectInfoList"]
+    if isinstance(doc, dict):
+        for k in ("rows", "issues", "defects"):
+            if isinstance(doc.get(k), list):
+                return "rest", doc[k]
+    if isinstance(doc, list):
+        return "rest", doc
+    sys.exit("%s is neither a REST issue export nor a WRITE_ISSUES_JSON dump"
+             % path)
+
+
+def cwes_from_issues(path):
+    """CWEs observed in a run, counted, from a REST issue export.
+
+    Needs the `cwe` column: request it from /api/v2/issues/search.  The
+    generator's own WRITE_ISSUES_JSON cannot serve this -- see
+    load_issue_dump -- and is rejected with that explanation rather than
+    silently returning nothing.
+    """
+    kind, rows = load_issue_dump(path)
+    if kind == "generator":
+        sys.exit("%s is the generator's WRITE_ISSUES_JSON dump, which drops "
+                 "the CWE value (optCweId serializes without it). Use a REST "
+                 "export including the `cwe` column for --issues, and this "
+                 "file with `verify`." % path)
     found = {}
 
     def note(value):
@@ -430,12 +464,19 @@ def cwes_from_issues(path):
             for v in node:
                 walk(v)
 
-    walk(doc)
+    # A REST row may be a list of {"key": ..., "value": ...} cells.
+    for row in rows:
+        if isinstance(row, list):
+            for cell in row:
+                if isinstance(cell, dict) and cell.get("key") == "cwe":
+                    if cell.get("value") not in (None, "", 0, "0"):
+                        note(cell["value"])
+        else:
+            walk(row)
+    if not found:
+        sys.exit("no CWE values found in %s -- request the `cwe` column"
+                 % path)
     return found
-
-
-# --------------------------------------------------------------------------
-# commands
 
 
 def build_graph(args, tax):
@@ -485,7 +526,8 @@ def cmd_graph(args):
     g = ChildOfGraph(out)
     roots = sum(1 for v in g.parents.values() if not v)
     print("wrote %s" % out)
-    print("  %d CWE nodes, %d of them with no ChildOf parent" % (len(g.parents), roots))
+    print("  %d CWE nodes, %d of them with no ChildOf parent"
+          % (len(g.parents), roots))
     print("  a CWE absent from this file has no ancestors in the generator's")
     print("  eyes, and so can only ever receive the hardcoded zero vector.")
     return 0
@@ -615,6 +657,74 @@ def cmd_score(args):
     return 0
 
 
+def cmd_verify(args):
+    """Check what a run actually wrote, from its WRITE_ISSUES_JSON dump.
+
+    Recomputes the base score from each defect's own vector and compares it
+    with the score the generator recorded.  This is how the rounding
+    behaviour shows up on your own data rather than on a claim in a
+    document.
+    """
+    kind, rows = load_issue_dump(args.issues)
+    if kind != "generator":
+        sys.exit("verify wants the generator's WRITE_ISSUES_JSON dump; %s "
+                 "looks like a REST export (use it with `audit --issues`)"
+                 % args.issues)
+    n = 0
+    zero = 0
+    audited = 0
+    mismatch_spec = []
+    mismatch_2dp = []
+    band = []
+    for d in rows:
+        vec = d.get("cvssVector")
+        if not vec:
+            continue
+        n += 1
+        if str(d.get("cvssAudited", "")).lower() == "yes":
+            audited += 1
+        reported = d.get("cvssScore")
+        m = parse_vector(vec)
+        try:
+            raw, spec = base_score(m)
+        except KeyError:
+            print("unparsable vector on %s: %s" % (d.get("optCid"), vec))
+            continue
+        if raw == 0:
+            zero += 1
+        two = math.floor(raw * 100 + 0.5) / 100.0
+        if reported is not None:
+            if abs(float(reported) - spec) > 0.001:
+                mismatch_spec.append((d, vec, reported, raw, spec))
+            if abs(float(reported) - two) > 0.001:
+                mismatch_2dp.append((d, vec, reported, raw, two))
+            if severity_of(float(reported)) != severity_of(spec):
+                band.append((d, vec, reported, spec))
+    print("verify %s" % args.issues)
+    print("  %d defect(s) with a vector; %d scored zero; %d frozen with "
+          "CVSS_Audited=Yes" % (n, zero, audited))
+    print("  %d disagree with the CVSS v3 specified roundup" % len(mismatch_spec))
+    print("  %d disagree with half-up-to-2-decimals" % len(mismatch_2dp))
+    print("  %d land in a different severity band than the spec gives"
+          % len(band))
+    if mismatch_spec and not mismatch_2dp:
+        print()
+        print("  Every reported score matches half-up-to-2-decimals and none")
+        print("  matches the specified roundup: this build rounds the way")
+        print("  CVSSBaseScoreCalculator does, not the way CVSS v3 says.")
+        d, vec, reported, raw, spec = mismatch_spec[0]
+        print("  e.g. %s -> reported %s, unrounded %.4f, spec %.1f"
+              % (vec, reported, raw, spec))
+    if band:
+        print()
+        print("  These change severity, which is the case that matters:")
+        for d, vec, reported, spec in band[:10]:
+            print("    %s reported %s (%s) vs spec %.1f (%s)"
+                  % (vec, reported, severity_of(float(reported)), spec,
+                     severity_of(spec)))
+    return 0
+
+
 def main():
     p = argparse.ArgumentParser(
         description=__doc__,
@@ -644,6 +754,11 @@ def main():
     r.add_argument("--graph", help="graph from the `graph` subcommand")
     r.set_defaults(func=cmd_resolve)
 
+    v = sub.add_parser("verify", help="check a run's own scores against the "
+                                      "CVSS specification")
+    v.add_argument("issues", help="WRITE_ISSUES_JSON from the run")
+    v.set_defaults(func=cmd_verify)
+
     s = sub.add_parser("score", help="score a CVSS vector")
     s.add_argument("vector", nargs="+")
     s.set_defaults(func=cmd_score)
@@ -652,7 +767,7 @@ def main():
     if not getattr(args, "func", None):
         p.print_help()
         return 2
-    if args.cmd != "score":
+    if args.cmd not in ("score", "verify"):
         args.reports_dir = find_reports_dir(args.reports_dir)
         if not args.reports_dir or not os.path.isdir(args.reports_dir):
             sys.exit("give --reports-dir: the Coverity Reports install")

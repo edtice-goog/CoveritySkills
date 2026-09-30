@@ -8,13 +8,21 @@ defect in a CVSS report carries a CVSS vector, including the ones the
 generator could not score, and the report does not distinguish them.**
 
 On the shipped configuration, of the 502 CWEs that Coverity checkers can
-assign, **209 resolve to a zero score that nobody chose.**
+assign, **209 resolve to a zero score that nobody chose.** That is a
+ceiling over the whole checker inventory, though, and the measured picture
+is more specific and more useful:
 
-That 502 is the whole checker inventory, MISRA and AUTOSAR and CERT and
-Sigma included, so it is a ceiling rather than a prediction for any one
-project. The number that belongs in front of a customer is the same audit
-run against the CWEs their project actually produced, which the tool does
-from the generator's own issue dump.
+| population | gap |
+|---|---|
+| four ordinary C/C++ projects (this repo's fixtures, proftpd, Contiki-NG, subversion) | **none** |
+| the same fixtures re-analyzed under MISRA C 2012 | **35 of 130 issues**, across 8 CWEs |
+
+So: plain quality-and-security analysis is well covered by the master
+profile. The gap bites when the CWEs in play postdate the generator's CWE
+data — coding standards (MISRA, AUTOSAR, CERT), software composition
+(CWE-1395), and the cloud/IaC checkers. Ask what the customer runs before
+telling them they have a problem, and run the audit against the CWEs their
+project actually produced rather than quoting the ceiling.
 
 ## Why a weakness report needs auditing before it becomes a score
 
@@ -70,15 +78,22 @@ classes that do the work:
   them crosses a severity boundary, so this is a conformance defect rather
   than a severity one — but a custom profile can reach scores where it is
   both.
-- **One checker, several CWEs, different scores.** `overrun:write` maps to
-  CWE-119, 121, 122, 123, 124 and 193; five of those score 7.39 and
-  CWE-193 scores 0.00. `integer_overflow` maps to CWE-190 (4.91), 191
-  (0.00) and 128 (0.00). The defect carries exactly one CWE, so which one
-  it gets decides whether it scores at all.
 - **The mapping is not monotone down the hierarchy.** CWE-125
   (out-of-bounds read) has its own entry worth 4.25 while its children 126
   and 127 have none and inherit 7.39 from CWE-119 — the more specific
   finding scores higher than the general one.
+- **One thing that looked worse than it is.** The taxonomy lists several
+  CWEs per issue type — `overrun:write` under CWE-119, 121, 122, 123, 124
+  *and* 193, whose scores range from 7.39 to 0.00 — which reads like the
+  same checker might score anything. Across 149 observed issues it did
+  not: each issue type carried one stable CWE, and where a checker spans
+  CWEs the subcategory decides it (`OVERRUN` write → 119, read → 125). The
+  many-to-many listing is a weaker signal than it appears, and it is
+  recorded that way rather than kept as the scarier version.
+
+Every prediction above was checked against a real run: 19 defects in one
+snapshot and 130 in another, CWE, vector, score and severity each time.
+The audit was exact on all of them.
 
 `references/cvss-report-mechanics.md` has the evidence for each.
 
@@ -109,7 +124,9 @@ fixes. A generated one would be a guess wearing the costume of a policy.
 |---|---|
 | `SKILL.md` | the procedure: audit, stand up, run, re-audit, answer |
 | `references/cvss-report-mechanics.md` | how the score is really computed, with provenance |
-| `tools/cvss_profile_audit.py` | `graph`, `audit`, `resolve`, `score` |
+| `tools/cvss_profile_audit.py` | `graph`, `audit`, `resolve`, `verify`, `score` |
 | `tools/CweGraphDump.java` | dumps the generator's real `ChildOf` graph |
+| `tools/cvss_attributes.py` | creates the four triage attributes Connect needs first |
+| `tools/cvss_issue_export.py` | exports a project's CWEs, which the generator's own dump omits |
 | `evals/fixtures/*.c` | sample defects: scored, zero-by-design, and the gap cases |
 | `CALIBRATION.md` | what was run, on what, and what is reasoned rather than measured |
