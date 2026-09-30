@@ -35,13 +35,19 @@ means before anyone signs it.** Every defect in a CVSS report gets a
 vector, including the ones the generator could not score, and the report
 does not distinguish them. Auditing that is quick and runs offline.
 
-How much it matters depends on what the project runs, and the spread is
-wide enough that guessing is not good enough. Of the 502 CWEs Coverity
-checkers can assign, 209 resolve to a zero nobody chose — but four
-ordinary C/C++ projects measured here hit **none** of them, while the same
-code re-analyzed under MISRA C 2012 put **35 of 130 issues** on one. Find
-out which situation you are in before telling a customer either that their
-report is fine or that it is not.
+**Whether the report can be trusted depends entirely on what was
+analyzed**, and the spread is wide enough that guessing is not good enough:
+
+| What was analyzed | Trust the scores? |
+|---|---|
+| C/C++ quality and security defects | **Yes** — four populations measured, no undecided zero in any |
+| Coding standards (MISRA, AUTOSAR, CERT) | Mostly zeros, mostly correctly; 35 of 114 zeros in a MISRA run were nobody's decision |
+| Web/API/mobile/cloud security (Sigma, OPENAPI) | **No** — 55 issue types Coverity calls *security* cannot score at all |
+| Software composition | **No** — all 2302 `sigma.vulnerable_software` variants score 0.0 |
+| The arithmetic | Correct CVSS v3, rounded wrongly: 4.91 where the spec says 5.0 |
+
+Establish which row you are in before telling anyone their report is fine
+or that it is not. Step 1 does that in two commands.
 
 Read `coverity/RULES.md` first (rules 26 and 30 carry most of the weight
 here).
@@ -99,6 +105,26 @@ that is the number to quote.
 | `ZERO-BY-DESIGN` | in a profile, `C:N/I:N/A:N` | Working as intended. A quality finding is not a vulnerability. |
 | `ZERO-BY-DEFAULT (inherited from a zero-impact ancestor)` | no entry; nearest mapped ancestor is itself zero | Nobody decided this one. |
 | `ZERO-BY-DEFAULT (CWE has no node in the ancestor graph)` | the CWE postdates the generator's 2017 CWE snapshot | A product gap. Escalate it. |
+
+Then the question that decides trust, which is not a CWE count:
+
+```bash
+python3 tools/cvss_profile_audit.py checkers --graph cwe_childof.json
+```
+
+`audit` counts CWEs, and **a CWE is only a problem if Coverity can actually
+put it on a defect.** It often cannot: the taxonomy associates several CWEs
+with each issue type while a defect carries exactly one, so an unmapped CWE
+may be one that is never assigned. CWE-193 is associated with
+`overrun:write` and was never assigned to it in any run here. Quoting a raw
+CWE count therefore overstates the problem.
+
+`checkers` asks it per issue type instead, which needs no knowledge of
+Connect's choice: *if every CWE associated with this issue type resolves to
+zero, it cannot score whichever one it gets.* It then splits the answer by
+Coverity's own Quality/Security classification, because a quality finding
+scoring zero is the intended behaviour and a security finding scoring zero
+is not. The security rows are what you escalate.
 
 Then, for the specific CWEs in the question:
 

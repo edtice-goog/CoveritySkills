@@ -218,6 +218,54 @@ rules, not from a familiar checker changing its mind. The many-to-many
 taxonomy listing is therefore a weaker signal than it looks, and the
 skill says so rather than keeping the scarier version.
 
+## Scoreability by issue type, and why the CWE count was the wrong number
+
+The first version of this skill led with "209 of 502 CWEs resolve to a zero
+nobody chose". That figure is computed correctly and is still in the tool,
+but it overstates the problem, and the objection is the right one: **a CWE
+that is not mapped is only a defect if Coverity can actually assign it.**
+A defect carries exactly one CWE while the taxonomy associates several with
+each issue type, so some of those 209 are CWEs no defect ever receives —
+CWE-193 is associated with `overrun:write` and was never once assigned to
+it across the runs here.
+
+`cvss_profile_audit.py checkers` replaces it with a question that needs no
+knowledge of which CWE Connect picks: **if every CWE associated with an
+issue type resolves to zero, that issue type cannot score whichever one it
+gets.** Split by Coverity's own `issue-kind` taxonomy (17893 quality,
+19974 security, 1 license issue types), over the 6381 issue types that
+carry a CWE at all:
+
+| kind | can score | cannot, at least one decided zero | cannot, nobody decided |
+|---|---|---|---|
+| security | 247 | 5 | **2357** |
+| quality | 572 | 861 | 784 |
+| unclassified | 871 | 147 | 537 |
+
+The 2357 is the number that bears on trust, and it decomposes into one
+large thing and one long tail:
+
+- **2302 are `sigma.vulnerable_software`**, all carrying CWE-1395, which
+  has no node in the 2017 graph. Every known-vulnerable-dependency finding
+  scores 0.0.
+- **55 are ordinary application-security checkers**: `authentication_bypass`
+  (CWE-288), `man_in_the_middle` (300), `unencrypted_sensitive_data` (311),
+  `sigma.plaintext_storage_sensitive_data` (312), `insecure_cookie` and
+  `unsafe_session_setting` (614), `unrestricted_file_upload` (646),
+  `sigma.jwt_untrusted_decode` (347), `sigma.static_iv` (329),
+  `sigma.credentials_without_keychain_protection` and `unsafe_basic_auth`
+  (522), `weak_authentication` (419), `OPENAPI.MISSING_AUTHZ` (648),
+  `OPENAPI.OAUTH2_MISCONFIGURATION` (285), `sealed_jar_escape` (653), and
+  about a dozen more.
+
+*Source: verified by construction from the shipped taxonomy, mapping and
+ChildOf graph — every CWE of each listed issue type resolves to a
+zero-by-default class, so the conclusion holds without knowing Connect's
+choice. **Not** observed in a run: no fixture here exercises a Sigma,
+OPENAPI or SCA checker, so while the arithmetic of the claim is sound, a
+webapp or SCA scan confirming one of these 55 end to end has not been
+done.*
+
 ## Reasoned, not yet measured
 
 - **A user `<security-profile>.json` overriding the master.** The lookup's
@@ -233,6 +281,9 @@ skill says so rather than keeping the scarier version.
   was audited, against a 2025.12.0 instance. The audit is re-runnable
   against any install, which is the point of it being a tool rather than a
   table.
-- **Non-C languages.** Everything here is C. The 49 graph-less CWEs
-  include Java (CWE-1134..1153) and web/IaC (Sigma) entries that no
-  fixture exercised.
+- **Non-C languages.** Everything run here is C. The 49 graph-less CWEs
+  include Java (CWE-1134..1153) and web/IaC (Sigma) entries that no fixture
+  exercised, and the 55 unscoreable security issue types are almost all in
+  that territory. Confirming one of them end to end — a JS or Java webapp
+  fixture producing, say, `insecure_cookie`, committed and scored — is the
+  obvious next measurement and has not been made.

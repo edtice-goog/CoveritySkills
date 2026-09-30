@@ -7,22 +7,38 @@ audits what it produced. The audit is the part worth having: **every
 defect in a CVSS report carries a CVSS vector, including the ones the
 generator could not score, and the report does not distinguish them.**
 
-On the shipped configuration, of the 502 CWEs that Coverity checkers can
-assign, **209 resolve to a zero score that nobody chose.** That is a
-ceiling over the whole checker inventory, though, and the measured picture
-is more specific and more useful:
+## Can you trust the report?
 
-| population | gap |
+Not one answer — four, and which one you get depends on what analyses the
+project runs. `tools/cvss_profile_audit.py checkers` produces this for the
+install in front of you.
+
+| What was analyzed | Trust the CVSS scores? |
 |---|---|
-| four ordinary C/C++ projects (this repo's fixtures, proftpd, Contiki-NG, subversion) | **none** |
-| the same fixtures re-analyzed under MISRA C 2012 | **35 of 130 issues**, across 8 CWEs |
+| **C/C++ quality and security defects** | **Yes.** Four populations measured — these fixtures, proftpd, Contiki-NG, subversion — and not one undecided zero among them. Predictions were exact on all 19 defects of one real snapshot and all 22 CWEs of another. |
+| **Coding standards** (MISRA, AUTOSAR, CERT) | **Mostly zeros, and mostly that is right** — they are quality findings, and 79 of 114 zeros in a MISRA run were deliberate. But 35 were not; nobody chose them. Do not read the scorecard as a security statement. |
+| **Web, API, mobile and cloud security** (Sigma, OPENAPI) | **No.** 55 issue types Coverity itself classifies as *security* cannot score at all, whatever CWE they draw — `authentication_bypass`, `man_in_the_middle`, `unencrypted_sensitive_data`, `plaintext_storage_sensitive_data`, `insecure_cookie`, `unrestricted_file_upload`, `jwt_untrusted_decode`, `static_iv`, `MISSING_AUTHZ`. |
+| **Software composition** | **No.** All 2302 `sigma.vulnerable_software` variants carry CWE-1395, which has no node in the generator's CWE graph. Every known-vulnerable-dependency finding scores 0.0. |
+| **The arithmetic itself** | **Almost.** The equations are CVSS v3 as specified; the rounding is not. `Math.round(s*100)/100f` gives 4.91 where the spec's round-up gives 5.0. With the shipped profile only 12 scores are reachable and none crosses a severity boundary, so today it is a conformance defect; a custom profile can make it a severity one. |
 
-So: plain quality-and-security analysis is well covered by the master
-profile. The gap bites when the CWEs in play postdate the generator's CWE
-data — coding standards (MISRA, AUTOSAR, CERT), software composition
-(CWE-1395), and the cloud/IaC checkers. Ask what the customer runs before
-telling them they have a problem, and run the audit against the CWEs their
-project actually produced rather than quoting the ceiling.
+And one process fact that applies to all of them: **the report does not
+mark which zeros were chosen.** The per-issue block in the PDF prints
+severity, score, vector and audited flag, and not the CWE. The distinction
+lives only in the generator's stdout and in the triage attributes.
+
+### Counting it honestly
+
+Of the 502 CWEs some Coverity checker is associated with, 209 resolve to a
+zero nobody chose. That number is worth less than it looks, and it is not
+the one to quote: a defect carries exactly **one** CWE, while the taxonomy
+associates several with each issue type, so an unmapped CWE may be one
+Coverity never actually assigns. CWE-193 is associated with
+`overrun:write` and was never once assigned to it in the runs here.
+
+The denominator-safe question is per issue type: *if every CWE associated
+with this issue type resolves to zero, it cannot score whichever one it
+gets.* That is what the table above rests on, and it is why the security
+row says 55 and 2302 rather than a CWE count.
 
 ## Why a weakness report needs auditing before it becomes a score
 
