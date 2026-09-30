@@ -245,5 +245,15 @@ checkers. The 209-of-502 ceiling is the size of the uncovered territory,
 not the size of anyone's problem; which of the two you are looking at
 depends entirely on what analyses they run.
 
+One more thing the PDF itself settles: its per-issue block prints `CVSS
+Severity`, `CVSS Score`, `CVSS Vector` and `CVSS Audited`, and **not the
+CWE**. So within the report there is no way to tell a deliberate zero from
+a zero the lookup fell into, and no way to tell which CWE produced either.
+The scorecard's "Additional Quality Measures" table counts only issues
+marked False Positive or Intentional, so it does not cover this. The
+distinction exists in exactly two places: the generator's stdout, and the
+triage attributes in Connect.
+
 *Source: verified — snapshots 10037 and 10038 on `localhost:8080`,
-Reports 2025.3.0; see `CALIBRATION.md` for the per-CWE tables.*
+Reports 2025.3.0, and the text of the generated PDF; see `CALIBRATION.md`
+for the per-CWE tables.*

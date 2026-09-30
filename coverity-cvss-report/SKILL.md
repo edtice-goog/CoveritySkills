@@ -206,7 +206,12 @@ Assigning a CVSS vector whose CVSS score is zero, as corresponding cwe:
 ```
 
 That is the gap report coming from the product itself, per defect. It goes
-to stdout, so tee it; nothing in the PDF distinguishes those rows.
+to stdout, so tee it -- it is the only place the distinction appears. The
+PDF's per-issue block prints `CVSS Severity`, `CVSS Score`, `CVSS Vector`
+and `CVSS Audited` and **does not print the CWE at all**, so a zero that
+was chosen and a zero that fell out of the lookup are identical on the
+page. The scorecard's "Additional Quality Measures" table does not help
+either: it counts only issues marked False Positive or Intentional.
 
 Two things that will bite on the first run: `project-contact-email` is
 validated as an email address, so a `.invalid` placeholder is rejected;
