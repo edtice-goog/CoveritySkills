@@ -74,6 +74,7 @@ verified by running it or reasoned from mechanism.
 | [coverity-pathout](coverity-pathout/README.md) | A function reached the per-function path bound (`PATHOUT`, `--paths`), and you want to extend the analysis past it | The functions and the checker that reached the bound in each, a path-insensitive shape catalogue run over the idir and kept only inside those functions, and the measured cost of the bound -- a higher detection rate at early-stage cost |
 | [coverity-function-slice](coverity-function-slice/README.md) | You need one function exactly as the analyzer saw it, as a file that compiles and analyzes on its own | The function pulled from the AST in under a second, its declarations printed from the same emit, re-emitted and re-analyzed in seconds; obfuscated on request with proof the twin analyzes identically |
 | [coverity-fuzz-triage](coverity-fuzz-triage/README.md) | Is this finding real? You would rather run it than read it | A verdict per finding from executing the sliced function under libFuzzer and ASan, with every callee stubbed from Coverity's own derived model, so a crash is one the analyzer would have accepted |
+| [coverity-cvss-report](coverity-cvss-report/README.md) | Putting CVSS scores on Coverity findings — or explaining why a CWE scored zero | The report run per the documentation, and an offline audit separating the zeros that were decided from the ones a lookup fell off the end of a CWE graph frozen in 2017 |
 
 ## Requirements
 
