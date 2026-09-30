@@ -2,16 +2,22 @@
 
 Part of [CoveritySkills](../README.md).
 
-Diagnoses a Coverity **PATHOUT** notice: a function on which `cov-analyze`
-hit its per-function path limit (`--paths`, default 5000) and stopped. The
-skill finds the functions, names the checker that ran out of paths, runs a
-catalogue of path-insensitive shape checkers over the idir to see what that
-checker might have said about the code it never finished walking, gets the
-function in front of you as the analyzer saw it, and measures what the
-cut-off cost -- so the recommendation is "two candidates behind the limit,
-one confirmed by execution; raise `--paths` to 35,000, verified on the
-whole project, zero defects changed" or "split it here", not a guess from
-cyclomatic complexity.
+Extends a Coverity analysis past its per-function path bound. `cov-analyze
+--paths` (default 5000) caps the work spent on any one function; a function
+that reaches the cap is logged as **PATHOUT** with the checker that reached
+it. That cap is the deliberate trade that lets a heuristic analyzer reach
+near-sound detection rates on codebases sound tools cannot analyze at all,
+and for twenty years the residue behind it was rightly left alone, because
+finding and chaining it took scarce expert attention. Frontier models
+removed that scarcity. This skill examines the residue using the analyzer's
+own artefacts: it finds the functions, names the checker that reached the
+bound in each, runs a catalogue of path-insensitive shape checkers over the
+idir and keeps only the hits inside those functions, gets each function in
+front of you as the analyzer saw it, and measures what the bound cost -- so
+the recommendation is "two candidates behind the bound, one confirmed by
+execution; raise `--paths` to 35,000, verified on the whole project, zero
+defects changed" or "split it here", not a guess from cyclomatic
+complexity. A higher detection rate at early-stage cost.
 
 ## The three things it knows that save the most time
 
@@ -32,17 +38,17 @@ wur_diagnostics: Pathed out: 5001 paths traversed by REVERSE_INULL in "setup_env
 log's own `PATHOUT=` lines are per-batch and name nothing (on a large
 project under `--all --aggressiveness-level high`, that is 186 of 189).
 
-**Inside a PATHOUT function, nobody looked -- so look there with a checker
-that does not need paths.** The checker that pathed out finished nowhere
-in that function. A *path-insensitive* CodeXM checker for the shape of
-what it looks for runs over the whole idir in seconds, and its hits are
-filtered to the PATHOUT functions where that checker was the one cut off;
-everywhere else the path-sensitive checker finished and was right to stay
-quiet. Twelve tested shapes live in
+**Inside a PATHOUT function the checker's verdict is "not examined", so
+examine it with a checker that needs no paths.** A *path-insensitive*
+CodeXM checker for the shape of what the path-sensitive one looks for runs
+over the whole idir in seconds, and its hits are kept only inside the
+PATHOUT functions where that checker reached the bound; everywhere else the
+path-sensitive checker finished and its silence is a verdict. Thirteen
+tested shapes live in
 [pathout-shapes](https://github.com/edtice-goog/pathout-shapes) and run in
 one pass; the filter is `tools/pathout_filter.py --relevant auto`. On
 nginx: 159 hits, 4 in PATHOUT functions, 2 where the relevant checker
-pathed out. On subversion, keyed on an escaped null dereference: 503, 115,
+pathed out. On subversion, keyed on a null dereference a later stage found: 503, 115,
 0 (27 with the reverse shape counted; all 27 refuted by reading). The
 survivors are read, and what reading cannot settle goes to
 `coverity-fuzz-triage` to be run.
@@ -93,7 +99,7 @@ cp -r coverity-pathout coverity-function-slice coverity-fuzz-triage ~/.claude/sk
 
 Then: "the analysis log says 189 functions exceeded the path limit -- which
 ones, and is it a problem?" or "here is my idir and there is a PATHOUT;
-what is hiding behind it?"
+what is behind the bound?"
 
 ## Development notes
 
@@ -105,5 +111,5 @@ configurations to establish that the notice count is a property of the
 checker set; the worked example includes the measured defect difference at
 a raised limit, which for that function was zero. A blind run of the skill
 by another model on nginx (2026-09-10) did Steps 0-2 and 4-6 well and
-skipped the catalogue because nothing had escaped; Step 3 is worded the way
+skipped the catalogue because no later stage had reported anything; Step 3 is worded the way
 it is because of that.

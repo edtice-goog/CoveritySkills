@@ -4,21 +4,20 @@ description: >
   Diagnose a Coverity PATHOUT notice -- a function that exceeded the
   analyzer's per-function path limit ("Exceeded path limit of 5000 paths",
   "paths_exceeded count", PATHOUT=1 in analysis-log.txt, cov-analyze
-  --paths) -- and find out what may be hiding behind it. Use this skill
+  --paths) -- and examine the code behind the bound. Use this skill
   when someone asks which functions hit the path limit, why a particular
   function did, which checker was cut off in it, what the cut-off cost in
   missed defects, whether to raise --paths, how to restructure the
-  function, or whether a defect that escaped Coverity ("a fuzzer / pen
-  test / customer found a bug Coverity missed", "it was missed because the
-  function pathed out", "are there more like it") has siblings behind the
-  same limit. Its central facts: the limit counts paths x tracked state,
+  function, or whether a defect a later stage found ("a fuzzer / pen
+  test / customer found a bug in a function that pathed out", "are there
+  more like it") has siblings behind the same bound. Its central facts: the limit counts paths x tracked state,
   not control-flow paths, so cyclomatic complexity does not explain a
   PATHOUT and the analyzer's own --print-paths output does; the checker
   that was cut off finished nowhere in that function, so the way to look
   there is a path-INSENSITIVE CodeXM shape checker over the whole idir,
   filtered to the PATHOUT functions where that checker stopped -- a
   catalogue of thirteen tested shapes is run whenever there is a PATHOUT,
-  whether or not anything has escaped yet. Uses coverity-function-slice
+  whether or not a later stage has found anything. Uses coverity-function-slice
   for the function body and coverity-fuzz-triage to confirm candidates by
   execution. Requires a local Coverity Analysis installation of the
   version that wrote the intermediate directory.
@@ -26,15 +25,28 @@ description: >
 
 # Coverity PATHOUT
 
-`cov-analyze` bounds the work it will do on any one function: `--paths`,
-default 5000. A function that exceeds it is logged as `PATHOUT`, and the
-checker that exceeded it stops walking that function. Nobody looked at the
-rest of it. This skill finds those functions, names the checker that ran
-out, runs a catalogue of path-insensitive shape checkers over the idir to
-see what that checker might have found, gets the function in front of you
-as the analyzer saw it, and measures what the cut-off cost -- so the answer
-is a list of confirmed or refuted candidates and "raise the limit to N,
-verified on the whole project" or "split it at these seams", not a guess.
+`cov-analyze` bounds the work it will spend on any one function: `--paths`,
+default 5000. A function that reaches the bound is logged as `PATHOUT`, and
+the checker that reached it stops walking that function and moves on.
+
+**The bound is the design, not a defect in it.** Sound analyzers exhaust
+the state space and do not scale; Coverity bounds per-function work and
+reaches detection rates close to theirs on codebases they cannot analyze at
+all. That trade is what made whole-program analysis of large systems
+practical, and the `PATHOUT` line is the analyzer recording, per function
+and per checker, where it applied the trade. For twenty years the residue
+behind it was acceptable, because finding and chaining it took scarce
+expert attention. Frontier models removed that scarcity, so the corners the
+bound leaves are now worth examining -- and the analyzer's own log,
+intermediate directory and derived models are what make examining them
+cheap. This skill is that extension: it finds the functions, names the
+checker that reached the bound in each, runs a catalogue of path-insensitive
+shape checkers over the idir to see what that checker would have looked at,
+gets the function in front of you as the analyzer saw it, and measures what
+the bound cost -- so the answer is a list of confirmed or refuted candidates
+and "raise the limit to N, verified on the whole project" or "split it at
+these seams", not a guess. The result is a higher detection rate at
+early-stage cost, not a late-stage tool pulled forward.
 
 Read `coverity/RULES.md` first (rules 3, 8, 21-23 bear directly). The rule
 this skill adds is 36; rule 35 belongs to `coverity-function-slice`.
@@ -150,6 +162,18 @@ demangled signature and appear whether or not it sat in a batch.
 `tools/pathout_report.py` on the re-run's idir joins everything, and this
 log is the input to the filter in Step 3.
 
+**A checker with two passes is one checker.** `FORWARD_NULL_pass1` and
+`FORWARD_NULL_pass2` are two walks of the same checker over the same
+function (the second with false-path pruning on), and its report needs
+both. If **either** pass reached the bound, FORWARD_NULL did not finish
+that function; a `_pass1` that finished says nothing about a `_pass2`
+that did not, and the reverse. Read the component name up to the `_pass`
+suffix when deciding which checker was cut short, and never conclude
+"FORWARD_NULL finished" from one pass's count. The relevance filter
+matches on that prefix for exactly this reason. This was got backwards on
+a real defect by a blind run of the skill: the pass that reached the bound
+was dismissed because the other pass had finished.
+
 **Whole project, not `--tu`, when the number matters.** `--tu <N>` scopes
 the run to one translation unit and is fast (15 s against 32 s on
 proftpd), but callees in other TUs lose their models, and models are part
@@ -160,16 +184,18 @@ Step 6. Run with the original options (the log's first line is the command
 that produced it). `--path-log-threshold` sounds like the tool for this and
 is not: at 100 and at 1000 it changed nothing in the log.
 
-## Step 3: Look where nobody looked -- the shape catalogue
+## Step 3: Examine the code behind the bound -- the shape catalogue
 
-**Do this step whenever there is a PATHOUT, escape or no escape.** The
-checker that pathed out finished nowhere in that function; a
-path-INSENSITIVE checker for the shape of what it looks for, run over the
-whole idir and filtered to those functions, is how you find out what it
-might have said. Everywhere else the path-sensitive checker finished and
-was right to stay quiet; inside a PATHOUT function nobody looked.
+**Do this step whenever there is a PATHOUT, whether or not a later stage
+has found anything.** Inside a PATHOUT function the path-sensitive checker
+stopped at the bound, so its verdict on the rest of that function is
+"not examined", not "clean". A path-INSENSITIVE checker for the shape of
+what that checker looks for, run over the whole idir and kept only inside
+those functions, is how you examine that residue at the analyzer's own
+speed. Everywhere else the path-sensitive checker finished and its silence
+is a verdict; the filter is what respects that.
 
-**No escaped defect to key on** (the usual case): every shape is a
+**No later-stage finding to key on** (the usual case): every shape is a
 hypothesis, so run the whole catalogue of tested shape checkers in one
 pass, then filter with each checker's own relevance list:
 
@@ -192,7 +218,7 @@ learned that `exit` and an expanded `assert` are exit guards, zstd had
 60). The filter is the mechanism; the whole-idir run is cheap because the
 checkers are structural.
 
-**An escaped defect to key on**: derive the shape from the instance, not
+**A later-stage finding to key on**: derive the shape from the instance, not
 the class ("null-tested in an `if`, dereferenced outside it", not
 "FORWARD_NULL"). Take the catalogue's checker for it or write one --
 `references/candidate-checkers.md` has the skeleton, the tree shapes and
@@ -224,7 +250,7 @@ weaker model, and those callers are not PATHOUT functions, so the filter
 does not keep their hits. It only matters when one PATHOUT function calls
 another, and the shape checkers use no models, so it is left as a known
 limit; the filter prints a note with the counts whenever it applies. Put
-the note's numbers in the report. If an escaped defect ever turns out to
+the note's numbers in the report. If a later-stage finding ever turns out to
 sit in such a caller, open an issue at
 https://github.com/edtice-goog/CoveritySkills/issues with the counts and
 the component names only -- never a function name, a path, or code from
@@ -361,7 +387,7 @@ measurement justifies and say what it cost in time.
 
 Verdict first (rule 21): the functions, the checker that pathed out in
 each, what the shape catalogue found behind them (survivors, with verdict
-and tier), the structural cause, what the limit cost in defects (measured
+and tier), the structural cause, what the bound cost in defects (measured
 or "not measured"), and the recommendation with its price. Then the
 evidence: the log lines, the `Pathed out` lines, the filter's counts, the
 counts from the body, the defect diff. Mark measured vs reasoned (rule 23).
@@ -376,15 +402,20 @@ user chose to spend (rule 22).
 - Working every PATHOUT function on a large log without a pilot and a
   confirmed budget. Steps 4-6 are per function; the user decides how many
   functions, after seeing what one costs.
-- Skipping the shape catalogue because "nothing has escaped". Nothing has
-  escaped *yet*; the catalogue is how you find out. A blind run of this
+- Skipping the shape catalogue because no later stage has reported
+  anything. The catalogue is how the residue behind the bound gets
+  examined before a later stage has to find it. A blind run of this
   skill on nginx did exactly that, and the two survivors it would have
   found (an array indexed by an uncompared variable in
   `ngx_http_ssi_body_filter`, where `OVERRUN_SYMBOLIC` pathed out) went
   unread.
 - Using `--tu` scoping for the PATHOUT set or the cost measurement. It
   drops cross-TU models and lost 7 of 18 on nginx.
-- Raising `--paths` as the answer to an escaped defect. The checker that
+- Reading a two-pass checker's `_pass1` and `_pass2` lines as if they were
+  two checkers. Either pass at the bound means that checker did not finish
+  the function; the relevant-checker decision is made on the name before
+  `_pass`.
+- Raising `--paths` as the answer to a later-stage finding. The checker that
   missed it may not finish at any limit.
 - Parsing `cov-preprocess` / `--preprocess-native` output to find a
   function. The AST is one command away.

@@ -41,7 +41,9 @@ wur: gen4 2 4070 5578 343 5547 5001 PATHOUT=1 n: _ZN4demo6Widget1fEi in TU 2
   components** that walked the function, not the sum (verified: 39
   components summing to 31,365 gave a line saying 6003, `REVERSE_INULL`'s
   own count). At the limit it reads `5001`; `10001` also occurs (twice the
-  limit plus one -- seen on `_pass2` components and on one proftpd
+  limit plus one -- seen on `_pass2` components (a `_pass1`/`_pass2` pair is
+  one checker walked twice; either pass at the bound means the checker did
+  not finish the function) and on one proftpd
   function; observed, not explained).
 - `PATHOUT=1`: the flag.
 - `n: <name> in TU <n>`: the function -- **plain identifier for C, mangled

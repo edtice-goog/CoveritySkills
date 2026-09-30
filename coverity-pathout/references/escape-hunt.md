@@ -1,28 +1,33 @@
-# When a defect escaped: hunting its siblings behind the path limit
+# Behind the path bound: examining the residue, with or without a later-stage finding
 
-A later stage found a defect (a fuzzer, a pen test, a customer) that static
-analysis should have caught, and the diagnosis is that the function pathed
-out: the checker that would have reported it was cut off at the path limit.
-Raising the limit does not help. A function with a few hundred independent
-decisions in a straight line has more states than any limit, and `--paths
+A later stage (a fuzzer, a pen test, a customer) found a defect in a
+function that pathed out: the checker that would have reported it reached
+the per-function path bound in that function and stopped, as designed.
+Raising the bound does not help. A function with a few hundred independent
+decisions in a straight line has more states than any bound, and `--paths
 200000` on a real case still pathed out, at 200,001.
 
-The question worth answering is not "why was this one missed" -- that is
-known -- but **where else in this codebase is the same shape hiding behind
-the same limit.** This page is the procedure. It was run end to end against
-subversion (9,533 functions) and against a fixture; the numbers below are
-from those runs (`CALIBRATION.md`).
+The question worth answering is not "why was this one not reported" --
+that is known, and it is the trade that makes the analyzer scale -- but
+**where else in this codebase does the same shape sit behind the same
+bound.** This page is the procedure, and it applies equally when no later
+stage has reported anything yet: the residue behind the bound is worth
+examining now that finding and chaining it no longer takes scarce expert
+attention. It was run end to end against subversion (9,533 functions) and
+against a fixture; the numbers below are from those runs
+(`CALIBRATION.md`).
 
 ## The idea
 
 Coverity's checkers are path-sensitive on purpose; that is what keeps them
-quiet. Write a **path-insensitive** checker for the *shape* of the escaped
-defect, run it over the **whole** intermediate directory, and then throw
-away every hit except the ones inside PATHOUT functions where the relevant
-native checker was cut off. Outside those functions the path-sensitive
-checker finished, looked at the same code, and was right to say nothing.
-Inside them nobody looked. What survives is a short list of candidates, and
-candidates are **confirmed or refuted by execution**, not believed.
+quiet. Write a **path-insensitive** checker for the *shape* of the defect,
+run it over the **whole** intermediate directory, and then throw away every
+hit except the ones inside PATHOUT functions where the relevant native
+checker reached the bound. Outside those functions the path-sensitive
+checker finished, looked at the same code, and its silence is a verdict.
+Inside them its verdict is "not examined". What survives is a short list of
+candidates, and candidates are **confirmed or refuted by execution**, not
+believed.
 
 | stage | what | cost, subversion |
 |---|---|---|
@@ -37,7 +42,7 @@ comes back at stage 4 as the fuzz target.
 
 ## Stage 1: the shape, as a path-insensitive checker
 
-Derive the shape from the escaped instance, not from the defect class.
+Derive the shape from the instance the later stage found, not from the defect class.
 "FORWARD_NULL" is a class; "a pointer null-tested in an `if`, then
 dereferenced outside that `if`, with the guard closing one statement too
 early" is a shape, and it is what the checker looks for. Write it to match
@@ -51,7 +56,7 @@ null_check_then_deref.cxm`) and the language gotchas that cost time.
 
 Before writing one, look in the catalogue: https://github.com/edtice-goog/pathout-shapes
 holds thirteen tested shape checkers (each with a fixture and the components
-whose path-out makes its hits relevant), and the escaped shape is often one
+whose path-out makes its hits relevant), and the shape at hand is often one
 of them or a small variant.
 
 Run it alone, so the output is only candidates:
@@ -64,7 +69,7 @@ cov-format-errors --dir <idir-copy> --json-output-v10 candidates.json
 Exclude the known instance by location when reading the result; it will be
 there, and it is not what you are looking for.
 
-**When nothing has escaped yet** -- a PATHOUT is known and that is all --
+**When no later stage has reported anything** -- a PATHOUT is known and that is all --
 there is no instance to derive a shape from, so run the whole catalogue in
 one pass (`pathout-shapes/bin/run_all.sh <install>/bin <idir-copy> <outdir>`,
 one `cov-analyze` with thirteen `--codexm`) and let the filter apply each
@@ -72,7 +77,7 @@ checker's own relevance list (`--relevant auto`). The hit counts are
 larger, the survivors after the relevance filter are not: every shape only
 survives in functions where its own checker was cut off.
 
-## Stage 2 and 3: filter to where nobody looked
+## Stage 2 and 3: filter to where the checker reached the bound
 
 The PATHOUT set comes from a `--print-paths` run of the same idir with the
 **original** options (`references/analysis-log.md`; on a large project the
@@ -84,11 +89,17 @@ python3 tools/pathout_filter.py --findings candidates.json --log <print-paths id
     --relevant FORWARD_NULL,NULL_RETURNS --json survivors.json
 ```
 
+`--relevant` matches component names by prefix, so `FORWARD_NULL` covers
+`FORWARD_NULL_pass1` and `FORWARD_NULL_pass2` alike. That is deliberate:
+the two passes are one checker, and if either reached the bound the
+checker did not finish the function. Do not decide relevance from one
+pass's count; a blind run got a real defect backwards that way.
+
 `--relevant` is the step that matters most. A candidate for a null
 dereference in a function where only `BUFFER_SIZE` pathed out is not a
 candidate: `FORWARD_NULL` finished that function and rejected it with full
 path sensitivity. On subversion that one filter took 115 down to 0. Name
-the checkers that would have reported the escaped defect; for a
+the checkers that would have reported the defect; for a
 check-then-dereference shape that is `FORWARD_NULL` and `NULL_RETURNS`.
 `REVERSE_INULL` is the opposite shape (dereference, then test), but since
 the shape checker is order-blind it finds that shape too, so counting
@@ -103,7 +114,7 @@ truncated model weakens every caller. The second is an accepted limit
 rather than a to-do: it only matters when one PATHOUT function calls
 another, and the shape checkers use no models. The filter prints a note
 with the counts whenever a deriver is among the pathed-out components, so
-the report can carry them. Should an escaped defect ever sit in such a
+the report can carry them. Should a later-stage finding ever sit in such a
 caller, an issue at https://github.com/edtice-goog/CoveritySkills/issues
 with the counts and component names (nothing from the codebase) is the
 signal to build the callers tier.

@@ -871,7 +871,12 @@ Source: verified -- `coverity-function-slice`, `references/function-extraction.m
 `cov-analyze --paths` (default 5000) bounds the work per function, and a
 function that exceeds it is logged `PATHOUT` in `output/analysis-log.txt`
 -- nowhere else. Do not explain one from cyclomatic complexity, the acyclic
-path count, or the shape of the source.
+path count, or the shape of the source. And do not describe the bound as a
+lapse: it is the deliberate trade that lets a heuristic analyzer reach
+near-sound detection rates on codebases sound tools cannot analyze, and the
+log line is the analyzer recording where it applied the trade. What has
+changed is that frontier models make the residue behind the bound cheap to
+examine; `coverity-pathout` is that extension.
 
 **Why.** The engine explores the cross product of control-flow paths and
 the abstract state each checker tracks, merging paths that rejoin in the

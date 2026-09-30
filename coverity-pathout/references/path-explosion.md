@@ -139,7 +139,7 @@ starved unless a deriver was the one that pathed out.
 
 Measured cost for `setup_env`: analyzing its TU at the default limit and at
 `--paths 200000` produced the **same two defects**, and `REVERSE_INULL`
-finished at 6003 -- it had been cut off at 5001, with 20% of its work left.
+finished at 6003 -- the bound at 5001 had left 20% of its work unexamined.
 That is one data point, not a rule: a function that needs 16,384 paths and
 gets 5000 has lost most of them. The way to know is to raise the limit and
 compare the defect sets, which is cheap when scoped to the TU

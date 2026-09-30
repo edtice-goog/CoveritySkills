@@ -70,7 +70,7 @@ and nothing else. 13 seconds for 9,533 functions.
   node d inside statement s"; node equality works for this.
 - Order does not exist. `sourceloc` "has no properties", so nothing can say
   whether the test precedes the dereference. A checker that needs order
-  must approximate it structurally (the escaped shape is "outside the
+  must approximate it structurally (the shape at hand is "outside the
   whole `if`", which needs no order) or accept the noise.
 
 ## Grammar that bites
@@ -141,7 +141,7 @@ Gaps found by reading the survivors, not yet closed:
 - two locals with the same name in one function are one variable to the
   checker when the front end supplies no `mangledName` for them.
 
-Derive your own from the escaped instance the same way: write down the
+Derive your own from the later-stage finding the same way: write down the
 shape in one sentence, encode the sentence, run it on a five-function
 fixture with the shape and its nearest non-shapes, and only then on the
 idir.
