@@ -43,6 +43,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -65,6 +66,7 @@ HOST = os.environ.get("COV_HOST", "http://localhost:8080")
 CASE_B = "(b) non-zero mapping"
 CASE_A = "(a) zero mapping, deliberate"
 CASE_C = "(c) NO mapping -- zero by accident"
+CASE_NOCWE = "no CWE from Connect -- zero, no lookup"
 
 #  A direct profile entry is a judgement about this CWE.  A non-zero score
 #  reached through an ancestor is also a mapping doing its job.  A zero
@@ -91,21 +93,38 @@ def creds():
         return user, f.read().strip("\r\n")
 
 
-def rest(method, path, body=None):
+def rest(method, path, body=None, attempts=3):
+    """One REST call, retrying 5xx.
+
+    A Connect instance is usually shared, and a busy one returns a bare 500
+    with an event id now and then.  Retrying twice costs nothing and saves a
+    half-finished marking run.
+    """
     user, pw = creds()
     tok = base64.b64encode(("%s:%s" % (user, pw)).encode()).decode()
     data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(
-        HOST + path, data=data, method=method,
-        headers={"Content-Type": "application/json",
-                 "Accept": "application/json",
-                 "Authorization": "Basic " + tok})
-    try:
-        with urllib.request.urlopen(req, timeout=180) as r:
-            raw = r.read().decode("utf-8", "replace")
-            return r.status, (json.loads(raw) if raw.strip() else {})
-    except urllib.error.HTTPError as e:
-        return e.code, e.read().decode("utf-8", "replace")[:1000]
+    last = (None, None)
+    for attempt in range(attempts):
+        req = urllib.request.Request(
+            HOST + path, data=data, method=method,
+            headers={"Content-Type": "application/json",
+                     "Accept": "application/json",
+                     "Authorization": "Basic " + tok})
+        try:
+            with urllib.request.urlopen(req, timeout=180) as r:
+                raw = r.read().decode("utf-8", "replace")
+                return r.status, (json.loads(raw) if raw.strip() else {})
+        except urllib.error.HTTPError as e:
+            last = (e.code, e.read().decode("utf-8", "replace")[:1000])
+            if e.code < 500 or attempt == attempts - 1:
+                return last
+            time.sleep(2 * (attempt + 1))
+        except urllib.error.URLError as e:
+            last = (None, str(e))
+            if attempt == attempts - 1:
+                return last
+            time.sleep(2 * (attempt + 1))
+    return last
 
 
 COLUMNS = ["cid", "checker", "displayType", "cwe", "displayFile",
@@ -193,7 +212,7 @@ def classify(rows, args):
         if not cwe.isdigit():
             #  Connect gave this defect no CWE, so no lookup happens at
             #  all and the generator writes its hardcoded zero vector.
-            r["_case"] = "no CWE from Connect -- zero, no lookup"
+            r["_case"] = CASE_NOCWE
             r["_class"] = "no CWE at all"
             r["_audited"] = False
             continue
@@ -415,22 +434,49 @@ def cmd_mark(args):
               "mapping that")
         print("judged the CWE.  Go to step 5 and run the report.")
         return 0
-    print("%d issue(s) are left No -- their score is zero because this "
-          "Reports build" % len(unaudited))
-    print("has no judgement for the CWE, not because someone decided zero:")
+    unmapped = [r for r in unaudited if r["_case"] == CASE_C]
+    nocwe = [r for r in unaudited if r["_case"] == CASE_NOCWE]
+    print("%d issue(s) are left No." % len(unaudited))
+    if unmapped:
+        print("")
+        print("  %d have a CWE this Reports build has no judgement for, so "
+              "the zero is" % len(unmapped))
+        print("  an artifact of its mapping rather than a decision:")
+        seen = {}
+        for r in unmapped:
+            key = (r.get("cwe"), r.get("checker"))
+            seen[key] = seen.get(key, 0) + 1
+        for (cwe, checker), n in sorted(seen.items(),
+                                       key=lambda kv: -kv[1])[:25]:
+            print("    CWE-%-6s %-34.34s %d" % (cwe, checker, n))
+    if nocwe:
+        print("")
+        print("  %d carry no CWE from Connect at all, so no lookup ran and "
+              "nothing could" % len(nocwe))
+        print("  have judged them.  Parse warnings are the usual case.  This "
+              "is not a")
+        print("  mapping gap and there is nothing for a newer Reports build "
+              "to fix:")
+        seen = {}
+        for r in nocwe:
+            seen[r.get("checker")] = seen.get(r.get("checker"), 0) + 1
+        for checker, n in sorted(seen.items(), key=lambda kv: -kv[1])[:10]:
+            print("    %-41.41s %d" % (checker, n))
     print("")
-    seen = {}
-    for r in unaudited:
-        key = (r.get("cwe") or "(none)", r.get("checker"))
-        seen[key] = seen.get(key, 0) + 1
-    for (cwe, checker), n in sorted(seen.items(), key=lambda kv: -kv[1])[:25]:
-        print("  CWE-%-6s %-34.34s %d" % (cwe, checker, n))
-    print("")
-    print("Step 4 is now a choice, and it is the user's:")
-    print("  (a) run the report as it stands -- the zeros stay, and you can")
-    print("      point at this list to say which ones nobody judged; or")
-    print("  (b) `infer` a vector for them, which is this tool's guess and")
-    print("      is labelled as such.  Review it before applying.")
+    if unmapped:
+        print("Step 4 is now a choice, and it is the user's:")
+        print("  (a) run the report as it stands -- the zeros stay, and you "
+              "can")
+        print("      point at this list to say which ones nobody judged; or")
+        print("  (b) `infer` a vector for them, which is this tool's guess "
+              "and")
+        print("      is labelled as such.  Review it before applying.")
+    else:
+        print("There is no step 4 to do here: nothing is left No for want of "
+              "a mapping.")
+        print("Go to step 5 and run the report, and say in the cover note "
+              "that the")
+        print("unscored issues are ones Coverity gave no CWE.")
     if args.csv:
         with open(args.csv, "w", encoding="utf-8", newline="") as f:
             f.write("cid,checker,cwe,category,impact,class,score\n")
@@ -563,6 +609,13 @@ def infer_for(rows, unaudited):
 
     out = []
     for r in unaudited:
+        if r["_case"] == CASE_NOCWE:
+            #  No CWE means no weakness classification to reason from.  The
+            #  category alone is too thin a basis to put a number on, and a
+            #  newer mapping will not change it either, so decline.
+            out.append((r, None, "no CWE from Connect -- nothing to reason "
+                                 "from but the category; declined"))
+            continue
         cat = r.get("displayCategory")
         cands = basis.get(cat)
         if cands:
@@ -591,6 +644,11 @@ def cmd_infer(args):
     unaudited = [r for r in rows if not r["_audited"]]
     if not unaudited:
         print("nothing to infer: every score was judged by a mapping")
+        return 0
+    if all(r["_case"] == CASE_NOCWE for r in unaudited):
+        print("nothing to infer: the %d unjudged issue(s) carry no CWE from "
+              "Connect," % len(unaudited))
+        print("so there is no weakness classification to reason from.")
         return 0
     proposals = infer_for(rows, unaudited)
     g = (user or master).globals
