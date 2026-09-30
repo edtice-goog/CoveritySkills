@@ -69,7 +69,7 @@ A later Coverity Reports release may map CWEs that this one does not, which
 turns case (c) into (a) or (b) with no change on your side. Re-running the
 classification against the new build is how you find out.
 
-## Step 0: the four attributes
+## Step 0: the four attributes, and one measurement
 
 They must exist in Connect before the first run, spelled exactly:
 `CVSS_Audited`, `CVSS_Score`, `CVSS_Severity`, `CVSS_Vector`.
@@ -86,6 +86,17 @@ accepted `attributeType` spellings are `STRING` and `LIST_OF_VALUES`.
 
 Credentials come from `COV_USER` and `COVERITY_PASSPHRASE_FILE` throughout.
 Never put a password on a command line (rule 3).
+
+Then, once per Reports build, find out whether it honours `CVSS_Audited`:
+
+```bash
+python3 tools/cvss_run.py selftest --project <p> --snapshot <id> --config cvss_config.yaml
+```
+
+It writes a distinctive vector on one defect, runs `--scores`, checks
+whether it survived, and restores the defect either way. The answer changes
+the ordering rules in step 3, so it is worth the two minutes. Note that it
+runs `--scores`, which writes to every defect in the project.
 
 ## Step 1: the configuration file
 
@@ -139,18 +150,38 @@ That is the whole point: afterwards, a reader in Connect can sort on
 were not. It prints the (a)/(b)/(c) split with issue counts, and `--csv`
 lists every case (c) defect with its CWE and checker.
 
-**Two consequences to understand before running it.**
+**Order matters, because the marks are fragile.**
 
-`CVSS_Audited = Yes` stops the generator updating that defect's vector on
-every later run. For an inferred vector that is exactly what you want. For
-a vendor-mapped one it means the defect will **not** pick up an improved
-mapping from a future Reports release. If that matters more than the
-at-a-glance view, `--audited inferred-only` marks nothing here and leaves
-every vendor mapping live; `reset` undoes either.
+The reports guide says `CVSS_Audited = Yes` stops the generator updating
+that defect's vector. **In Reports 2025.3.0 it does not.** `--scores`
+rewrites all four `CVSS_*` attributes unconditionally, `CVSS_Audited`
+included, so a `Yes` is reset to `No` and any vector written by hand is
+discarded. Measured in both a custom triage store and the Default Triage
+Store, so it is not a store trap; `cvss_run.py selftest` re-measures it
+against whatever build you have, because a later one may fix it.
 
-The `Yes` is also a claim. It says a mapping judged this CWE — not that a
-human reviewed this defect. Say which you mean when you hand the report
-over.
+So on a build where it is not honoured:
+
+- **`mark` is the step after your *final* `scores` run**, not before.
+- **`infer --apply` likewise.**
+- **Any later `scores` silently discards both.** Keep `unjudged.csv` and
+  `inferred.csv`; they are the durable record, not the attributes.
+- `report` is safe — it does not write.
+
+`reset` clears the marks without running `scores`, which is occasionally
+useful, but `scores` clears them anyway.
+
+The `Yes` is also a claim, and a narrow one. It says a mapping judged this
+CWE — not that a human reviewed this defect. Say which you mean when you
+hand the report over.
+
+**This is a limitation of the report generator, not something the skill
+works around.** The per-defect vector is the wrong shape for the job: a
+CVSS vector derived from a CWE belongs to a stream or a project, and a
+mapping change ought to clear the scores so they are recalculated. That is a
+design question for Coverity Connect, not something a skill can fix, and
+`--audited inferred-only` exists only so you can choose to write nothing
+rather than write something that will not last.
 
 ## Step 4: the choice, which is the user's
 
@@ -185,24 +216,23 @@ with the report; it is the only record of which numbers are guesses.
 ## When a newer Coverity Reports build arrives
 
 This is the expected case, not an edge case: a later release may map CWEs
-this one does not, turning case (c) into (a) or (b). Because step 3 marked
-the judged defects `Yes`, and `Yes` freezes the vector, they will not be
-rescored until you clear it. The upgrade path is three commands:
+this one does not, turning case (c) into (a) or (b). Re-run the sequence
+against the **new** install:
 
 ```bash
-python3 tools/cvss_run.py reset  --project <p> --snapshot <id>
-python3 tools/cvss_run.py scores --project <p> --config cvss_config.yaml
-python3 tools/cvss_run.py mark   --project <p> --snapshot <id> --graph cwe_childof.json
+python3 tools/cvss_run.py selftest --project <p> --snapshot <id> --config cvss_config.yaml
+python3 tools/cvss_run.py scores   --project <p> --config cvss_config.yaml
+python3 tools/cvss_run.py mark     --project <p> --snapshot <id> --graph cwe_childof.json
 ```
 
-`reset` sets every `CVSS_Audited` back to `No`, `scores` recomputes against
-the new mapping, and `mark` re-splits. Then diff the new `unjudged.csv`
-against the old one: what disappeared is what the new build now judges.
+`scores` recomputes against the new mapping and clears the old marks on its
+own, so there is nothing to reset first. Then diff the new `unjudged.csv`
+against the old one: **what disappeared is what the new build now judges.**
+That diff is the most useful artifact this skill produces, and it is why the
+CSVs matter more than the attributes.
 
-Do this against the **new** Reports install (`--reports-dir`), and note
-both versions when you report the difference. If you inferred vectors in
-step 4, `reset` discards them too — keep `inferred.csv` so you can tell
-which ones the vendor has since covered and which you still need.
+Run `selftest` first: if the new build honours `CVSS_Audited`, inferred
+vectors survive and the ordering constraint above relaxes.
 
 ## Step 5: the report
 

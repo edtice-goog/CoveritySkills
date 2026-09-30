@@ -52,7 +52,7 @@ out, which is why this is a tool and not a table.
 
 | | |
 |---|---|
-| 0 | `cvss_attributes.py setup` — the four `CVSS_*` attributes Connect needs first |
+| 0 | `cvss_attributes.py setup` — the four `CVSS_*` attributes Connect needs first, then `cvss_run.py selftest` once per Reports build |
 | 1 | `cvss_run.py config` — write and validate `config.yaml` |
 | 2 | `cvss_run.py scores` — the calculation phase, alone |
 | 3 | `cvss_run.py mark` — the (a)/(b)/(c) split, written to `CVSS_Audited` |
@@ -91,6 +91,17 @@ population read from Connect over REST:
 - **The PDF does not print the CWE**, so the distinction cannot be
   recovered from the report itself. It lives in the generator's stdout and
   in the triage attributes.
+- **The documented `CVSS_Audited` override does not work.** The guide says
+  setting it to `Yes` stops the vector being updated; `--scores` rewrites all
+  four `CVSS_*` attributes unconditionally and resets `CVSS_Audited` itself
+  to `No`, discarding any vector written by hand. Measured in both a custom
+  and the Default triage store. So `mark` and `infer` run *after* the final
+  `scores`, the CSVs are the durable record, and `cvss_run.py selftest`
+  re-measures this against whatever build you install.
+
+  This one is a design limitation rather than a bug to route around: a vector
+  derived from a CWE belongs to a stream or project, and a mapping change
+  should clear the scores for recalculation. A skill cannot fix that.
 
 `CALIBRATION.md` records what was measured, what is derived, and which
 earlier claims were withdrawn.
@@ -107,7 +118,7 @@ fills gaps per defect instead, where they are visible and reversible.
 | Path | What it is |
 |---|---|
 | `SKILL.md` | the workflow, step by step |
-| `tools/cvss_run.py` | `config`, `scores`, `mark`, `infer`, `report`, `status`, `reset` |
+| `tools/cvss_run.py` | `config`, `scores`, `mark`, `infer`, `report`, `status`, `selftest`, `reset` |
 | `tools/cvss_attributes.py` | creates the four triage attributes Connect needs first |
 | `tools/cvss_issue_export.py` | exports a project's CWEs, which the generator's own dump omits |
 | `tools/cvss_profile_audit.py` | analysis layer: `graph`, `audit`, `resolve`, `verify`, `score` |

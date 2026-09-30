@@ -89,7 +89,9 @@ def main():
     for row in rows:
         d = {}
         for cell in row:
-            d[cell.get("key")] = cell.get("value")
+            #  Strip the column_custom_ prefix so a custom attribute reads
+            #  as CVSS_Audited here and in cvss_run.py alike.
+            d[cell.get("key", "").replace("column_custom_", "")] =                 cell.get("value")
         out.append(d)
     if not out and scope == "last":
         sys.stderr.write("0 rows with scope 'last' -- this API needs an "

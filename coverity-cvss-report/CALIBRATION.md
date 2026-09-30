@@ -218,6 +218,45 @@ rules, not from a familiar checker changing its mind. The many-to-many
 taxonomy listing is therefore a weaker signal than it looks, and the
 skill says so rather than keeping the scarier version.
 
+## The documented CVSS_Audited override does not work (Reports 2025.3.0)
+
+The reports guide says setting `CVSS_Audited` to `Yes` prevents the vector
+being updated on later runs. It does not, and this was measured rather than
+inferred:
+
+1. CID 13721 (CWE-1177, case (c), scoring 0.0) was given
+   `CVSS:3.0/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H`, `CVSS_Score` 9.89,
+   `CVSS_Severity` Critical, `CVSS_Audited` Yes, via
+   `PUT /api/v2/issues/triage`. Read back: 9.89 / Yes.
+2. `cov-generate-cvss-report --scores` was re-run.
+3. Read back: **0.0 / No.** Every one of the 130 defects in the snapshot had
+   `CVSS_Audited` reset to `No`, including the 95 `mark` had set to `Yes`.
+
+Repeated on a second project (`cvss-audit-default`, snapshot 10039) whose
+stream sits in the **Default Triage Store**, with the same outcome, so it is
+not an artifact of using a custom store.
+
+The mechanism agrees: `CVSSReport.getDefectStateSpecDataObj` builds a
+`DefectStateSpecDataObj` containing all four attributes — `CVSS_Audited`
+among them — and writes back `CVSSDefectInfo.cvssAudited`, the value it
+loaded. Since every defect came back `No`, the load never saw the `Yes` that
+Connect was holding.
+
+Consequences, now baked into the workflow rather than the prose:
+
+- `mark` and `infer --apply` must run **after** the final `--scores`.
+- Any later `--scores` discards both silently, so `unjudged.csv` and
+  `inferred.csv` are the durable record and the attributes are a
+  convenience.
+- `cvss_run.py selftest` performs the experiment above against whatever
+  Reports build is installed, and restores the probed defect, so the skill
+  measures this rather than trusting either the guide or this file.
+
+This is a design limitation of the current implementation, not something a
+skill can repair: a CVSS vector derived from a CWE belongs to a stream or a
+project rather than to each defect, and a mapping change ought to clear the
+scores for recalculation.
+
 ## Withdrawn: every claim that counted a global inventory
 
 Three numbers appeared in earlier versions of this skill and are gone. All
@@ -247,6 +286,33 @@ exactly the claim it could not support.
 Everything in "The live run" above survives this, because every population
 there came from Connect over REST in the first place.
 
+## The workflow, run end to end
+
+`cvss_run.py` was run through on snapshot 10038 (the MISRA one, 130 issues,
+22 CWEs):
+
+- `status` — reproduced the split unaided: 16 issues case (b), 79 case (a),
+  35 case (c).
+- `mark` — set `CVSS_Audited=Yes` on 95 and left 35 `No`. Verified by an
+  independent REST export: 35 `No` all scoring 0.0, 79 `Yes` scoring 0.0, 16
+  `Yes` scoring non-zero. That is the split visible in Connect, which is the
+  point of the step.
+- `infer` — **found a real bug in its own rule.** The first version built its
+  basis only from judged defects with a *non-zero* score, so it ignored the
+  79 defects in the same category that were judged to have *no* impact, and
+  proposed 7.39 (High) for every unjudged MISRA violation. Including the
+  zero-impact judgements — they are judgements, and there the majority ones
+  — the rule proposes **0.00 for all 35**, by analogy with 83 judged
+  coding-standard issues. That is the defensible answer for MISRA and it is
+  the vendor's own judgement being extended, not ours.
+- `infer --apply` — wrote all 35 and marked them, confirmed 130/130 `Yes`.
+- `report` — produced the PDF. `--report` does **not** write the attributes
+  (130 still `Yes` afterwards); only `--scores` does.
+- `selftest` — reported NOT HONOURED and restored the probed defect.
+
+Also found: the PDF prints `CVSS Audited: No` for defects that were `Yes` in
+Connect, which is the same read failure as above surfacing in the output.
+
 ## Reasoned, not yet measured
 
 - **A user `<security-profile>.json` overriding the master.** The lookup's
@@ -266,9 +332,6 @@ there came from Connect over REST in the first place.
   snapshot produces case (c) at all is unmeasured, and cannot be predicted
   from the taxonomy for the reasons in "Withdrawn" above — it takes a
   snapshot of such a project in Connect and a `mark` run against it.
-- **The workflow itself** (`cvss_run.py` steps 1-5, including the
-  `CVSS_Audited` marking, the inference rule and `reset`) is written against
-  the APIs verified above — `PUT /api/v2/issues/triage` for the attribute
-  writes, `POST /api/v2/issues/search` for the CWEs — but **has not yet been
-  run end to end** on the instance. `config` and its validation are the only
-  parts exercised so far.
+- **Non-C languages, still.** Whether a Java, JS or C# snapshot produces
+  case (c) is unmeasured, and cannot be predicted from the taxonomy for the
+  reasons in "Withdrawn" above.

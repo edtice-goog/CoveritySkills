@@ -7,6 +7,8 @@ sequence and uses CVSS_Audited to record that difference where the user
 will actually see it -- in Connect, next to the score.
 
     0. attributes   the four CVSS_* attributes exist   (cvss_attributes.py)
+       selftest     OPTIONAL but recommended once per Reports build: does it
+                    honour CVSS_Audited at all?  In 2025.3.0 it does not.
     1. config       write and validate config.yaml
     2. scores       cov-generate-cvss-report --scores   (the calculation)
     3. mark         CVSS_Audited=Yes where a mapping judged the CWE,
@@ -19,12 +21,13 @@ CVSS_Audited back to No.
 
 Two things to understand before running `mark`:
 
-  * CVSS_Audited=Yes stops the generator updating that defect's vector on
-    every later run.  That is the point -- it is how an inferred vector
-    survives -- but it also means a defect marked Yes will NOT pick up an
-    improved mapping from a future Coverity Reports release.  `--audited
-    inferred-only` keeps Yes for just the vectors this tool wrote, so
-    vendor mappings stay live; `reset` undoes either.
+  * The guide says CVSS_Audited=Yes stops the generator updating that
+    defect's vector.  In Reports 2025.3.0 it does NOT: --scores rewrites all
+    four CVSS_* attributes unconditionally, so a Yes becomes No and a
+    hand-written vector is discarded.  Measured in both a custom and the
+    Default triage store.  So `mark` and `infer --apply` must come after the
+    final --scores run, and the CSVs are the durable record.  `selftest`
+    re-measures this against your build, since a later one may fix it.
   * The rule for Yes is "a mapping judged this CWE": the CWE has its own
     entry in a profile, or the lookup produced a non-zero score.  A zero
     reached by inheriting a zero-impact ancestor is left No, because the
@@ -397,8 +400,11 @@ def cmd_mark(args):
         n = set_attributes(store, to_yes, {"CVSS_Audited": "Yes"})
         print("marked CVSS_Audited=Yes on %d issue(s) in triage store %r"
               % (n, store))
-        print("Those vectors are now frozen against later runs; `reset` "
-              "undoes it.")
+        print("NOTE: in Reports 2025.3.0 the next --scores run resets these "
+              "to No and")
+        print("discards any vector written by hand -- run `selftest` to check "
+              "your build.")
+        print("Treat the CSV as the durable record, not the attribute.")
     elif to_yes:
         print("would mark CVSS_Audited=Yes on %d issue(s) (dry run)"
               % len(to_yes))
@@ -438,6 +444,72 @@ def cmd_mark(args):
     return 0
 
 
+def cmd_selftest(args):
+    """Does THIS Reports build honour CVSS_Audited?  Measure, do not assume.
+
+    The reports guide says setting CVSS_Audited to Yes stops the generator
+    updating that defect's vector.  In Reports 2025.3.0 it does not: --scores
+    rewrites all four CVSS_* attributes unconditionally, CVSS_Audited among
+    them, so a Yes is reset to No and any vector written by hand is
+    discarded.  That may be fixed in a later build, and the answer decides
+    whether marking survives, so this runs the experiment:
+
+        pick a defect, save its values, write a distinctive vector with
+        CVSS_Audited=Yes, run --scores, read it back, restore.
+
+    It runs --scores, which writes to every defect in the project.  Run it on
+    a project you are allowed to score.
+    """
+    rows = issues(args.project, args.snapshot)
+    zero = [r for r in rows if str(r.get("CVSS_Score")) in ("0.0", "0", "0.00")]
+    pick = (zero or rows)[0]
+    cid = pick["cid"]
+    store = args.triage_store or triage_store_for(args.project)
+    before = {"CVSS_Vector": pick.get("CVSS_Vector") or "",
+              "CVSS_Score": pick.get("CVSS_Score") or "",
+              "CVSS_Severity": pick.get("CVSS_Severity") or "None",
+              "CVSS_Audited": pick.get("CVSS_Audited") or "No"}
+    probe = "CVSS:3.0/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+    print("probing with CID %s in triage store %r" % (cid, store))
+    print("  before : %s / %s / %s"
+          % (before["CVSS_Score"], before["CVSS_Severity"],
+             before["CVSS_Audited"]))
+    set_attributes(store, [cid], {"CVSS_Vector": probe,
+                                  "CVSS_Score": "9.89",
+                                  "CVSS_Severity": "Critical",
+                                  "CVSS_Audited": "Yes"})
+    print("  wrote  : 9.89 / Critical / Yes")
+    rc = generator(args, ["--scores"])
+    if rc != 0:
+        print("  --scores failed; restoring and giving up")
+        set_attributes(store, [cid], before)
+        return rc
+    after = None
+    for r in issues(args.project, args.snapshot):
+        if r["cid"] == cid:
+            after = r
+            break
+    held = (after and str(after.get("CVSS_Audited")) == "Yes"
+            and str(after.get("CVSS_Score")) == "9.89")
+    print("  after  : %s / %s / %s"
+          % (after.get("CVSS_Score"), after.get("CVSS_Severity"),
+             after.get("CVSS_Audited")))
+    print("")
+    if held:
+        print("HONOURED: this build leaves an audited defect alone, so marks")
+        print("and inferred vectors survive later --scores runs.")
+    else:
+        print("NOT HONOURED: --scores overwrote the audited defect, including")
+        print("CVSS_Audited itself.  So in this build:")
+        print("  * `mark` must be the step AFTER your final --scores run;")
+        print("  * `infer --apply` likewise;")
+        print("  * any later --scores silently discards both -- keep the CSVs.")
+    set_attributes(store, [cid], before)
+    print("")
+    print("restored CID %s to its previous values" % cid)
+    return 0
+
+
 def cmd_reset(args):
     rows = issues(args.project, args.snapshot)
     cids = [r["cid"] for r in rows
@@ -467,12 +539,21 @@ def cmd_reset(args):
 
 
 def infer_for(rows, unaudited):
+    """Basis: EVERY judged defect in the category, zero-impact ones included.
+
+    Leaving the zeros out was a real bug, caught by running this: in a MISRA
+    snapshot 79 of the 95 judged defects were judged to have no impact, and
+    excluding them made the most common *non-zero* triple look typical, so
+    every unjudged coding-standard violation came out at 7.39 High.  A
+    judgement of "no impact" is a judgement, and in that snapshot it is the
+    overwhelming majority one.  Including it makes the inference say what the
+    vendor's own mapping says about that category."""
     basis = {}
     for r in rows:
         if not r["_audited"]:
             continue
         pred = r.get("_predicted")
-        if not pred or pred["raw"] <= 0:
+        if not pred:
             continue
         m = audit.parse_vector(pred["vector"])
         triple = (m["S"], m["C"], m["I"], m["A"])
@@ -520,6 +601,7 @@ def cmd_infer(args):
     print("")
     applied = []
     declined = 0
+    zeros = 0
     for r, triple, why in proposals:
         if triple is None:
             declined += 1
@@ -529,6 +611,8 @@ def cmd_infer(args):
                   triple[0], triple[1], triple[2], triple[3]))
         raw, spec = audit.base_score(audit.full_metrics(g, {
             "S": triple[0], "C": triple[1], "I": triple[2], "A": triple[3]}))
+        if raw == 0:
+            zeros += 1
         applied.append((r, vec, raw, spec, why))
     for r, vec, raw, spec, why in applied[:40]:
         print("  CID %-7s CWE-%-6s %-22.22s %s  %.2f (%s)"
@@ -540,6 +624,14 @@ def cmd_infer(args):
     print("")
     print("%d proposed, %d declined for want of a basis" % (len(applied),
                                                             declined))
+    if zeros:
+        print("%d of the proposals are themselves zero -- the judged defects "
+              "in that" % zeros)
+        print("category were judged to have no impact, so the inference says "
+              "the same.")
+        print("Applying those changes no score; it records that the zero is "
+              "now a decision")
+        print("by analogy rather than an absence of one.")
     if args.csv:
         with open(args.csv, "w", encoding="utf-8", newline="") as f:
             f.write("cid,checker,cwe,inferred_vector,score,reason\n")
@@ -623,6 +715,8 @@ def main():
             ("infer", cmd_infer, "step 4: propose vectors for the rest"),
             ("report", cmd_report, "step 5: produce the PDF"),
             ("status", cmd_status, "where this project stands"),
+            ("selftest", cmd_selftest,
+             "does this Reports build honour CVSS_Audited? (runs --scores)"),
             ("reset", cmd_reset, "set CVSS_Audited back to No")):
         s = sub.add_parser(name, help=helptext, parents=[common])
         if name == "mark":
