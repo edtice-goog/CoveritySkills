@@ -182,6 +182,28 @@ revert it.
 This is inference and the skill says so everywhere. Keep `inferred.csv`
 with the report; it is the only record of which numbers are guesses.
 
+## When a newer Coverity Reports build arrives
+
+This is the expected case, not an edge case: a later release may map CWEs
+this one does not, turning case (c) into (a) or (b). Because step 3 marked
+the judged defects `Yes`, and `Yes` freezes the vector, they will not be
+rescored until you clear it. The upgrade path is three commands:
+
+```bash
+python3 tools/cvss_run.py reset  --project <p> --snapshot <id>
+python3 tools/cvss_run.py scores --project <p> --config cvss_config.yaml
+python3 tools/cvss_run.py mark   --project <p> --snapshot <id> --graph cwe_childof.json
+```
+
+`reset` sets every `CVSS_Audited` back to `No`, `scores` recomputes against
+the new mapping, and `mark` re-splits. Then diff the new `unjudged.csv`
+against the old one: what disappeared is what the new build now judges.
+
+Do this against the **new** Reports install (`--reports-dir`), and note
+both versions when you report the difference. If you inferred vectors in
+step 4, `reset` discards them too — keep `inferred.csv` so you can tell
+which ones the vendor has since covered and which you still need.
+
 ## Step 5: the report
 
 ```bash
