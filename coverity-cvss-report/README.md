@@ -2,147 +2,116 @@
 
 Part of [CoveritySkills](../README.md).
 
-Runs the Coverity CVSS report the way the documentation says, and then
-audits what it produced. The audit is the part worth having: **every
-defect in a CVSS report carries a CVSS vector, including the ones the
-generator could not score, and the report does not distinguish them.**
+Generates a Coverity CVSS report and tells the reader **which of its scores
+were actually judged.**
 
-## Can you trust the report?
+The generator prices each weakness from its CWE. When it has no mapping for
+a CWE it still writes a vector — a zero one — and the PDF shows that
+exactly like a zero somebody chose. "We assessed this and it is not a
+vulnerability" and "this build had never heard of this CWE" look identical
+on the page. This skill separates them, records the answer where a reader
+will see it, and only then produces the report.
 
-Not one answer — four, and which one you get depends on what analyses the
-project runs. `tools/cvss_profile_audit.py checkers` produces this for the
-install in front of you.
+## The three cases
 
-| What was analyzed | Trust the CVSS scores? |
-|---|---|
-| **C/C++ quality and security defects** | **Yes.** Four populations measured — these fixtures, proftpd, Contiki-NG, subversion — and not one undecided zero among them. Predictions were exact on all 19 defects of one real snapshot and all 22 CWEs of another. |
-| **Coding standards** (MISRA, AUTOSAR, CERT) | **Mostly zeros, and mostly that is right** — they are quality findings, and 79 of 114 zeros in a MISRA run were deliberate. But 35 were not; nobody chose them. Do not read the scorecard as a security statement. |
-| **Web, API, mobile and cloud security** (Sigma, OPENAPI) | **No.** 55 issue types Coverity itself classifies as *security* cannot score at all, whatever CWE they draw — `authentication_bypass`, `man_in_the_middle`, `unencrypted_sensitive_data`, `plaintext_storage_sensitive_data`, `insecure_cookie`, `unrestricted_file_upload`, `jwt_untrusted_decode`, `static_iv`, `MISSING_AUTHZ`. |
-| **Software composition** | **No.** All 2302 `sigma.vulnerable_software` variants carry CWE-1395, which has no node in the generator's CWE graph. Every known-vulnerable-dependency finding scores 0.0. |
-| **The arithmetic itself** | **Almost.** The equations are CVSS v3 as specified; the rounding is not. `Math.round(s*100)/100f` gives 4.91 where the spec's round-up gives 5.0. With the shipped profile only 12 scores are reachable and none crosses a severity boundary, so today it is a conformance defect; a custom profile can make it a severity one. |
+Decided per defect, from the CWE **Coverity Connect** holds for it, against
+**the Coverity Reports install you are running**:
 
-And one process fact that applies to all of them: **the report does not
-mark which zeros were chosen.** The per-issue block in the PDF prints
-severity, score, vector and audited flag, and not the CWE. The distinction
-lives only in the generator's stdout and in the triage attributes.
+| | Meaning | Verdict |
+|---|---|---|
+| **(b) non-zero mapping** | a mapping judged this CWE and gave it impact | the score is the vendor's judgement |
+| **(a) zero mapping** | the CWE has its own entry, no impact | assessed, and assessed as not a vulnerability |
+| **(c) no mapping** | nothing judged this CWE | not assessed; the zero is an artifact of this build |
 
-### Counting it honestly
+Case (a) is the answer to the question customers actually ask. CWE-561,
+563, 570, 398 and 704 — dead code, unused assignment, always-false
+expression, code quality, bad cast — are all in the shipped mapping with
+`C:N/I:N/A:N`. The score is not missing; it is zero on purpose, because a
+quality finding is not a vulnerability.
 
-Of the 502 CWEs some Coverity checker is associated with, 209 resolve to a
-zero nobody chose. That number is worth less than it looks, and it is not
-the one to quote: a defect carries exactly **one** CWE, while the taxonomy
-associates several with each issue type, so an unmapped CWE may be one
-Coverity never actually assigns. CWE-193 is associated with
-`overrun:write` and was never once assigned to it in the runs here.
+Case (c) is the one worth reporting, and the skill writes it into the
+`CVSS_Audited` triage attribute so it is visible in Connect next to the
+score rather than buried in a tool's output.
 
-The denominator-safe question is per issue type: *if every CWE associated
-with this issue type resolves to zero, it cannot score whichever one it
-gets.* That is what the table above rests on, and it is why the security
-row says 55 and 2302 rather than a CWE count.
+## Why the CWE has to come from Connect
 
-## Why a weakness report needs auditing before it becomes a score
+Three versions are in play and none of them has to agree: the Connect
+instance, the Coverity Analysis that produced the snapshot, and the Coverity
+Reports package doing the mapping. So **no checker inventory on the local
+machine describes what a given snapshot carries** — `cov-analyze
+--list-checkers` answers a question about the analyzer in front of you, not
+about the defects in the database.
 
-Coverity finds weaknesses. CVSS prices vulnerabilities. The generator
-bridges the two by assuming every weakness is exploitable and looking up
-impact metrics by CWE — a reasonable thing to want when a compliance
-package needs a number in the column, and the customer's call to make.
+The population is therefore always "the CWEs this snapshot actually has",
+fetched over REST, and the mapping verdict is always attributed to a named
+Reports version. A later Reports release can turn case (c) into (a) or (b)
+with no change on your side; re-running the classification is how you find
+out, which is why this is a tool and not a table.
 
-The part that is not the customer's call is what happens when the lookup
-finds nothing. The documented rule is: the CWE's own entry, else the
-highest-scoring mapped ancestor, else a zero vector. That last clause is
-not an error path anybody sees. It produces a row that looks exactly like
-a deliberate zero.
-
-So the useful question is never "what score did this get" but **"which of
-three things is this zero?"**
+## The workflow
 
 | | |
 |---|---|
-| **Zero by design** | The CWE is in the mapping with `C:N/I:N/A:N`. Someone decided a quality finding is not a vulnerability. Correct, and usually the answer. |
-| **Zero by default** | No entry, no mapped ancestor. The lookup ran out. |
-| **No CWE at all** | Parse warnings and some checkers carry none, so the lookup never runs. |
+| 0 | `cvss_attributes.py setup` — the four `CVSS_*` attributes Connect needs first |
+| 1 | `cvss_run.py config` — write and validate `config.yaml` |
+| 2 | `cvss_run.py scores` — the calculation phase, alone |
+| 3 | `cvss_run.py mark` — the (a)/(b)/(c) split, written to `CVSS_Audited` |
+| 4 | `cvss_run.py infer` — optional, for what step 3 left unjudged |
+| 5 | `cvss_run.py report` — the PDF |
 
-`tools/cvss_profile_audit.py` sorts every CWE into those buckets offline —
-no Connect instance, no project, no defects, just the installed generator.
-Most customer questions about a missing CVSS score are answered in the
-first minute of using it.
+`SKILL.md` has the detail, including the two consequences of marking
+`CVSS_Audited = Yes` and how to undo it.
 
-## What the audit turned up
+## What a real run established
 
-Reading the installed generator (Reports 2025.3.0) and disassembling the
-classes that do the work:
+Two snapshots of the same C fixtures against Connect 2025.12.0 with Reports
+2025.3.0, plus three unrelated projects on the same instance — every
+population read from Connect over REST:
 
-- **The ancestor walk runs on a 2017 snapshot of CWE.** The graph has 1040
-  nodes and its highest weakness id is 1039; the XML schema package is
-  literally named `cwe2017`. **49 of the CWEs Coverity checkers map to
-  have no node in it at all**, so they cannot inherit from anything.
-  Among them is `CWE-1395 Dependency on Vulnerable Third-Party
-  Component` — 2302 checkers. A known-vulnerable-dependency finding
-  scores 0.0 in the report whose subject is vulnerabilities.
-- **`findAncestors` follows `ChildOf` edges only**, which the
-  documentation does not say. Category membership is not ancestry here, so
-  the real gap is larger than a naive reading of the docs predicts (209
-  rather than 190).
-- **The zero vector is a hardcoded string**, not built from the profile's
-  own `AV`/`AC`/`PR`/`UI`. A custom profile setting `AV:L` still emits
-  `AV:N` on every unmapped row.
+- **The offline classification was exact.** Every CWE, vector, score and
+  severity matched on all 19 defects of one snapshot and all 22 CWEs of
+  another.
+- **Ordinary C/C++ analysis had no case (c) at all** — these fixtures,
+  proftpd, Contiki-NG and subversion, 12 to 13 CWEs each.
+- **The same fixtures under MISRA C 2012 did**: 114 of 130 issues scored
+  0.0, of which 79 were case (a) and **35 were case (c)**, over 8 CWEs
+  (1177, 691, 664, 1164, 1076, 682, 696, 908). The generator says so itself
+  in its stdout: *"Assigning a CVSS vector whose CVSS score is zero, as
+  corresponding cwe: 'Optional[1164]' isn't available in either profile or
+  master cwe - cvss mappings json file"*.
 - **`CVSS_Score` is not a conforming CVSS score.** The generator computes
-  `Math.round(score * 100) / 100.0f`; CVSS v3.0 and v3.1 both specify
-  rounding *up* to one decimal. The mapped CWE-190 entry reports **4.91**
-  where a conforming calculator says **5.0**. With the master profile's
-  fixed exploitability metrics only 12 scores are reachable and none of
-  them crosses a severity boundary, so this is a conformance defect rather
-  than a severity one — but a custom profile can reach scores where it is
-  both.
-- **The mapping is not monotone down the hierarchy.** CWE-125
-  (out-of-bounds read) has its own entry worth 4.25 while its children 126
-  and 127 have none and inherit 7.39 from CWE-119 — the more specific
-  finding scores higher than the general one.
-- **One thing that looked worse than it is.** The taxonomy lists several
-  CWEs per issue type — `overrun:write` under CWE-119, 121, 122, 123, 124
-  *and* 193, whose scores range from 7.39 to 0.00 — which reads like the
-  same checker might score anything. Across 149 observed issues it did
-  not: each issue type carried one stable CWE, and where a checker spans
-  CWEs the subcategory decides it (`OVERRUN` write → 119, read → 125). The
-  many-to-many listing is a weaker signal than it appears, and it is
-  recorded that way rather than kept as the scarier version.
+  `Math.round(s*100)/100f`; CVSS v3.0 and v3.1 both specify rounding *up*
+  to one decimal. CWE-190 is reported as **4.91** where a conforming
+  calculator says **5.0**. With the shipped mapping only 12 scores are
+  reachable and none crosses a severity boundary, so this is a conformance
+  defect rather than a severity one; a custom profile can make it both.
+- **The ancestor walk runs on a 2017 snapshot of CWE** — 1040 nodes, top
+  weakness id 1039 — and follows `ChildOf` edges only, which the
+  documentation does not say. That is the mechanism behind most case (c).
+- **The PDF does not print the CWE**, so the distinction cannot be
+  recovered from the report itself. It lives in the generator's stdout and
+  in the triage attributes.
 
-Every prediction above was checked against a real run: 19 defects in one
-snapshot and 130 in another, CWE, vector, score and severity each time.
-The audit was exact on all of them.
-
-`references/cvss-report-mechanics.md` has the evidence for each.
-
-## The usual customer question
-
-*"Certain CWEs don't get a CVSS score."* Usually those are CWE-561, 563,
-570, 398 and 704 — dead code, unused assignment, always-false expression,
-code quality, bad cast — showing `None` and `0` in a DISA-STIG severity
-report.
-
-They are all in the master profile, mapped to `C:N/I:N/A:N` on purpose.
-The score is not missing; it is zero because a quality finding is not a
-vulnerability. That is the answer, it is a good one, and a profile entry
-overrides it per project if the customer disagrees. The zeros worth
-escalating are the other kind, and the audit tells you which is which.
+`CALIBRATION.md` records what was measured, what is derived, and which
+earlier claims were withdrawn.
 
 ## What it deliberately does not do
 
-It does not generate a `<security-profile>.json`. The audit says which
-CWEs are unscored; deciding what they are worth is a security team's
-judgement, and a profile is a durable artifact that silently overrides the
-master on every future run — including for mappings the vendor later
-fixes. A generated one would be a guess wearing the costume of a policy.
+It does not write a `<security-profile>.json`. A profile silently overrides
+the master mapping on every future run, including for CWEs the vendor later
+fixes, and makes whoever shipped it answerable for every score in it. Step 4
+fills gaps per defect instead, where they are visible and reversible.
 
 ## Layout
 
 | Path | What it is |
 |---|---|
-| `SKILL.md` | the procedure: audit, stand up, run, re-audit, answer |
-| `references/cvss-report-mechanics.md` | how the score is really computed, with provenance |
-| `tools/cvss_profile_audit.py` | `graph`, `audit`, `resolve`, `verify`, `score` |
-| `tools/CweGraphDump.java` | dumps the generator's real `ChildOf` graph |
+| `SKILL.md` | the workflow, step by step |
+| `tools/cvss_run.py` | `config`, `scores`, `mark`, `infer`, `report`, `status`, `reset` |
 | `tools/cvss_attributes.py` | creates the four triage attributes Connect needs first |
 | `tools/cvss_issue_export.py` | exports a project's CWEs, which the generator's own dump omits |
-| `evals/fixtures/*.c` | sample defects: scored, zero-by-design, and the gap cases |
-| `CALIBRATION.md` | what was run, on what, and what is reasoned rather than measured |
+| `tools/cvss_profile_audit.py` | analysis layer: `graph`, `audit`, `resolve`, `verify`, `score` |
+| `tools/CweGraphDump.java` | dumps the generator's real `ChildOf` graph |
+| `references/cvss-report-mechanics.md` | how the score is really computed, with provenance |
+| `evals/fixtures/*.c` | sample defects spanning all three cases |
+| `CALIBRATION.md` | what was run, what is reasoned, what was withdrawn |

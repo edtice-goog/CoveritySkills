@@ -11,9 +11,16 @@ documented lookup (cov_reports_guide, "CVSS report profile"):
     5. a vector whose score is zero.
 
 Every defect therefore gets a vector; the question is whether it gets a
-*meaningful* one.  This tool runs that lookup offline, for every CWE the
-installed generator knows a Coverity checker for (or for the CWEs actually
-observed in a run, with --issues), and classifies each zero result by cause.
+*meaningful* one.  This tool runs that lookup offline and classifies each
+zero result by cause.
+
+**Point it at a real snapshot.**  The Coverity Connect version, the
+Coverity Analysis version that produced the defects, and any local Coverity
+install can all differ, so no checker inventory on this machine describes
+what CWEs a given snapshot actually carries.  Get those from Connect over
+REST (`cvss_issue_export.py`) and pass them with --issues.  Run without
+--issues only to inventory the mapping itself, and do not read that as a
+finding about anyone's project.
 
 A zero is not automatically a bug.  Quality CWEs are mapped to C:N/I:N/A:N
 deliberately -- a dead-code finding is not a vulnerability, and scoring it as
@@ -27,10 +34,10 @@ and the second class is the one worth escalating, because it is silent: the
 report shows a vector and a score for it like any other row.
 
     graph       dump the generator's real ancestor graph (needs a JDK)
-    audit       classify every CWE; print the gap report
-    checkers    which of Coverity's findings can be scored at all, by
-                Quality/Security -- the denominator-safe view, and the one
-                to answer "can we trust this report" with
+    audit       classify CWEs against the mapping.  With --issues, the
+                CWEs a real snapshot carries -- the only sound population.
+                Without it, an inventory of the mapping itself, which is
+                NOT a statement about any project.
     resolve     explain the lookup for particular CWEs, step by step
     verify      check a finished run's own scores against the specification
     score       compute the CVSS base score of a vector (spec vs. reported)
@@ -548,8 +555,12 @@ def cmd_audit(args):
     else:
         observed = {}
         population = tax.cwes_with_checkers()
-        origin = ("%d CWE(s) with a Coverity checker in the generator's own "
-                  "taxonomy" % len(population))
+        origin = ("%d CWE(s) the generator's own taxonomy associates with "
+                  "some checker" % len(population))
+        origin += ("\n                 -- AN INVENTORY OF THE MAPPING, NOT A"
+                   " FINDING ABOUT ANY PROJECT."
+                   "\n                 Pass --issues with a REST export to"
+                   " ask about a real snapshot.")
 
     rows = [resolve(c, master, user, tax, graph) for c in population]
 
@@ -660,112 +671,6 @@ def cmd_score(args):
     return 0
 
 
-def cmd_checkers(args):
-    """Which of Coverity's own findings can be scored at all.
-
-    `audit` counts CWEs, and a CWE is only a problem if Coverity can
-    actually put it on a defect.  It cannot always: an issue type is
-    associated with several CWEs in the taxonomy but a defect carries
-    exactly one, so an unmapped CWE may simply never be assigned.  Counting
-    those inflates the gap.
-
-    This asks the question the other way round, per issue type, so the
-    answer does not depend on knowing which CWE Connect picks:
-
-        if EVERY CWE associated with an issue type resolves to zero, that
-        issue type cannot score, whichever one it gets.
-
-    and splits the result by Coverity's own Quality/Security
-    classification, because a quality finding scoring zero is the intended
-    behaviour and a security finding scoring zero is not.
-    """
-    master, tax = load_install(args.reports_dir)
-    user = Profile(args.profile) if args.profile else None
-    graph = build_graph(args, tax)
-
-    with zipfile.ZipFile(tax.jar_path) as z:
-        kinds = json.loads(z.read("unresolved/issue-kind.json"))
-    kind_of = {}
-    for t in kinds["taxa"]:
-        for it in t.get("issue-types", []):
-            kind_of[it] = t["id"]
-
-    it2cwe = {}
-    for t in tax.taxa.values():
-        if not t["id"].isdigit():
-            continue
-        for it in t.get("issue-types", []):
-            it2cwe.setdefault(it, []).append(t["id"])
-
-    cls = {}
-    for c in set(c for v in it2cwe.values() for c in v):
-        cls[c] = resolve(c, master, user, tax, graph)["class"]
-    zero_default = set([ORPHAN, UNKNOWN, INHERIT_ZERO])
-    zero_any = zero_default | set([DESIGN])
-
-    counts = {}
-    unscorable = {}
-    for it, cwes in it2cwe.items():
-        kind = kind_of.get(it, "unclassified")
-        seen = set(cls[c] for c in cwes)
-        if seen <= zero_default:
-            verdict = "cannot score, nobody decided that"
-            unscorable.setdefault(kind, []).append((it, cwes))
-        elif seen <= zero_any:
-            verdict = "cannot score, at least one decided zero"
-        else:
-            verdict = "can score"
-        counts[(kind, verdict)] = counts.get((kind, verdict), 0) + 1
-
-    print("Scoreability by issue type")
-    print("  generator : %s" % args.reports_dir)
-    if graph.approximate:
-        print("  ancestors : APPROXIMATED -- pass --graph for the real edges")
-    print("  %d issue type(s) carry a CWE in the taxonomy" % len(it2cwe))
-    print("")
-    for kind in ("security", "quality", "license", "unclassified"):
-        rows = [(v, n) for (k, v), n in counts.items() if k == kind]
-        if not rows:
-            continue
-        print("  %s" % kind)
-        for v, n in sorted(rows, key=lambda r: -r[1]):
-            print("    %-42s %d" % (v, n))
-    print("")
-
-    sec = unscorable.get("security", [])
-    if not sec:
-        print("No security issue type is unscoreable by accident.")
-        return 0
-    print("SECURITY issue types that cannot score, with nobody having "
-          "decided so: %d" % len(sec))
-    print("These are the ones to escalate: Coverity calls them security "
-          "findings, and")
-    print("the report prices them at 0.0 whatever CWE they are given.")
-    print("")
-    by_cwe = {}
-    for it, cwes in sec:
-        by_cwe.setdefault(tuple(sorted(cwes, key=int)), []).append(it)
-    for cwes, its in sorted(by_cwe.items(), key=lambda kv: -len(kv[1])):
-        label = ",".join("CWE-" + c for c in cwes)
-        fams = {}
-        for i in its:
-            f = i.split(":")[0].split("|")[0]
-            fams[f] = fams.get(f, 0) + 1
-        top = ", ".join("%s(%d)" % (f, n) for f, n in
-                        sorted(fams.items(), key=lambda kv: -kv[1])[:3])
-        print("  %-22s %5d issue type(s)  %s" % (label, len(its), top))
-    if args.csv:
-        with open(args.csv, "w", encoding="utf-8", newline="") as f:
-            f.write("kind,issue_type,cwes,verdict\n")
-            for kind, rows in unscorable.items():
-                for it, cwes in sorted(rows):
-                    f.write('%s,"%s","%s",cannot score - nobody decided\n'
-                            % (kind, it, " ".join(cwes)))
-        print("")
-        print("wrote %s" % args.csv)
-    return 0
-
-
 def cmd_verify(args):
     """Check what a run actually wrote, from its WRITE_ISSUES_JSON dump.
 
@@ -862,13 +767,6 @@ def main():
     r.add_argument("--profile")
     r.add_argument("--graph", help="graph from the `graph` subcommand")
     r.set_defaults(func=cmd_resolve)
-
-    c = sub.add_parser("checkers", help="which of Coverity's own findings "
-                                        "can be scored at all")
-    c.add_argument("--profile", help="user <security-profile>.json, if any")
-    c.add_argument("--graph", help="graph from the `graph` subcommand")
-    c.add_argument("--csv", help="write the unscoreable issue types here")
-    c.set_defaults(func=cmd_checkers)
 
     v = sub.add_parser("verify", help="check a run's own scores against the "
                                       "CVSS specification")

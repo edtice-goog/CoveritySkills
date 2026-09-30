@@ -1,22 +1,19 @@
 ---
 name: coverity-cvss-report
 description: >
-  Run the Coverity CVSS report the way the documentation says, then audit
-  what it produced -- because some of its rows carry a CVSS vector that
-  nobody chose, and the report does not mark them. Use this skill for "generate a
-  CVSS report", "score our Coverity findings", "why does this CWE have no
-  CVSS score", "why is this issue scored 0", "why is the CVSS column
-  empty", "set up cov-generate-cvss-report", "create the CVSS triage
-  attributes", "our DISA-STIG report shows CVSS_Severity None", "should we
-  write a CVSS profile", and for the question underneath all of them:
-  whether a Coverity weakness deserves the vulnerability score somebody is
-  about to put in front of an auditor. Coverity finds weaknesses, not
-  vulnerabilities, and the CVSS report prices every weakness as if it were
-  exploitable; this skill separates the zeros that were decided (quality
-  CWEs, mapped to no impact on purpose -- the usual answer) from the zeros
-  that fell out of a lookup running off the end of a CWE graph frozen in
-  2017. The audit runs offline against the installed generator and needs
-  no Connect instance; generating the report itself needs Connect, the
+  Generate a Coverity CVSS report and tell the reader which of its scores
+  were actually judged. Use this skill for "generate a CVSS report", "score
+  our Coverity findings with CVSS", "set up cov-generate-cvss-report",
+  "create the CVSS triage attributes", "why does this CWE have no CVSS
+  score", "why is this issue scored 0", "why is CVSS_Severity None", "our
+  DISA-STIG report shows no CVSS score", and "can I trust these CVSS
+  numbers". Coverity finds weaknesses, not vulnerabilities; the report
+  prices every weakness by its CWE, and when it has no mapping for a CWE it
+  writes a zero that looks exactly like a deliberate one. This skill runs
+  the calculation phase first, sorts every defect into (a) a zero mapping
+  somebody chose, (b) a non-zero mapping, or (c) NO mapping -- a zero by
+  accident -- records that in the CVSS_Audited attribute so it is visible in
+  Connect, and only then produces the PDF. Needs Coverity Connect, the
   Coverity Reports package, and four custom triage attributes that must
   exist before the first run. Note that --scores WRITES triage attributes
   onto every matching defect in the project.
@@ -24,309 +21,217 @@ description: >
 
 # Coverity CVSS report
 
-Coverity reports **weaknesses**. CVSS scores **vulnerabilities**. The CVSS
-report generator bridges the two by assuming every weakness is an
-exploitable vulnerability and pricing it from its CWE. That assumption is
-the customer's to make, and plenty of them have good reasons to make it —
-a compliance package wants a number in the column.
+Coverity reports **weaknesses**. CVSS scores **vulnerabilities**. The
+report generator bridges the two by pricing each weakness from its CWE —
+reasonable when a compliance package needs a number in the column, and the
+customer's call to make.
 
-What this skill exists for is the second half: **checking what the number
-means before anyone signs it.** Every defect in a CVSS report gets a
-vector, including the ones the generator could not score, and the report
-does not distinguish them. Auditing that is quick and runs offline.
+The problem this skill solves is narrower and entirely mechanical. **When
+the generator has no mapping for a CWE it still writes a vector**, a zero
+one, and the PDF shows it exactly like a zero somebody chose. So a reader
+cannot tell "we assessed this and it is not a vulnerability" from "this
+build of the report generator had never heard of this CWE". This skill
+makes that difference visible before anyone signs the report.
 
-**Whether the report can be trusted depends entirely on what was
-analyzed**, and the spread is wide enough that guessing is not good enough:
+Read `coverity/RULES.md` first (rules 3 and 26 carry the weight here).
 
-| What was analyzed | Trust the scores? |
-|---|---|
-| C/C++ quality and security defects | **Yes** — four populations measured, no undecided zero in any |
-| Coding standards (MISRA, AUTOSAR, CERT) | Mostly zeros, mostly correctly; 35 of 114 zeros in a MISRA run were nobody's decision |
-| Web/API/mobile/cloud security (Sigma, OPENAPI) | **No** — 55 issue types Coverity calls *security* cannot score at all |
-| Software composition | **No** — all 2302 `sigma.vulnerable_software` variants score 0.0 |
-| The arithmetic | Correct CVSS v3, rounded wrongly: 4.91 where the spec says 5.0 |
+## The three cases
 
-Establish which row you are in before telling anyone their report is fine
-or that it is not. Step 1 does that in two commands.
+Every defect in the report is one of these, decided by its CWE:
 
-Read `coverity/RULES.md` first (rules 26 and 30 carry most of the weight
-here).
-
-**This skill is standalone** — it needs no other skill in the bundle. It
-does need a Coverity Reports install to read, and, for anything past Step
-2, a Coverity Connect instance you are permitted to write to.
-
-## The one thing to get right
-
-`cov-generate-cvss-report --scores` is a **write** against Connect. It
-sets `CVSS_Vector`, `CVSS_Score` and `CVSS_Severity` on **every defect in
-the project** whose `CVSS_Audited` is not `Yes` — including the ones it
-could not score, which get a hardcoded zero vector. There is no dry-run
-option and no per-CWE opt-out. The only protection is per-defect, applied
-afterwards, by setting `CVSS_Audited` to `Yes`.
-
-So: **do the offline audit first** (Step 1). It tells you what the run
-will write, for the whole CWE population, without touching the instance.
-Deciding to run `--scores` on a production project before knowing that is
-the mistake this skill is built to prevent.
-
-## Step 1: Audit the mapping, offline
-
-No Connect, no project, no defects. Just the installed generator.
-
-```bash
-python3 tools/cvss_profile_audit.py graph --out cwe_childof.json
-python3 tools/cvss_profile_audit.py audit --graph cwe_childof.json --csv mapping.csv
-```
-
-`graph` compiles and runs `tools/CweGraphDump.java` against the
-generator's own jars to dump the CWE ancestor graph it really walks. It
-needs a JDK; a Coverity Analysis install ships one under `jdk*/` and the
-tool finds it. **Do not skip it.** Without `--graph` the audit approximates
-the ancestor walk from the checker taxonomy, whose parent links include
-category membership that the generator does not traverse — which
-*under-reports* the gap (190 rather than 209 on the 2025.3.0 install).
-
-`audit` classifies every CWE a Coverity checker can assign into six
-buckets. Three of them are zeros, and the distinction between them is the
-entire point:
-
-Note what the population is: **every** checker in the taxonomy, including
-the MISRA, AUTOSAR, CERT and Sigma families that most projects never
-enable. Treat the totals as a ceiling, not as a prediction for a
-particular codebase. Measured, the difference is large: four ordinary
-C/C++ projects showed **no gap at all**, while the same fixtures
-re-analyzed under MISRA C 2012 put **35 of 130 issues** on a zero nobody
-chose. Step 4 narrows the audit to the CWEs a project really produced, and
-that is the number to quote.
-
-| Bucket | Meaning | What to tell a customer |
+| | Meaning | What to tell the reader |
 |---|---|---|
-| `ZERO-BY-DESIGN` | in a profile, `C:N/I:N/A:N` | Working as intended. A quality finding is not a vulnerability. |
-| `ZERO-BY-DEFAULT (inherited from a zero-impact ancestor)` | no entry; nearest mapped ancestor is itself zero | Nobody decided this one. |
-| `ZERO-BY-DEFAULT (CWE has no node in the ancestor graph)` | the CWE postdates the generator's 2017 CWE snapshot | A product gap. Escalate it. |
+| **(b) non-zero mapping** | A mapping judged this CWE and gave it impact. | The score is the vendor's judgement. Use it. |
+| **(a) zero mapping** | The CWE has its own entry with no impact — a quality weakness. | Assessed, and assessed as not a vulnerability. This is the usual answer when a customer asks why CWE-561, 563, 570, 398 or 704 scored zero. |
+| **(c) no mapping** | Nothing judged this CWE. The zero is an artifact of this build. | Not assessed. Say so, or fill it in deliberately (step 4). |
 
-Then the question that decides trust, which is not a CWE count:
+A defect Connect gave **no CWE at all** — parse warnings, some checkers —
+is a fourth, smaller case: no lookup runs and the hardcoded zero vector is
+written. That is the blank-CWE row with a populated vector beside it.
 
-```bash
-python3 tools/cvss_profile_audit.py checkers --graph cwe_childof.json
-```
+## Where the CWE must come from, and why it matters
 
-`audit` counts CWEs, and **a CWE is only a problem if Coverity can actually
-put it on a defect.** It often cannot: the taxonomy associates several CWEs
-with each issue type while a defect carries exactly one, so an unmapped CWE
-may be one that is never assigned. CWE-193 is associated with
-`overrun:write` and was never assigned to it in any run here. Quoting a raw
-CWE count therefore overstates the problem.
+**Get the CWE from Coverity Connect over REST.** Not from a local checker
+list, not from `cov-analyze --list-checkers`, not from the report
+generator's own taxonomy.
 
-`checkers` asks it per issue type instead, which needs no knowledge of
-Connect's choice: *if every CWE associated with this issue type resolves to
-zero, it cannot score whichever one it gets.* It then splits the answer by
-Coverity's own Quality/Security classification, because a quality finding
-scoring zero is the intended behaviour and a security finding scoring zero
-is not. The security rows are what you escalate.
+Three versions are in play and none of them has to agree with the others:
+the Connect instance, the Coverity Analysis that produced the snapshot, and
+the Coverity Reports package doing the mapping. A checker inventory on the
+machine you happen to be standing on describes none of them reliably. The
+CWE that will be looked up is the one Connect holds for that defect, so
+that is the one to ask about — `tools/cvss_issue_export.py`, or
+`cvss_run.py`, which does it for you.
 
-Then, for the specific CWEs in the question:
+The same reasoning applies to the mapping: classify against **the Reports
+install you are actually running**, and record its version with the result.
+A later Coverity Reports release may map CWEs that this one does not, which
+turns case (c) into (a) or (b) with no change on your side. Re-running the
+classification against the new build is how you find out.
 
-```bash
-python3 tools/cvss_profile_audit.py resolve 561 563 570 398 704 --graph cwe_childof.json
-```
+## Step 0: the four attributes
 
-which prints the lookup step by step — which map was consulted, whether an
-ancestor was used and which one, the resulting vector, and the score both
-as the generator reports it and as the CVSS specification computes it.
-
-`references/cvss-report-mechanics.md` is the map of why any of this is so:
-the lookup as implemented, the three CWE datasets and their three
-vintages, the rounding, and the checkers whose several CWEs score
-differently from one another.
-
-## Step 2: Stand the report up
-
-Only past here do you need Connect.
-
-**2a. Get a generator that matches.** The Reports package installs
-separately from Connect and versions independently. Connect ships the
-matching installer at
-`<connect>/server/base/webapps/downloads/cov-reports-{win64,linux64}-<version>.{exe,sh}`,
-which is usually easier than the Downloads page. Install side by side
-rather than over the top — the mapping file and the CWE graph are what you
-are auditing, so keeping two versions lets you diff them:
+They must exist in Connect before the first run, spelled exactly:
+`CVSS_Audited`, `CVSS_Score`, `CVSS_Severity`, `CVSS_Vector`.
 
 ```bash
-cov-reports-win64-<version>.exe -q -dir C:/Coverity/cov-reports-win64-<version>
+python3 tools/cvss_attributes.py setup
 ```
 
-Audit the new install before using it (Step 1 again, `--reports-dir`). A
-version bump can move the mapping without announcing it.
+Idempotent, so it is safe against an instance that already has some. It
+uses `createAttribute` on the v9 SOAP configuration service, because
+nothing else can: `cov-manage-im` sets attribute *values* on defects, not
+definitions, and REST exposes only the built-in checker attributes. The
+accepted `attributeType` spellings are `STRING` and `LIST_OF_VALUES`.
 
-**2b. Create the four triage attributes**, in Connect, before the first
-run: Configuration → Attributes.
+Credentials come from `COV_USER` and `COVERITY_PASSPHRASE_FILE` throughout.
+Never put a password on a command line (rule 3).
 
-| Attribute | Type | Values |
-|---|---|---|
-| `CVSS_Audited` | pick list | `No` (default), `Yes` |
-| `CVSS_Score` | text | — |
-| `CVSS_Severity` | pick list | `None`, `Low`, `Medium`, `High`, `Critical` |
-| `CVSS_Vector` | text | — |
-
-The names are exact and case-sensitive. If they are missing the run fails
-against the instance rather than silently skipping them.
-
-`cov-manage-im` cannot do this — it sets attribute *values* on defects,
-not attribute *definitions* — and REST does not expose it either
-(`/api/v2/checkerAttributes` returns only `displayType`,
-`displayCategory`, `checker`). The scriptable route is `createAttribute`
-on the v9 SOAP configuration service
-(`http://<host>:<port>/ws/v9/configurationservice`, WS-Security
-UsernameToken), with:
-
-- `attributeType` **`STRING`** for `CVSS_Score` and `CVSS_Vector`
-- `attributeType` **`LIST_OF_VALUES`** with an `attributeValueChangeSpec`
-  of `attributeValues` and a `defaultValue` for `CVSS_Severity`
-  (`None,Low,Medium,High,Critical`, default `None`) and `CVSS_Audited`
-  (`No,Yes`, default `No`)
-- `showInTriage: true`, or they will not appear in the triage pane
-
-`tools/cvss_attributes.py setup` does exactly this and is idempotent, so it
-is safe to re-run against an instance that already has some of them.
-
-Those two spellings are the ones that work. The reports guide says
-"LIST_OF_VALUES" in prose and the SDK's own type names are lowercase; the
-accepted values are the ones in the platform API reference's "Attribute
-type (attributeType)" table. Otherwise the GUI is four dialogs.
-
-**2c. Write `config.yaml`.** Copy the template from the install's
-`config/`. Mandatory keys are `version:schema-version`, `connection:url`,
-`connection:username`, `project`, and on the title page `company-name`,
-`organizational-unit-name`, `organizational-unit-term`, `prepared-by`,
-`prepared-for`, `project-version`, `project-contact-email`. `snapshot-id`
-pins the run to one snapshot, which is what you want for anything you
-intend to reproduce.
-
-## Step 3: Run it, capturing what it saw
-
-Set `WRITE_ISSUES_JSON` before the run. It costs nothing and it is the
-only record of which CWE each defect actually carried:
+## Step 1: the configuration file
 
 ```bash
-export WRITE_ISSUES_JSON=issues.json
-bin/cov-generate-cvss-report --password <spec> --project <project> --scores config/config.yaml
-bin/cov-generate-cvss-report --password <spec> --project <project> --report --output cvss.pdf config/config.yaml
+python3 tools/cvss_run.py config --project <p> --snapshot <id> \
+    --company-name "..." --org-unit "..." --org-term Division \
+    --prepared-by "..." --prepared-for "..." --email you@yourdomain.com \
+    --out cvss_config.yaml
 ```
 
-Run `--scores` and `--report` as separate invocations the first time, so
-that if the scoring writes something you did not expect you have not also
-produced a report asserting it. Once the mapping is settled, the guide's
-recommendation to combine them is fine.
+Every field it asks for is mandatory *to the generator*, which refuses the
+file rather than defaulting. Two traps it checks for you:
 
-**Keep the run's output.** The generator names every defect it could not
-score, and says which of the two reasons applies:
+- **`project-contact-email` is validated with commons-validator**, which
+  checks the top-level domain. `nobody@example.invalid` is rejected and the
+  error only says "was not a valid email". `example.com` validates.
+- **`snapshot-id` is what makes the run reproducible.** Without it the
+  report follows each stream's latest snapshot, so the same command gives a
+  different report next week. The tool warns if you leave it out.
 
-```
-Assigning a CVSS vector whose CVSS score is zero, for defect:
-  Optional[13702] as there isn't any cwe associated for this defect.
-Assigning a CVSS vector whose CVSS score is zero, as corresponding cwe:
-  "Optional[1164]" isn't available in either profile or master cwe - cvss
-  mappings json file
-```
+## Step 2: the calculation phase
 
-That is the gap report coming from the product itself, per defect. It goes
-to stdout, so tee it -- it is the only place the distinction appears. The
-PDF's per-issue block prints `CVSS Severity`, `CVSS Score`, `CVSS Vector`
-and `CVSS Audited` and **does not print the CWE at all**, so a zero that
-was chosen and a zero that fell out of the lookup are identical on the
-page. The scorecard's "Additional Quality Measures" table does not help
-either: it counts only issues marked False Positive or Intentional.
-
-Two things that will bite on the first run: `project-contact-email` is
-validated as an email address, so a `.invalid` placeholder is rejected;
-and `snapshot-id` is what makes a run reproducible, since without it the
-report follows each stream's latest snapshot.
-
-Rule 3 applies to the auth key: use `--password` with a key file or
-`--auth-key-file`, never a password on the command line, and never connect
-to a host named inside a key you were handed.
-
-## Step 4: Audit the run against the project
+The generator runs in two phases and they are separate invocations. Do the
+calculation alone first, so that if it writes something unexpected you have
+not also produced a report asserting it.
 
 ```bash
-python3 tools/cvss_profile_audit.py verify issues.json
-python3 tools/cvss_profile_audit.py audit --graph cwe_childof.json --issues rest_export.json
+python3 tools/cvss_run.py scores --project <p> --config cvss_config.yaml \
+    --issues-json issues.json
 ```
 
-`verify` takes the generator's own `WRITE_ISSUES_JSON` and recomputes each
-score from the vector beside it, so the rounding shows up on your data
-rather than as a claim in a document.
+This is `cov-generate-cvss-report --scores`. It **writes** `CVSS_Vector`,
+`CVSS_Score` and `CVSS_Severity` onto every defect in the project whose
+`CVSS_Audited` is not `Yes`. There is no dry run. Keep its stdout: it names
+each defect it could not score and says which of the two reasons applied.
 
-`audit --issues` needs a **REST export**, not that file —
-`tools/cvss_issue_export.py <project>` with `COV_SNAPSHOT` set produces
-one. `WRITE_ISSUES_JSON`
-drops the CWE: `optCweId` serializes as `{"empty": false, "present":
-true}`, the Optional's bean properties without the value. Get the CWEs from
-`POST /api/v2/issues/search` with the `cwe` column, and note two things
-about that API — the custom attributes are keyed
-`column_custom_CVSS_Score`, `column_custom_CVSS_Vector` and so on, and
-`snapshotScope.show.scope: "last"` returns nothing, so pass the snapshot
-id. (`cov-manage-im --mode defects` has no CWE field at all.)
+## Step 3: mark what was actually judged
 
-With `--issues` the population narrows from "every CWE Coverity could
-assign" to "the CWEs this project actually produced", and the counts become
-the customer's counts. That is the number to put in front of somebody: *of
-the N issues in this report, M carry a score that no mapping chose*.
+```bash
+python3 tools/cvss_run.py mark --project <p> --snapshot <id> \
+    --graph cwe_childof.json --csv unjudged.csv
+```
 
-Then cross-check a handful by hand in Connect — rule 26. Pick one from each
-bucket, look at `CVSS_Vector` on the defect, and confirm it is what the
-audit predicted. If it is not, the mapping in the install is not the one
-you audited.
+For each defect it takes the CWE from Connect, runs the generator's own
+documented lookup against the installed mapping, and sets **`CVSS_Audited`
+= `Yes`** for cases (a) and (b) — a mapping judged that CWE. Case (c) is
+**left `No`**.
 
-## Step 5: Answer the question that was actually asked
+That is the whole point: afterwards, a reader in Connect can sort on
+`CVSS_Audited` and see immediately which scores were assessed and which
+were not. It prints the (a)/(b)/(c) split with issue counts, and `--csv`
+lists every case (c) defect with its CWE and checker.
 
-For "CWE-X gets no CVSS score", the answer is one of three, and Step 1
-already told you which:
+**Two consequences to understand before running it.**
 
-1. **It is scored, at zero, deliberately.** The common case, and the one
-   behind the usual customer complaint: CWE-561, 563, 570, 398 and 704 are
-   all in the master profile with no impact. Dead code, an unused
-   assignment, an always-false expression, a code-quality finding, a bad
-   cast — none of them is a vulnerability, so the score is zero and that
-   is correct. Say so plainly, and point at the override: a profile entry
-   for that CWE changes it, per project, without touching the master file.
-2. **The lookup ran out.** No entry, no mapped ancestor. Worth reporting
-   as a gap, with the CWE and the checkers that produce it.
-3. **The CWE is newer than the generator's CWE graph.** The graph tops out
-   at weakness id 1039. Report this one loudly if the project produces any
-   of the 49 affected CWEs — `CWE-1395 Dependency on Vulnerable
-   Third-Party Component` is among them, and a known-vulnerable-dependency
-   finding scoring 0.0 in a vulnerability report is the example that makes
-   the problem legible.
+`CVSS_Audited = Yes` stops the generator updating that defect's vector on
+every later run. For an inferred vector that is exactly what you want. For
+a vendor-mapped one it means the defect will **not** pick up an improved
+mapping from a future Reports release. If that matters more than the
+at-a-glance view, `--audited inferred-only` marks nothing here and leaves
+every vendor mapping live; `reset` undoes either.
 
-**Ask what analyses they run before deciding which of these you are
-looking at.** Measured here: four ordinary C/C++ projects produced no
-zero-by-default rows at all, so on plain quality-and-security work the
-answer is almost always (1) and the customer should be told their report is
-fine. Turn on MISRA and it changes completely — 35 of 130 issues on
-zero-by-default, because the CWEs that coding standards, software
-composition and IaC checkers carry are exactly the ones that postdate the
-generator's CWE data. Same code, same mapping, different answer.
+The `Yes` is also a claim. It says a mapping judged this CWE — not that a
+human reviewed this defect. Say which you mean when you hand the report
+over.
 
-And if the row has **no CWE at all** — parse warnings, some checkers — the
-generator never runs the lookup; it writes the zero vector directly. A
-blank CWE column beside a populated vector column is that, not a bug in
-the display.
+## Step 4: the choice, which is the user's
+
+If step 3 left nothing `No`, go to step 5.
+
+If it did, the person who owns the report decides between:
+
+**(a) Run the report as it stands.** The zeros stay. You have
+`unjudged.csv` to say exactly which findings nobody assessed and why. This
+is the honest default and usually the right one — particularly if a newer
+Reports release is coming, since it will map some of them for you.
+
+**(b) Infer vectors for them.**
+
+```bash
+python3 tools/cvss_run.py infer --project <p> --snapshot <id> \
+    --graph cwe_childof.json --csv inferred.csv        # review first
+python3 tools/cvss_run.py infer ... --apply            # then write
+```
+
+The rule is deliberately narrow and stays inside Coverity's own frame of
+reference: **score an unjudged defect like the judged defects Coverity
+files under the same category in this same snapshot**, ties going to the
+lower score. Where the snapshot gives no basis, it declines rather than
+inventing a number. Nothing is written without `--apply`, and what it
+writes is marked `CVSS_Audited = Yes` so the next `--scores` run does not
+revert it.
+
+This is inference and the skill says so everywhere. Keep `inferred.csv`
+with the report; it is the only record of which numbers are guesses.
+
+## Step 5: the report
+
+```bash
+python3 tools/cvss_run.py report --project <p> --config cvss_config.yaml \
+    --output cvss.pdf
+```
+
+## What to hand over with the PDF
+
+The PDF alone does not carry the distinction — its per-issue block prints
+severity, score, vector and audited flag, and **not the CWE**. So send:
+
+- the PDF,
+- `unjudged.csv` (and `inferred.csv` if you inferred),
+- the Reports version the mapping came from, and the snapshot id,
+- one sentence on what `CVSS_Audited` means in this report.
+
+`cvss_run.py status` prints all of that for a project at any time.
+
+## Answering "why did this CWE get no score"
+
+Run step 3 and read the case off it.
+
+- **(a)** — it was assessed and given no impact. CWE-561, 563, 570, 398 and
+  704 are all in the shipped mapping with no impact: dead code, an unused
+  assignment, an always-false expression, a code-quality finding, a bad
+  cast. None is a vulnerability, so zero is correct. A per-project profile
+  entry overrides it if the customer disagrees.
+- **(c)** — nothing judged it. Worth reporting, with the CWE, the checkers
+  producing it, and the Reports version. Check whether a newer Reports
+  release maps it before calling it a product defect.
+- **no CWE** — the lookup never ran. Nothing to map.
 
 ## What this skill does not do
 
-**It does not write a CVSS profile.** The audit tells you which CWEs are
-unscored and what they are; turning that into a
-`<security-profile>.json` is deliberately left to the person who will own
-it. A profile is durable, it silently overrides the master on every future
-run, and it makes whoever shipped it answerable for every score in it —
-including for CWEs whose mappings the vendor later fixes. That is a
-security team's decision, made once, with their own impact judgements. A
-generated one would be a guess wearing the costume of a policy.
+**It does not write a `<security-profile>.json`.** A profile silently
+overrides the master mapping on every future run, including for CWEs the
+vendor later fixes, and it makes whoever shipped it answerable for every
+score in it. That is a security team's decision to make once, deliberately.
+Step 4 fills gaps per defect instead, where it is visible and reversible.
 
-**It does not judge whether a weakness is exploitable.** CVSS here is an
-upper bound computed from a CWE, not a finding about the code. If the
-question is whether a specific defect is real and reachable, that is
+**It does not judge whether a weakness is exploitable.** A CVSS score here
+is an upper bound derived from a CWE, not a finding about the code. For
+whether a specific defect is real and reachable, that is
 `coverity-fuzz-triage`, and its answer is evidence rather than a score.
+
+## Reference
+
+`references/cvss-report-mechanics.md` has the lookup as implemented, the
+CWE datasets the generator carries and their vintages, the rounding, and
+what a real run confirmed. `tools/cvss_profile_audit.py` is the analysis
+layer — `graph`, `audit`, `resolve`, `verify`, `score` — for explaining a
+particular CWE's fate rather than running the workflow.

@@ -218,53 +218,34 @@ rules, not from a familiar checker changing its mind. The many-to-many
 taxonomy listing is therefore a weaker signal than it looks, and the
 skill says so rather than keeping the scarier version.
 
-## Scoreability by issue type, and why the CWE count was the wrong number
+## Withdrawn: every claim that counted a global inventory
 
-The first version of this skill led with "209 of 502 CWEs resolve to a zero
-nobody chose". That figure is computed correctly and is still in the tool,
-but it overstates the problem, and the objection is the right one: **a CWE
-that is not mapped is only a defect if Coverity can actually assign it.**
-A defect carries exactly one CWE while the taxonomy associates several with
-each issue type, so some of those 209 are CWEs no defect ever receives —
-CWE-193 is associated with `overrun:write` and was never once assigned to
-it across the runs here.
+Three numbers appeared in earlier versions of this skill and are gone. All
+three were the same mistake, and it is worth naming because the tooling now
+structurally prevents it.
 
-`cvss_profile_audit.py checkers` replaces it with a question that needs no
-knowledge of which CWE Connect picks: **if every CWE associated with an
-issue type resolves to zero, that issue type cannot score whichever one it
-gets.** Split by Coverity's own `issue-kind` taxonomy (17893 quality,
-19974 security, 1 license issue types), over the 6381 issue types that
-carry a CWE at all:
+| withdrawn claim | why it was wrong |
+|---|---|
+| "209 of 502 CWEs resolve to a zero nobody chose" | Counted CWEs the taxonomy *associates* with a checker. A defect carries exactly one CWE, so an unmapped CWE may be one Coverity never assigns. CWE-193 is associated with `overrun:write` and was never once assigned to it. |
+| "2357 security issue types cannot score" | Same, one level up, and worse: the `issue-type-taxonomies` jar covers a far wider Black Duck product family than Coverity SAST. 2302 of the 2357 were `sigma.vulnerable_software` — software composition, which Coverity does not do, so it never surfaces those findings at all. |
+| "12 of them are reachable in this install" | Filtered the above by `cov-analyze --list-checkers`. That describes the analyzer on this machine, which need not be the analyzer that produced any given snapshot. |
 
-| kind | can score | cannot, at least one decided zero | cannot, nobody decided |
-|---|---|---|---|
-| security | 247 | 5 | **2357** |
-| quality | 572 | 861 | 784 |
-| unclassified | 871 | 147 | 537 |
+**The Connect version, the Coverity Analysis version that wrote the
+snapshot, and any local Coverity install can all differ.** No inventory on
+the local machine is therefore evidence about a project's defects. The only
+sound population is the CWEs Connect actually reports for a snapshot, read
+over REST, classified against the Reports install doing the mapping — and
+the verdict has to name that Reports version, because a later one can
+change it.
 
-The 2357 is the number that bears on trust, and it decomposes into one
-large thing and one long tail:
+`cvss_profile_audit.py` now prints a caveat when run without `--issues`,
+saying in as many words that it is inventorying the mapping and not making
+a finding about any project. The `checkers` subcommand that produced the
+second and third numbers has been removed rather than caveated: it invited
+exactly the claim it could not support.
 
-- **2302 are `sigma.vulnerable_software`**, all carrying CWE-1395, which
-  has no node in the 2017 graph. Every known-vulnerable-dependency finding
-  scores 0.0.
-- **55 are ordinary application-security checkers**: `authentication_bypass`
-  (CWE-288), `man_in_the_middle` (300), `unencrypted_sensitive_data` (311),
-  `sigma.plaintext_storage_sensitive_data` (312), `insecure_cookie` and
-  `unsafe_session_setting` (614), `unrestricted_file_upload` (646),
-  `sigma.jwt_untrusted_decode` (347), `sigma.static_iv` (329),
-  `sigma.credentials_without_keychain_protection` and `unsafe_basic_auth`
-  (522), `weak_authentication` (419), `OPENAPI.MISSING_AUTHZ` (648),
-  `OPENAPI.OAUTH2_MISCONFIGURATION` (285), `sealed_jar_escape` (653), and
-  about a dozen more.
-
-*Source: verified by construction from the shipped taxonomy, mapping and
-ChildOf graph — every CWE of each listed issue type resolves to a
-zero-by-default class, so the conclusion holds without knowing Connect's
-choice. **Not** observed in a run: no fixture here exercises a Sigma,
-OPENAPI or SCA checker, so while the arithmetic of the claim is sound, a
-webapp or SCA scan confirming one of these 55 end to end has not been
-done.*
+Everything in "The live run" above survives this, because every population
+there came from Connect over REST in the first place.
 
 ## Reasoned, not yet measured
 
@@ -281,9 +262,13 @@ done.*
   was audited, against a 2025.12.0 instance. The audit is re-runnable
   against any install, which is the point of it being a tool rather than a
   table.
-- **Non-C languages.** Everything run here is C. The 49 graph-less CWEs
-  include Java (CWE-1134..1153) and web/IaC (Sigma) entries that no fixture
-  exercised, and the 55 unscoreable security issue types are almost all in
-  that territory. Confirming one of them end to end — a JS or Java webapp
-  fixture producing, say, `insecure_cookie`, committed and scored — is the
-  obvious next measurement and has not been made.
+- **Non-C languages.** Everything run here is C. Whether a Java, JS or C#
+  snapshot produces case (c) at all is unmeasured, and cannot be predicted
+  from the taxonomy for the reasons in "Withdrawn" above — it takes a
+  snapshot of such a project in Connect and a `mark` run against it.
+- **The workflow itself** (`cvss_run.py` steps 1-5, including the
+  `CVSS_Audited` marking, the inference rule and `reset`) is written against
+  the APIs verified above — `PUT /api/v2/issues/triage` for the attribute
+  writes, `POST /api/v2/issues/search` for the CWEs — but **has not yet been
+  run end to end** on the instance. `config` and its validation are the only
+  parts exercised so far.
