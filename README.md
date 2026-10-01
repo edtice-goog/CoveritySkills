@@ -64,7 +64,7 @@ verified by running it or reasoned from mechanism.
 
 | Skill | Use it when | What it gets you |
 |---|---|---|
-| [coverity](coverity/README.md) | Any Coverity question — start here | The rules, plus the capture-fidelity check every other skill depends on |
+| [coverity](coverity/README.md) | Any Coverity question — start here | The rules, the capture-fidelity check every other skill depends on, and Connect authentication: creating an auth key and checking it actually works |
 | [coverity-compiler-configuration](coverity-compiler-configuration/README.md) | Setting up `cov-configure`, especially cross-compilers and wrappers | A configuration that models your real toolchain, including cross-compilers and wrappers |
 | [coverity-defect-detectability](coverity-defect-detectability/README.md) | "Which checker catches this?" / tuning for a defect class you care about | An empirical verdict, the minimal setting that reports the defect, and a repro command |
 | [coverity-build-fidelity](coverity-build-fidelity/README.md) | Release gating: did wrapping the build in `cov-build` change the product? | Evidence that the product is unchanged, paired with capture coverage so the result is meaningful in both directions |
@@ -100,7 +100,8 @@ cover?", "can Coverity find the bug in this file?", "set up cov-configure for
 our ARM toolchain" — and the matching skill triggers.
 
 Take `coverity` even if you only want one of the others: it owns the
-capture-verification step the rest depend on.
+capture-verification step the rest depend on, and the Connect
+authentication every skill that commits or queries uses.
 
 ## How this project treats facts
 

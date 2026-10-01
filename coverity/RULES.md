@@ -152,6 +152,114 @@ adds an `<include>`.
 
 Source: verified — `coverity-compiler-configuration`; wrappers, rule 32.
 
+### 32. Configure compiler wrappers like ccache — never disable them
+
+When a build invokes the compiler through a wrapper — `ccache`, `sccache`,
+`distcc`, `icecc` — configure the wrapper. **Do not turn it off to make capture
+work.** Coverity ships a compiler type for exactly this case:
+
+```
+cov-configure --template --compiler ccache --comptype prefix
+```
+
+This produces `template-prefix-config-N/` containing
+`<comp_name>ccache</comp_name>` and `<comp_translator>prefix</comp_translator>`
+— note the directory is named for the *comptype*, not the compiler. Still
+configure the underlying compiler as well (rule 5): the prefix configuration
+tells Coverity how to see through the wrapper, not how to handle `gcc`.
+
+Disabling the wrapper is the wrong answer three times over:
+
+1. **It changes the build.** You are then scanning something other than what
+   the project actually builds, which is precisely the property build-fidelity
+   work exists to establish. A capture that required altering the build is a
+   weaker claim than one that did not.
+2. **It is slow.** Removing the cache from a large build can turn minutes into
+   hours, and on a repeated corpus — a demo dataset, a CI gate — it multiplies.
+3. **It looks like the tool cannot cope.** In front of a customer whose build
+   uses ccache because their build is big, "first, switch off your build
+   accelerator" is an unforced admission of exactly the wrong thing.
+
+The reason people reach for it is that an unconfigured `ccache gcc foo.c`
+invocation is not recognised as a compiler, so nothing is captured and the
+build looks uncapturable. Configure the prefix and the invocation is
+understood.
+
+And expect the wrapper even where nobody set it up: build systems wire it in
+on their own. CMake adds ccache as a compiler launcher whenever a project
+requests it and the binary is on `PATH` — pytorch does this out of the box —
+so a stock `cmake && ninja` build on a machine with ccache installed invokes
+the wrapper without a single mention of it in anyone's configuration.
+
+**A warm cache is not a problem — measured.** Capture works by intercepting
+and parsing the compilation invocation and driving `cov-emit` from it, not by
+observing whether the real compiler ran. So a ccache hit emits normally, and
+there is no reason to clear the cache before a scan.
+
+Same two-source project on 2026.6.0, three ways:
+
+| `ccache` configured? | Cache state | Result |
+|---|---|---|
+| no (`--gcc` only) | fully warm, 2/2 hits | **0 TUs**, `[WARNING] No files were emitted…`, `successes = 0` |
+| no | partly warm, 1 hit / 1 miss | **1 of 2**, reported `Emitted 1 … (100%) successfully`, no warning — only the *miss* captured |
+| **yes** (`--template --compiler ccache --comptype prefix`) | **fully warm, 2/2 hits, gcc never ran** | **2 of 2, 100%**, adjudicated `CONSISTENT` (2/2/2/2) |
+
+The third row is the one that matters: with the prefix configured, a build
+where the compiler never executed at all still captured completely. The emit
+records a `prefix-config-0` under `emit/<host>/config/<md5>/`, confirming the
+wrapper was seen through. **The failure mode is the missing prefix
+configuration, not the cache** — which is exactly why clearing the cache is
+the wrong fix, and why it would have "worked" for the wrong reason.
+
+**`unconfigured-compilers` is not guaranteed to catch a missing prefix
+configuration.** Measured on 2026.6.0 with `--gcc` only and `CC = ccache
+gcc` under gmake: the file was **empty** on every run, including ones that
+captured nothing at all — `ccache` ran as the compiler driver, was
+unconfigured, and was never named. Measured on 2025.12.2 with ninja invoking
+`/usr/bin/ccache /usr/bin/clang++` by full path: the file's sole entry was
+`/usr/bin/ccache`. Which behaviour you get is not predictable from
+documentation (candidate variables: invocation by bare name vs full path,
+build tool, version — unresolved), so use the asymmetry: a named wrapper is
+a genuine signal to act on; an **empty file is not evidence the wrapper was
+handled**, and only the three-method reconciliation below can close the
+question.
+
+What the unconfigured wrapper actually looks like, same project both ways:
+
+| Cache state | Result |
+|---|---|
+| fully warm (2/2 hits) | **0 TUs**, `[WARNING] No files were emitted…`, `successes = 0`. Loud |
+| partially warm (1 hit, 1 miss) | `Emitted 1 C/C++ compilation units (100%) successfully`, "completed successfully", `successes = 1 / failures = 0`, **no warning** — and only the cache *miss* was captured |
+
+The second row is the one that reaches a report: a 50% capture presented as
+100% success, with Method B clean and every per-TU field healthy. Only an
+independent expectation catches it, which is why the check is three methods
+and not one. The adjudication graded it `SHORTFALL` (2/1/1/1) and named
+compiler-cache hits among the causes.
+
+So no single signal can answer "were there unconfigured compilers?", and
+the wrapper case is where substituting one signal for another goes wrong in
+both directions. `unconfigured-compilers` is a deterministic heuristic whose
+mechanism is undocumented, with measured blind spots (wrappers here; the
+phantom and true-positive entries in rule 14). The emit-side diagnostics
+(`coverity list`, `cov-manage-emit list-capture-diagnostics`) see only what
+reached the emit. An independent expectation of what should have compiled
+sees neither. Run all three **independently** — never letting one stand in
+for another — and reconcile per rule 2: an unhandled wrapper then surfaces
+as the specific disagreement *Method B clean while Methods A and C fall
+short*, and the adjudication, not any single method, renders the verdict.
+
+Source: measured — the three-way cache-state comparison and the empty
+`unconfigured-compilers` result are the rule 32 entry in `CALIBRATION.md`
+(two-source project, 2026.6.0, one fresh idir per run). `prefix` is documented
+by `cov-configure --list-compiler-types` as "Prefix to a compiler (e.g.
+ccache)"; confirmed on 2025.9.0, linux64-2025.12.2, and win64-2026.6.0, and
+the generated configuration was inspected on 2025.9.0. Corroborated at scale
+on a pytorch capture (linux64-2025.12.2, ccache auto-wired by CMake): with
+the wrapper *unconfigured* and the cache cold, every TU still captured via
+the intercepted child compile — the partial-warm middle row armed and waiting
+for the first warm rebuild.
+
 ### 6. Regenerate a tainted configuration, never patch it — and replace the idir with it
 
 Probed per-compiler configs remain on disk and continue to be included, and
@@ -782,42 +890,55 @@ uncertain" — per rule 22.
 Source: practice, not measurement. Standard triage discipline; nothing here
 claims a measured relationship between any cause and a false-positive rate.
 
----
+### 30. Name the global invariant, or do not dismiss the finding
 
-### 27. Merge keys are stable — but only if you let Connect do the lining up
+Most false positives are not analyzer mistakes. The analysis is correct about
+the code it can see, and a fact outside that view makes the reported path
+impossible — a guard elsewhere in the function, or a property of the machine
+the program runs on. Call this a **global invariant**, and distinguish two
+kinds, because they lead to different actions:
 
-Merge keys are **designed to be constant over time**, so a finding keeps its
-identity across analyzer versions. When a key genuinely has to change,
-Coverity creates an **antecedent merge key** so the old and new identities can
-be lined up, and **Coverity Connect's commit process applies this
-automatically**. Queries against committed snapshots through the REST API
-therefore do not show spurious new defects caused by a key change.
+- **In-code invariant** — the fact is in the source but was not connected to
+  the path. A `NULL_RETURNS` on `strchr(s, ':')` inside a branch reached only
+  when `strncasecmp(s, "syslog:", 7) == 0`: the colon is guaranteed. Actionable
+  — a model or assertion can stop it recurring.
+- **Environment invariant** — the fact is outside the program entirely. A loop
+  scanning for a free DMA channel can on paper exit with its result unassigned,
+  but a machine with no working DMA never finished POST, so the code is not
+  running. No analysis could find this; it gets triaged and stays triaged.
 
-The stumbling block is entirely self-inflicted: **comparing merge keys by hand
-between two local runs.** That path sees the raw key, not the antecedent
-relationship, so an unchanged finding looks new. Anyone diffing two analyzer
-versions' local results directly will hit it and conclude the analyzer
-invented defects.
+This is where a reasoning model reliably beats the analysis, which is precisely
+why it is also the easiest way to wave away a real defect. A dismissal is only
+acceptable if it is falsifiable, so state all three:
 
-So, when comparing results across analyzer versions:
+1. **the invariant**, as a concrete proposition
+2. **where it is enforced** — file and line, or the mechanism
+3. **what would break it**
 
-- commit both runs to Connect and compare through it, or through the REST API
-  against the committed snapshots
-- do **not** treat a raw merge-key difference between two local result sets as
-  evidence that a finding is new
+No location, no dismissal: report the finding as **unresolved** instead.
+`unresolved` is a legitimate outcome and far better than a confident wrong
+call. Wrongly dismissing a real defect costs more than wrongly keeping a false
+one, which is why the bar for dismissal is high.
 
-There have been exceptions, so a small residue of genuine key movement is
-possible — but it is a rare case to investigate, not the default assumption,
-and not a reason to build a correspondence mechanism of your own.
+But the burden of *reading the code* is symmetric. An unverified confirmation
+is as unsound as an unverified dismissal: grading a finding real because the
+checker's interprocedural claim sounds plausible, without reading the callee it
+rests on, is a verdict resting on nothing. If the argument depends on code you
+have not read, the answer is `unresolved` in either direction. A caveat
+attached to a confident verdict is not a substitute.
 
-This matters most to `coverity-issue-transition-inference`, whose whole job is
-separating "the code changed" from "the analyzer improved". Getting this wrong
-would manufacture exactly the false transitions that skill exists to prevent.
+Not every wrong finding is a global invariant. When a checker matched a *shape*
+rather than a path — a COPY_PASTE_ERROR on two deliberate, distinct adjacent
+checks — no feasibility argument applies; call it a **heuristic misfire** and
+explain the intent the shape encodes. And when the detection is accurate but
+the code is deliberate (a defensive branch after an exhaustive switch), the
+honest verdict is **intentional**, not false positive.
 
-Source: domain knowledge from the repository owner; **not independently
-verified here.** The antecedent-merge-key mechanism, the Connect commit
-behaviour, and the REST consequence are stated rather than measured. Worth a
-calibration run before anything depends on the exception rate.
+Source: verified — `coverity-demo-data`. Measured on a stratified sample of
+nine proftpd findings: three were wrong, and every one was checker-correct.
+Full worked triage in
+`coverity-demo-data/references/worked-example-fp-audit.md`; vocabulary in
+`coverity-demo-data/references/triage-verdicts.md`.
 
 ### 35. Extract a function from the emit, never from preprocessed text
 
@@ -911,46 +1032,9 @@ gave 16 at defaults and 189 under `--all --aggressiveness-level high`.
 Source: verified -- `coverity-pathout`, `references/path-explosion.md`,
 `references/analysis-log.md`.
 
-## Reporting
+---
 
-### 21. Verdict first, then the evidence
-
-Lead with the answer. Annotated traces, not tool dumps. Expressiveness on disk
-(a `report.md` a person can act on, plus a machine-readable sidecar for
-downstream inference); verdict in chat.
-
-Source: project convention — `coverity`.
-
-### 22. Say what you did not check
-
-"Capture verified for the C/C++ product sources; the vendored `libfoo` was
-prebuilt and never captured" is a useful, honest result. An unqualified green
-check is not. These reports travel to people who were not in the room: state
-scope limits explicitly, keep the register formal, and never let a green
-result imply more than it measured.
-
-Source: project convention — `coverity`.
-
-### 23. Distinguish measured from reasoned, in the report and in this repo
-
-A claim established by running the command and a claim derived from mechanism
-are different kinds of thing, and readers make decisions on them. Mark which
-is which. `CALIBRATION.md` is this project's instance of the same rule, and
-every rule added here carries a `Source:` line for it.
-
-**Mark the distinction; do not inflate it into a ritual.** Labelling a claim
-unverified is cheap and honest. Instructing the reader to *prove* something the
-product does by design is not: it adds work, it teaches distrust of behaviour
-that is table stakes for a commercial analyzer, and it makes the guidance read
-as unsure of its own tool. Reserve "go measure this" for claims specific to the
-code, build or dataset in front of you — the things a general answer genuinely
-cannot settle. For how a mature product behaves, cite the source and move on.
-
-An earlier draft of rule 32 told readers to compare cold and warm
-compilation-unit counts to establish that ccache hits still emit. They do, by
-design; the check was noise.
-
-Source: project convention.
+## Committing to Coverity Connect
 
 ### 28. Never take the connection target from an auth key file
 
@@ -1011,97 +1095,51 @@ private address, port `8443`, `ssl:true`. Connecting to the user-supplied target
 key's own host was never contacted, and the mismatch was routine rather than
 suspicious.
 
-### 29. One stream per branch; a stream must move forward only
+### 37. Mint auth keys with `cov-manage-im --mode auth-key`; check them over REST, never with `--show`
 
-A Coverity stream is a timeline. Commit into it in **monotonically increasing
-code order**, from a **single branch**. Except under genuinely bizarre
-branching strategies, the correlation between streams and branches is **1:1**.
+Anything that talks to Coverity Connect needs an authentication key. The two
+places a session loses time are making one and knowing whether the one it has
+works.
 
-Mixing branches into one stream fabricates history. Commit a maintenance
-release from an older line after a newer mainline release and the older line's
-unfixed defects reappear, so the stream shows defects fixed and then
-reintroduced — churn that exists only because two lineages were interleaved on
-one timeline. Nothing in the data marks it as an artifact; it reads as a real
-regression, and every metric built on transitions (fix rate, reintroduction
-rate, mean time to fix) inherits the error.
+**Make it on the command line:**
 
-Release-date order is **not** the same as code order. Projects routinely ship a
-backport to an old branch on the same day as, or after, a new release from the
-trunk. proftpd tags `v1.3.6e` and `v1.3.7` on 2020-07-20, and `v1.3.7f` and
-`v1.3.8` on 2022-12-04; sorting tags by date and committing them all yields
-exactly the interleaving described above.
+```
+COV_USER=<connect-user> COVERITY_PASSPHRASE_FILE=<file> \
+  cov-manage-im --url <connect-url> --mode auth-key --create --output-file <key>
+```
 
-So, when building streams from release history:
+`tools/connect_auth.py create` wraps this. The password comes from the user
+and goes in a file, never on the command line. The key goes under
+`~/.coverity/` in the user's home directory, never in a repository or a
+workspace. Driving the Connect UI in a browser makes the same key by a much
+longer road.
 
-- **Give each branch its own stream** and commit every release into the stream
-  for its line. This is the preferred answer: nothing is discarded, and Connect
-  can then compare lines against each other, which is a far more interesting
-  thing to query than a single flattened timeline.
-- Only if one stream is genuinely required, pick one lineage and follow it
-  forward, **dropping** older-line releases that land after a newer line's
-  rather than ordering them by date.
+**Check it over REST before relying on it.** `cov-manage-im ... --show`
+reports an authentication failure as a header row, nothing on stderr, and
+exit 1, which is exactly what it prints for an empty result. A dead key then
+reads as an empty instance. `GET /api/v2/serverInfo/version` with HTTP Basic
+`username:key` answers 200 or 401, provided you refuse redirects: an
+unauthenticated request is redirected to the sign-in page, and a client that
+follows the redirect sees a 200. `tools/connect_auth.py check` does this.
 
-**One caveat when backdating multiple streams.** First detected
-(`merged_defect.date_originated`) is global per merge key across the whole
-instance, not per stream. So the commit *order* must be globally chronological
-across **all** streams even though each commit is destined for its own stream.
-Committing one stream to completion and then starting the next will date every
-shared defect to whichever stream went first, and no later backdate can move
-it. Interleave by date; assign by branch.
+Three facts that each save a round trip:
 
-Source: domain knowledge from the repository owner; the tag collisions cited
-are verified from proftpd's own history, and the global first-detected
-behaviour is measured — see `coverity-demo-data`.
+- **A key cannot create a key.** Creation is the one operation that needs the
+  password. Everything else works with a key, revocation included.
+- **`--output-file` does not create its directory**, and the key is created
+  on the server before the write fails, which leaves a live key that nothing
+  holds.
+- **The `cov-*` commands do not look in `~/.coverity/ak-<host>-<port>`.**
+  That is the `coverity` CLI's default. Pass `--auth-key-file` every time.
 
-### 30. Name the global invariant, or do not dismiss the finding
+Full procedure, including revocation and what a 401 can mean:
+`references/connect-auth.md`.
 
-Most false positives are not analyzer mistakes. The analysis is correct about
-the code it can see, and a fact outside that view makes the reported path
-impossible — a guard elsewhere in the function, or a property of the machine
-the program runs on. Call this a **global invariant**, and distinguish two
-kinds, because they lead to different actions:
-
-- **In-code invariant** — the fact is in the source but was not connected to
-  the path. A `NULL_RETURNS` on `strchr(s, ':')` inside a branch reached only
-  when `strncasecmp(s, "syslog:", 7) == 0`: the colon is guaranteed. Actionable
-  — a model or assertion can stop it recurring.
-- **Environment invariant** — the fact is outside the program entirely. A loop
-  scanning for a free DMA channel can on paper exit with its result unassigned,
-  but a machine with no working DMA never finished POST, so the code is not
-  running. No analysis could find this; it gets triaged and stays triaged.
-
-This is where a reasoning model reliably beats the analysis, which is precisely
-why it is also the easiest way to wave away a real defect. A dismissal is only
-acceptable if it is falsifiable, so state all three:
-
-1. **the invariant**, as a concrete proposition
-2. **where it is enforced** — file and line, or the mechanism
-3. **what would break it**
-
-No location, no dismissal: report the finding as **unresolved** instead.
-`unresolved` is a legitimate outcome and far better than a confident wrong
-call. Wrongly dismissing a real defect costs more than wrongly keeping a false
-one, which is why the bar for dismissal is high.
-
-But the burden of *reading the code* is symmetric. An unverified confirmation
-is as unsound as an unverified dismissal: grading a finding real because the
-checker's interprocedural claim sounds plausible, without reading the callee it
-rests on, is a verdict resting on nothing. If the argument depends on code you
-have not read, the answer is `unresolved` in either direction. A caveat
-attached to a confident verdict is not a substitute.
-
-Not every wrong finding is a global invariant. When a checker matched a *shape*
-rather than a path — a COPY_PASTE_ERROR on two deliberate, distinct adjacent
-checks — no feasibility argument applies; call it a **heuristic misfire** and
-explain the intent the shape encodes. And when the detection is accurate but
-the code is deliberate (a defensive branch after an exhaustive switch), the
-honest verdict is **intentional**, not false positive.
-
-Source: verified — `coverity-demo-data`. Measured on a stratified sample of
-nine proftpd findings: three were wrong, and every one was checker-correct.
-Full worked triage in
-`coverity-demo-data/references/worked-example-fp-audit.md`; vocabulary in
-`coverity-demo-data/references/triage-verdicts.md`.
+Source: verified — 2026-10-01 against Coverity Connect 2026.9.0 with
+`cov-analysis-win64-2026.9.0`; every claim above is in the Connect
+authentication entry of `CALIBRATION.md`. The browser detour is observed: a
+session given the admin password spent about twenty turns creating a key
+through the UI.
 
 ### 31. Always `--strip-path` when committing, and confirm it took effect
 
@@ -1163,110 +1201,122 @@ committed every path in full because Git Bash rewrote the prefix; nothing in
 the commit output indicated it. Confirmed by re-running with
 `MSYS_NO_PATHCONV=1` and no trailing separator, which strips correctly.
 
-### 32. Configure compiler wrappers like ccache — never disable them
+### 29. One stream per branch; a stream must move forward only
 
-When a build invokes the compiler through a wrapper — `ccache`, `sccache`,
-`distcc`, `icecc` — configure the wrapper. **Do not turn it off to make capture
-work.** Coverity ships a compiler type for exactly this case:
+A Coverity stream is a timeline. Commit into it in **monotonically increasing
+code order**, from a **single branch**. Except under genuinely bizarre
+branching strategies, the correlation between streams and branches is **1:1**.
 
-```
-cov-configure --template --compiler ccache --comptype prefix
-```
+Mixing branches into one stream fabricates history. Commit a maintenance
+release from an older line after a newer mainline release and the older line's
+unfixed defects reappear, so the stream shows defects fixed and then
+reintroduced — churn that exists only because two lineages were interleaved on
+one timeline. Nothing in the data marks it as an artifact; it reads as a real
+regression, and every metric built on transitions (fix rate, reintroduction
+rate, mean time to fix) inherits the error.
 
-This produces `template-prefix-config-N/` containing
-`<comp_name>ccache</comp_name>` and `<comp_translator>prefix</comp_translator>`
-— note the directory is named for the *comptype*, not the compiler. Still
-configure the underlying compiler as well (rule 5): the prefix configuration
-tells Coverity how to see through the wrapper, not how to handle `gcc`.
+Release-date order is **not** the same as code order. Projects routinely ship a
+backport to an old branch on the same day as, or after, a new release from the
+trunk. proftpd tags `v1.3.6e` and `v1.3.7` on 2020-07-20, and `v1.3.7f` and
+`v1.3.8` on 2022-12-04; sorting tags by date and committing them all yields
+exactly the interleaving described above.
 
-Disabling the wrapper is the wrong answer three times over:
+So, when building streams from release history:
 
-1. **It changes the build.** You are then scanning something other than what
-   the project actually builds, which is precisely the property build-fidelity
-   work exists to establish. A capture that required altering the build is a
-   weaker claim than one that did not.
-2. **It is slow.** Removing the cache from a large build can turn minutes into
-   hours, and on a repeated corpus — a demo dataset, a CI gate — it multiplies.
-3. **It looks like the tool cannot cope.** In front of a customer whose build
-   uses ccache because their build is big, "first, switch off your build
-   accelerator" is an unforced admission of exactly the wrong thing.
+- **Give each branch its own stream** and commit every release into the stream
+  for its line. This is the preferred answer: nothing is discarded, and Connect
+  can then compare lines against each other, which is a far more interesting
+  thing to query than a single flattened timeline.
+- Only if one stream is genuinely required, pick one lineage and follow it
+  forward, **dropping** older-line releases that land after a newer line's
+  rather than ordering them by date.
 
-The reason people reach for it is that an unconfigured `ccache gcc foo.c`
-invocation is not recognised as a compiler, so nothing is captured and the
-build looks uncapturable. Configure the prefix and the invocation is
-understood.
+**One caveat when backdating multiple streams.** First detected
+(`merged_defect.date_originated`) is global per merge key across the whole
+instance, not per stream. So the commit *order* must be globally chronological
+across **all** streams even though each commit is destined for its own stream.
+Committing one stream to completion and then starting the next will date every
+shared defect to whichever stream went first, and no later backdate can move
+it. Interleave by date; assign by branch.
 
-And expect the wrapper even where nobody set it up: build systems wire it in
-on their own. CMake adds ccache as a compiler launcher whenever a project
-requests it and the binary is on `PATH` — pytorch does this out of the box —
-so a stock `cmake && ninja` build on a machine with ccache installed invokes
-the wrapper without a single mention of it in anyone's configuration.
+Source: domain knowledge from the repository owner; the tag collisions cited
+are verified from proftpd's own history, and the global first-detected
+behaviour is measured — see `coverity-demo-data`.
 
-**A warm cache is not a problem — measured.** Capture works by intercepting
-and parsing the compilation invocation and driving `cov-emit` from it, not by
-observing whether the real compiler ran. So a ccache hit emits normally, and
-there is no reason to clear the cache before a scan.
+### 27. Merge keys are stable — but only if you let Connect do the lining up
 
-Same two-source project on 2026.6.0, three ways:
+Merge keys are **designed to be constant over time**, so a finding keeps its
+identity across analyzer versions. When a key genuinely has to change,
+Coverity creates an **antecedent merge key** so the old and new identities can
+be lined up, and **Coverity Connect's commit process applies this
+automatically**. Queries against committed snapshots through the REST API
+therefore do not show spurious new defects caused by a key change.
 
-| `ccache` configured? | Cache state | Result |
-|---|---|---|
-| no (`--gcc` only) | fully warm, 2/2 hits | **0 TUs**, `[WARNING] No files were emitted…`, `successes = 0` |
-| no | partly warm, 1 hit / 1 miss | **1 of 2**, reported `Emitted 1 … (100%) successfully`, no warning — only the *miss* captured |
-| **yes** (`--template --compiler ccache --comptype prefix`) | **fully warm, 2/2 hits, gcc never ran** | **2 of 2, 100%**, adjudicated `CONSISTENT` (2/2/2/2) |
+The stumbling block is entirely self-inflicted: **comparing merge keys by hand
+between two local runs.** That path sees the raw key, not the antecedent
+relationship, so an unchanged finding looks new. Anyone diffing two analyzer
+versions' local results directly will hit it and conclude the analyzer
+invented defects.
 
-The third row is the one that matters: with the prefix configured, a build
-where the compiler never executed at all still captured completely. The emit
-records a `prefix-config-0` under `emit/<host>/config/<md5>/`, confirming the
-wrapper was seen through. **The failure mode is the missing prefix
-configuration, not the cache** — which is exactly why clearing the cache is
-the wrong fix, and why it would have "worked" for the wrong reason.
+So, when comparing results across analyzer versions:
 
-**`unconfigured-compilers` is not guaranteed to catch a missing prefix
-configuration.** Measured on 2026.6.0 with `--gcc` only and `CC = ccache
-gcc` under gmake: the file was **empty** on every run, including ones that
-captured nothing at all — `ccache` ran as the compiler driver, was
-unconfigured, and was never named. Measured on 2025.12.2 with ninja invoking
-`/usr/bin/ccache /usr/bin/clang++` by full path: the file's sole entry was
-`/usr/bin/ccache`. Which behaviour you get is not predictable from
-documentation (candidate variables: invocation by bare name vs full path,
-build tool, version — unresolved), so use the asymmetry: a named wrapper is
-a genuine signal to act on; an **empty file is not evidence the wrapper was
-handled**, and only the three-method reconciliation below can close the
-question.
+- commit both runs to Connect and compare through it, or through the REST API
+  against the committed snapshots
+- do **not** treat a raw merge-key difference between two local result sets as
+  evidence that a finding is new
 
-What the unconfigured wrapper actually looks like, same project both ways:
+There have been exceptions, so a small residue of genuine key movement is
+possible — but it is a rare case to investigate, not the default assumption,
+and not a reason to build a correspondence mechanism of your own.
 
-| Cache state | Result |
-|---|---|
-| fully warm (2/2 hits) | **0 TUs**, `[WARNING] No files were emitted…`, `successes = 0`. Loud |
-| partially warm (1 hit, 1 miss) | `Emitted 1 C/C++ compilation units (100%) successfully`, "completed successfully", `successes = 1 / failures = 0`, **no warning** — and only the cache *miss* was captured |
+This matters most to `coverity-issue-transition-inference`, whose whole job is
+separating "the code changed" from "the analyzer improved". Getting this wrong
+would manufacture exactly the false transitions that skill exists to prevent.
 
-The second row is the one that reaches a report: a 50% capture presented as
-100% success, with Method B clean and every per-TU field healthy. Only an
-independent expectation catches it, which is why the check is three methods
-and not one. The adjudication graded it `SHORTFALL` (2/1/1/1) and named
-compiler-cache hits among the causes.
+Source: domain knowledge from the repository owner; **not independently
+verified here.** The antecedent-merge-key mechanism, the Connect commit
+behaviour, and the REST consequence are stated rather than measured. Worth a
+calibration run before anything depends on the exception rate.
 
-So no single signal can answer "were there unconfigured compilers?", and
-the wrapper case is where substituting one signal for another goes wrong in
-both directions. `unconfigured-compilers` is a deterministic heuristic whose
-mechanism is undocumented, with measured blind spots (wrappers here; the
-phantom and true-positive entries in rule 14). The emit-side diagnostics
-(`coverity list`, `cov-manage-emit list-capture-diagnostics`) see only what
-reached the emit. An independent expectation of what should have compiled
-sees neither. Run all three **independently** — never letting one stand in
-for another — and reconcile per rule 2: an unhandled wrapper then surfaces
-as the specific disagreement *Method B clean while Methods A and C fall
-short*, and the adjudication, not any single method, renders the verdict.
+---
 
-Source: measured — the three-way cache-state comparison and the empty
-`unconfigured-compilers` result are the rule 32 entry in `CALIBRATION.md`
-(two-source project, 2026.6.0, one fresh idir per run). `prefix` is documented
-by `cov-configure --list-compiler-types` as "Prefix to a compiler (e.g.
-ccache)"; confirmed on 2025.9.0, linux64-2025.12.2, and win64-2026.6.0, and
-the generated configuration was inspected on 2025.9.0. Corroborated at scale
-on a pytorch capture (linux64-2025.12.2, ccache auto-wired by CMake): with
-the wrapper *unconfigured* and the cache cold, every TU still captured via
-the intercepted child compile — the partial-warm middle row armed and waiting
-for the first warm rebuild.
+## Reporting
+
+### 21. Verdict first, then the evidence
+
+Lead with the answer. Annotated traces, not tool dumps. Expressiveness on disk
+(a `report.md` a person can act on, plus a machine-readable sidecar for
+downstream inference); verdict in chat.
+
+Source: project convention — `coverity`.
+
+### 22. Say what you did not check
+
+"Capture verified for the C/C++ product sources; the vendored `libfoo` was
+prebuilt and never captured" is a useful, honest result. An unqualified green
+check is not. These reports travel to people who were not in the room: state
+scope limits explicitly, keep the register formal, and never let a green
+result imply more than it measured.
+
+Source: project convention — `coverity`.
+
+### 23. Distinguish measured from reasoned, in the report and in this repo
+
+A claim established by running the command and a claim derived from mechanism
+are different kinds of thing, and readers make decisions on them. Mark which
+is which. `CALIBRATION.md` is this project's instance of the same rule, and
+every rule added here carries a `Source:` line for it.
+
+**Mark the distinction; do not inflate it into a ritual.** Labelling a claim
+unverified is cheap and honest. Instructing the reader to *prove* something the
+product does by design is not: it adds work, it teaches distrust of behaviour
+that is table stakes for a commercial analyzer, and it makes the guidance read
+as unsure of its own tool. Reserve "go measure this" for claims specific to the
+code, build or dataset in front of you — the things a general answer genuinely
+cannot settle. For how a mature product behaves, cite the source and move on.
+
+An earlier draft of rule 32 told readers to compare cold and warm
+compilation-unit counts to establish that ccache hits still emit. They do, by
+design; the check was noise.
+
+Source: project convention.

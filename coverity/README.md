@@ -33,9 +33,30 @@ timestamps if you relocate an idir, because Coverity reads them as state),
 analysis
 (find where the pipeline narrowed before blaming checkers; taint needs two
 switches; never let capture doubt leak into a "not found"; triage a sample of
-the defects before anyone trusts the run), and reporting
-(verdict first; say what you did not check; distinguish measured from
-reasoned).
+the defects before anyone trusts the run), committing to Coverity Connect
+(take the URL from the user, never from an auth key; mint keys with
+`cov-manage-im` and check them over REST; strip paths; one stream per
+branch), and reporting (verdict first; say what you did not check;
+distinguish measured from reasoned).
+
+## Connecting to Coverity Connect
+
+Every skill here that commits or queries needs an authentication key, so the
+procedure lives in this skill rather than being rediscovered by each of them.
+`tools/connect_auth.py` does the three things a session needs:
+
+| | |
+|---|---|
+| `create` | mints a key with `cov-manage-im --mode auth-key --create` (the one step that needs the password) and stores it under `~/.coverity/` in the user's home directory |
+| `check` | one REST request, redirects refused: `VALID`, `REJECTED` or `UNREACHABLE` |
+| `revoke` | revokes a key by the id inside it, authenticated as that key, and confirms the server now refuses it |
+
+`check` exists because the obvious test is wrong. `cov-manage-im --show`
+reports a rejected key as a header row and exit 1, which is exactly what it
+prints for an empty list, so a dead key looks like an empty instance. And a
+REST probe that follows redirects lands on the sign-in page with a 200. All
+of it was measured against Connect 2026.9.0; see
+`references/connect-auth.md`.
 
 ## Capture fidelity: three methods, run independently
 
@@ -120,21 +141,23 @@ a grade, never a bare percentage.
 coverity/
 ├── SKILL.md                      # orientation, the rules in brief, routing
 ├── RULES.md                      # the standing rules, with why and evidence
-├── CALIBRATION.md                # what is measured vs. reasoned, and the queue
+├── CALIBRATION.md                # what is measured vs. reasoned, and the runs behind it
 ├── references/
 │   ├── capture-fidelity.md       # the three-method protocol + disagreement table
+│   ├── connect-auth.md           # create, store, check and revoke Connect auth keys
 │   ├── idir-anatomy.md           # what each file in an idir is evidence of
 │   └── worked-example-vacuous-capture.md  # rule 9 calibration: no-op vs partial build
 └── tools/
-    └── capture_fidelity.py       # pure stdlib; one subcommand per step
+    ├── capture_fidelity.py       # pure stdlib; one subcommand per step
+    └── connect_auth.py           # pure stdlib; create / check / revoke
 ```
 
-`CALIBRATION.md` is deliberate: the commands and field semantics were
-verified by direct execution against Coverity 2026.6.0, while most of the
-diagnosis table is still reasoned from mechanism rather than measured. It
-keeps a queue of the failure modes to reproduce next and says plainly which
-have been done, instead of letting inference read as measurement. The first
-one is: the vacuous-capture row is now measured, and it revised its own
-premise — `cov-build` warns loudly when it captures *nothing*, so the
-dangerous case turned out to be the build that captures *some*, which reports
-100% and "completed successfully".
+`CALIBRATION.md` is deliberate: it records the run behind each claim and the
+environment it ran in, so that inference never reads as measurement. Every
+row of the capture-fidelity diagnosis table has now been produced by a real
+capture and adjudicated by the tool, and four of those runs changed the skill
+rather than confirming it. The vacuous-capture row is the clearest example.
+`cov-build` warns loudly when it captures *nothing*, so the dangerous case
+turned out to be the build that captures *some*, which reports 100% and
+"completed successfully". What is still reasoned rather than measured is
+listed there plainly.

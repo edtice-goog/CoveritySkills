@@ -8,7 +8,8 @@ Environment for everything marked verified: **Coverity 2026.6.0 (win64)**,
 `C:\Coverity\cov-analysis-win64-2026.6.0`, Windows 11, against intermediate
 directories in `coverity-defect-detectability-workspace/` and in scratch
 projects built for a specific calibration (gcc 13.2.0, MinGW-W64 /
-Strawberry; GNU make invoked as `gmake`).
+Strawberry; GNU make invoked as `gmake`). The exception is *Connect
+authentication* at the end of this file, which ran on 2026.9.0 and says so.
 
 ## Verified by direct execution
 
@@ -597,3 +598,94 @@ its siblings are ever written. New rows belong here as they are found.
 **Deliberately not queued:** why an analysis is noisy. Rule 26 has the user
 *detect* noise and re-check capture; diagnosing the rest is a methodology of
 its own, outside what this skill covers, and belongs with Coverity support.
+
+## Connect authentication (rule 37, `references/connect-auth.md`)
+
+Run on 2026-10-01 against **Coverity Connect 2026.9.0**
+(`im-2026.9-push-85`) at `http://localhost:8080`, a freshly installed,
+sacrificial instance, from `cov-analysis-win64-2026.9.0` on Windows 11, user
+`admin`. Five keys were created during the run (ids 10002-10006, one of
+them the orphan below), and all were revoked before it ended, each confirmed
+either by a 401 or by a second revoke reporting *"Authentication key N not
+found"*.
+
+Verified by direct execution:
+
+- **Creation.** `cov-manage-im --url <url> --mode auth-key --create
+  --output-file <key> --set description:... --set expiration:after_1_days`,
+  with the password from `COVERITY_PASSPHRASE_FILE` and the user from
+  `COV_USER`, exit 0, about 13 s per call. `expiration:after_0.001_days`
+  produced a key that expired 77 s later.
+- **Key file shape.** `type`, `version: 2`, `id`, `username`, `domain:
+  local`, `key` (32 characters), and `comments` holding `host`, `port`,
+  `ssl`, `description`, `creationDate`, `expirationDate`.
+- **A trailing LF or CRLF in the passphrase file is tolerated**: 9-, 10- and
+  11-byte files all authenticated.
+- **A key cannot create a key**: SOAP fault *"This operation is not permitted
+  when using an authentication key. Username and password are required"*,
+  exit 2.
+- **A key can revoke keys**: another key of the same user by id, and itself.
+  Effective immediately: REST went from 200 to 401 on the next request. A
+  second revoke of the same id fails *"Authentication key N not found"*,
+  exit 2, so revocation deletes rather than flags.
+- **A missing output directory orphans a key.** `--output-file` into a
+  nonexistent directory failed with *"Unable to access file ... (The system
+  cannot find the path specified)"*, exit 2, but Connect's
+  `logs/usageLog.log` recorded an `AuthenticationKeyCreationEvent` for that
+  key (10005) at that moment. It was then revoked by id with another key.
+- **`cov-manage-im --show` cannot distinguish a dead key from an empty
+  result.** Header row on stdout, empty stderr, exit 1 for each of: an
+  expired key, a key from a previous install of this instance, the right
+  password under the wrong user (`COV_USER=nobody`), and a *valid* key
+  running `--mode streams --show` on an instance with no streams.
+  `--verbose 4` changed nothing. `--mode projects --show` with a valid key
+  exits 0 because the built-in *Developer Streams* project is always listed
+  (to `admin`; not checked for a less privileged user).
+  An unreachable server is the one loud case: *"Connection refused"*, exit 2
+  (seen from WSL).
+- **Username fallback.** With `COV_USER` and `USER` unset, `cov-manage-im`
+  used the Windows login name and, with stdin closed, failed with *"Enter the
+  password for user <login> on localhost:8080 ... [Error] No password was
+  given."*, exit 2.
+- **`cov-manage-im` does not read `~/.coverity/ak-<host>-<port>`.** With a
+  valid key at `ak-localhost-8080` and no `--auth-key-file` or password, it
+  fell through to the password prompt above.
+- **REST.** `GET /api/v2/serverInfo/version` with Basic `username:key`: 200
+  and `{"externalVersion":"2026.9.0",...}` for a valid key; 401 with body
+  `Authentication failed.` for an expired, revoked, or previous-install key;
+  **302** with no credentials. `/api/v2/users/admin` and `/api/v2/projects`
+  behave the same way.
+- **Ids restart per installation.** A key file from the instance's previous
+  install carries id 10002; on the fresh install, 10002 was one of this run's
+  test keys.
+- **Windows file ACLs are not enforced by `cov-manage-im`.** The created key
+  carries explicit full-control ACEs for the user, SYSTEM and
+  Administrators. Adding `Everyone:(R)`, then `BUILTIN\Users:(R)`, left the
+  key accepted (exit 0, projects listed). The same was true of a copy.
+- **`tools/connect_auth.py`**, every branch: `create` refusing without a
+  passphrase file and refusing to overwrite, `create --force` producing a
+  `VALID` key, `check` giving `VALID` (exit 0), `REJECTED` (exit 1, with the
+  key's own `expirationDate` shown as informational), and `UNREACHABLE`
+  (exit 2) for a wrong port (404 from another listener), a bogus context
+  path (403), https against the http port (TLS `WRONG_VERSION_NUMBER`), and
+  a file that is not a key; `revoke --delete` confirming 401 before
+  deleting.
+
+Not established:
+
+- **The documented POSIX mode check** ("If the file permissions are changed
+  to allow other users to read the file, the cov-* tools will no longer
+  accept the key"). Linux `cov-manage-im` 2026.9.0 under WSL with the key at
+  mode 600, 644 and 777 (on `/mnt/c`) reached *"Connection refused"* in all
+  three cases, because WSL cannot reach this machine's Connect. Either the
+  check runs after connecting or it did not trigger; this run cannot say
+  which.
+- LDAP users, HTTPS (`--on-new-cert`, `--certs`), and whether the `coverity`
+  CLI really picks up `~/.coverity/ak-<host>-<port>` without configuration.
+  The last is documented in `cov_cli.html`.
+
+Observed, not measured: before this rule existed, a session given the admin
+password created its key by driving the Connect UI in a browser, through a
+sign-in, a zooming page, and an Angular form it ended up filling via
+JavaScript. It took about twenty turns. That detour is what rule 37
+replaces.

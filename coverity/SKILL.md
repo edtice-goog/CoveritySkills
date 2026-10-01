@@ -10,20 +10,24 @@ description: >
   "what does cov-build's percentage mean?", "what should I check before
   trusting this report?", as well as general orientation questions about
   Coverity commands, the intermediate directory, and the capture-to-analysis
-  pipeline. Also use it as the entry point that routes to the specialist
-  skills for compiler configuration, build fidelity, and defect
-  detectability. Carries the standing rules (RULES.md) that apply to any
-  Coverity work regardless of the question being asked -- read them before
-  running any Coverity command. Requires a local Coverity Analysis
-  installation; this skill interrogates real intermediate directories rather
-  than reasoning about what should have happened.
+  pipeline. Also owns authenticating to Coverity Connect, for every skill
+  that commits or queries: creating an authentication key ("cov-manage-im
+  --mode auth-key", "I need an auth key", "give me a key for Connect"),
+  checking whether a key still works, a 401 or "Authentication failed",
+  where to keep a key, and revoking one. Also the entry point that routes to
+  the specialist coverity-* skills. Carries the standing rules (RULES.md)
+  that apply to any Coverity work regardless of the question being asked --
+  read them before running any Coverity command. Requires a local Coverity
+  Analysis installation; this skill interrogates real intermediate
+  directories rather than reasoning about what should have happened.
 ---
 
 # Coverity
 
 The umbrella skill. It owns what the specialist skills all depend on: where
-the installation is, what an intermediate directory means, and whether the
-capture under discussion is trustworthy enough to reason from.
+the installation is, how to authenticate to Coverity Connect, what an
+intermediate directory means, and whether the capture under discussion is
+trustworthy enough to reason from.
 
 ## The rules
 
@@ -86,6 +90,7 @@ evidence, in `RULES.md`:
 | 34 | Capture is not all-or-nothing — a captured file can be missing functions |
 | 35 | Extract a function from the emit (`cov-manage-emit find --print-definitions`), never from preprocessed text |
 | 36 | A path limit counts paths x state; ask the analyzer which checker hit it (`--print-paths`) |
+| 37 | Mint auth keys with `cov-manage-im --mode auth-key`; check them over REST, never with `--show` |
 
 Numbers are stable and citable. New rules take the next free number and are
 filed under the section they belong to; a rule that turns out to be wrong is
@@ -98,14 +103,19 @@ marked superseded in place rather than renumbered.
 | "How do I set up `cov-configure`?" / unconfigured compilers / tainted config | `coverity-compiler-configuration` |
 | "Did wrapping the build in `cov-build` change the binaries?" / release gating on binary equivalence | `coverity-build-fidelity` |
 | "Can Coverity find *this* defect?" / which checker, which option, which taint flag | `coverity-defect-detectability` |
+| "Expected version number is N, but this directory has version M" / the old build cannot be re-run / reuse an idir to avoid a slow capture | `coverity-recreate-from-emit` |
+| The count jumped after an upgrade / are these new findings ours or the analyzer's? | `coverity-issue-transition-inference` |
+| Findings dated to the release they arrived in / backdated history for adoption, migration, or a demo | `coverity-demo-data` |
 | "PATHOUT" / "Exceeded path limit" / `paths_exceeded` / which functions hit `--paths` and why / what escaped behind the limit | `coverity-pathout` |
 | "show me what the analyzer saw for this function" / "re-analyze just this function" / "a file I can cov-emit by itself" / "obfuscate this function" | `coverity-function-slice` |
 | "is this finding real?" / "triage these" / "confirm the candidates" / "fuzz it" | `coverity-fuzz-triage` |
+| CVSS scores on findings / `cov-generate-cvss-report` / why a CWE scored zero | `coverity-cvss-report` |
+| An auth key: create one, check one, a 401 from Connect | here -- *Connecting to Coverity Connect* |
 | Anything else, or you do not yet know which | here |
 
-Hand off explicitly rather than half-doing a specialist's job. Capture
-verification is the shared prerequisite for all three, and lives here so that
-none of them has to own it.
+Hand off explicitly rather than half-doing a specialist's job. Two things
+every specialist depends on live here so that none of them has to own them:
+capture verification, and authenticating to Connect.
 
 ## Step 0: Pin the installation
 
@@ -127,6 +137,40 @@ against one intermediate directory is its own failure mode.
 
 Read option tables and checker behaviour **from the installation**, not from
 memory. Defaults move between releases.
+
+## Connecting to Coverity Connect
+
+Anything that commits or queries needs three things: a URL, a key, and
+confirmation that the key works. Full procedure and evidence:
+`references/connect-auth.md`.
+
+- **The URL comes from the user or the project configuration -- never from
+  the key** (rule 28). A key's `comments.host` routinely disagrees with the
+  real URL. Ignore it; do not warn about it.
+- **No working key? Create one on the command line** (rule 37). It needs the
+  user's Connect password once; ask for it, put it in a temporary file, and
+  delete the file afterwards:
+
+  ```bash
+  python3 tools/connect_auth.py create --url <connect-url> --bin $BIN \
+      --user <connect-user> --passphrase-file <file>
+  ```
+
+  The key is written to `~/.coverity/ak-<host>-<port>` in the user's home
+  directory. That location is deliberate: never put a key in a repository or
+  a workspace. Do not drive the Connect UI in a browser to make one.
+- **Check any key before relying on it**, including one found on disk:
+
+  ```bash
+  python3 tools/connect_auth.py check --url <connect-url> --auth-key-file <key>
+  ```
+
+  `VALID` (exit 0), `REJECTED` (exit 1: expired, revoked, or from another
+  instance or an earlier install -- create a new one), or `UNREACHABLE`
+  (exit 2). Do not use `cov-manage-im ... --show` to test a key: it reports
+  a rejected key exactly as it reports an empty list.
+- **Pass `--auth-key-file` to every `cov-*` command.** They do not look in
+  `~/.coverity/` on their own; only the `coverity` CLI does.
 
 ## The pipeline, and where trust leaks out of it
 
