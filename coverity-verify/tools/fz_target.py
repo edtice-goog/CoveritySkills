@@ -208,7 +208,7 @@ def main():
         pin_fn.append('  FZ_PIN("%s", %d);   /* %s */' % (name, k, desc))
     pin_fn.append("}")
     pin_fn.append("#define FZ_PINS_DEFAULT() do { if (fz_pin_n == 0) fz_pins_default(); } while (0)")
-    out = ["/* ==== fuzz-triage support (before the slice: __fz_claim is used inside it) ==== */",
+    out = ["/* ==== coverity-verify fuzz support (before the slice: __fz_claim is used inside it) ==== */",
            '#include "fz_support.h"', slice_text,
            "\n/* ==== callee stubs from derived models ==== */", "\n\n".join(stubs),
            "\n".join(pin_fn),

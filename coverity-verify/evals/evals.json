@@ -1,5 +1,5 @@
 {
-  "skill_name": "coverity-fuzz-triage",
+  "skill_name": "coverity-verify",
   "evals": [
     {
       "id": 0,
@@ -42,9 +42,9 @@
       "id": 3,
       "eval_name": "verify-a-cid",
       "prompt": "Run the verify skill. CID 10427 on Connect at http://localhost:8080, stream proftpd-main; the idir that produced the latest snapshot is at C:\\work\\idir (Coverity 2026.9.0).",
-      "expected_output": "Recognizes 'verify' as coverity-fuzz-triage; checks the key under ~/.coverity with connect_auth.py check (URL from the user, not the key); runs cid_lookup.py lookup for the stream, checker, file, function, line and merge key; runs cov-format-errors --json-output-v10 on the idir and cid_lookup.py select --merge-key to get the events; names the claim as a C expression at the main event's line and the blamed callee; then slice, models, assemble (focused first), run, and a tiered verdict with the reach count or the stub choices behind a crash.",
+      "expected_output": "Finds coverity-verify (or its alias); checks the key under ~/.coverity with connect_auth.py check (URL from the user, not the key); runs cid_lookup.py lookup for the stream, checker, file, function, line and merge key; runs cov-format-errors --json-output-v10 on the idir and cid_lookup.py select --merge-key to get the events; names the claim as a C expression at the main event's line and the blamed callee; then slice, models, assemble (focused first), run, and a tiered verdict with the reach count or the stub choices behind a crash.",
       "assertions": [
-        "Finds the skill from the word 'verify' without being told the directory name",
+        "Finds the skill from the word 'verify', and treats a request naming coverity-fuzz-triage as the same skill",
         "Does not read the Connect URL out of the key file, and never prints the key",
         "Gets the events from the idir's findings by merge key, not by re-typing them from the Connect UI",
         "States the claim as an expression at the finding's line before building anything",

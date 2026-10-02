@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""From a Coverity Connect CID to the thing coverity-fuzz-triage verifies.
+"""From a Coverity Connect CID to the thing coverity-verify verifies.
 
 Two subcommands, because the CID lives in Connect and the events live in
 the intermediate directory:

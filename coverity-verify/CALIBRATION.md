@@ -1,7 +1,8 @@
 # Calibration status
 
 This project's standard is that factual claims in a skill were established by
-real runs. This file records what was run for `coverity-fuzz-triage`, on what,
+real runs. This file records what was run for `coverity-verify` (formerly
+`coverity-fuzz-triage`), on what,
 and what is reasoned rather than measured.
 
 Environment: Windows 11, installations under `C:\Coverity\`. Three analyzer

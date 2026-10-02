@@ -108,7 +108,7 @@ marked superseded in place rather than renumbered.
 | Findings dated to the release they arrived in / backdated history for adoption, migration, or a demo | `coverity-demo-data` |
 | "PATHOUT" / "Exceeded path limit" / `paths_exceeded` / which functions reached `--paths` and why / what the analyzer did not examine there | `coverity-pathout` |
 | "show me what the analyzer saw for this function" / "re-analyze just this function" / "a file I can cov-emit by itself" / "obfuscate this function" | `coverity-function-slice` |
-| "verify this finding" / "verify CID 12345" / "is this finding real?" / "triage these" / "confirm the candidates" / "fuzz it" / execution-based verification of any finding | `coverity-fuzz-triage` (also answers to `coverity-verify`) |
+| "verify this finding" / "verify CID 12345" / "is this finding real?" / "triage these" / "confirm the candidates" / "fuzz it" / execution-based verification of any finding | `coverity-verify` (`coverity-fuzz-triage` is an alias) |
 | CVSS scores on findings / `cov-generate-cvss-report` / why a CWE scored zero | `coverity-cvss-report` |
 | An auth key: create one, check one, a 401 from Connect | here -- *Connecting to Coverity Connect* |
 | Anything else, or you do not yet know which | here |

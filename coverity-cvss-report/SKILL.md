@@ -278,7 +278,7 @@ Step 4 fills gaps per defect instead, where it is visible and reversible.
 **It does not judge whether a weakness is exploitable.** A CVSS score here
 is an upper bound derived from a CWE, not a finding about the code. For
 whether a specific defect is real and reachable, that is
-`coverity-fuzz-triage`, and its answer is evidence rather than a score.
+`coverity-verify`, and its answer is evidence rather than a score.
 
 ## Reference
 

@@ -35,24 +35,24 @@
       "id": 2,
       "eval_name": "escape-hunt",
       "prompt": "A fuzzer found a null dereference in one of our functions that Coverity never reported. We checked: that function paths out (FORWARD_NULL_pass2 hit the limit). The bug is a null check whose closing brace comes one statement too early, so the pointer is dereferenced right after the guard. Are there more of these hiding behind the path limit in this idir (C:\\Data\\tool-interop\\coverity\\idirs\\svn-augmented-post-enrichment, Coverity 2026.3.0)? I don't want a list of every unguarded dereference in the codebase.",
-      "expected_output": "Takes the catalogue's null_check_then_deref checker (or writes one for the shape); runs it alone over a copy of the whole idir with --disable-default --codexm; obtains the PATHOUT set from a --print-paths run with the original options; filters with tools/pathout_filter.py --relevant FORWARD_NULL,NULL_RETURNS (503 -> 115 -> 0 on this idir; 27 with REVERSE_INULL counted); reads the survivors and refutes them with stated reasons (precondition assertion, allocate-if-null macro, invariant between variables, reassignment); hands anything unresolved to coverity-fuzz-triage; does not raise --paths as the fix.",
+      "expected_output": "Takes the catalogue's null_check_then_deref checker (or writes one for the shape); runs it alone over a copy of the whole idir with --disable-default --codexm; obtains the PATHOUT set from a --print-paths run with the original options; filters with tools/pathout_filter.py --relevant FORWARD_NULL,NULL_RETURNS (503 -> 115 -> 0 on this idir; 27 with REVERSE_INULL counted); reads the survivors and refutes them with stated reasons (precondition assertion, allocate-if-null macro, invariant between variables, reassignment); hands anything unresolved to coverity-verify; does not raise --paths as the fix.",
       "assertions": [
         "Does not propose raising --paths as the remedy",
         "Uses a path-insensitive CodeXM checker over the whole idir rather than per-function analysis",
         "Filters candidates to PATHOUT functions and, further, to those where a null-tracking checker (FORWARD_NULL / NULL_RETURNS) pathed out",
         "Excludes or identifies the known instance rather than re-reporting it",
         "Reads the survivors before proposing fuzzing, and states the verdict tier",
-        "Names coverity-fuzz-triage (slice + stubs from derived models + sanitizer) as the confirmation for anything unresolved"
+        "Names coverity-verify (slice + stubs from derived models + sanitizer) as the confirmation for anything unresolved"
       ]
     },
     {
       "id": 3,
       "eval_name": "pathout-no-escape-blind",
       "prompt": "I have a Coverity intermediate directory at C:/Data/pathout-campaign/idirs/nginx and its analysis reports a PATHOUT. Please execute this skill against it. The Coverity install that wrote it is C:/Coverity/cov-analysis-win64-2026.6.0.",
-      "expected_output": "Steps 0-2 on a copy (18 functions, the Pathed out components per function); runs the whole shape catalogue with pathout-shapes/bin/run_all.sh and filters with --relevant auto (159 hits, 4 in PATHOUT functions, 2 relevant: params[index] in ngx_http_ssi_body_filter, where OVERRUN_SYMBOLIC pathed out); reads the two survivors and gives each a tiered verdict, handing off to coverity-fuzz-triage if reading cannot settle them; slices at least the worst function through coverity-function-slice; measures the cost of the limit on the whole project (identical defect sets at 50,000; two functions never finish); recommends with a price.",
+      "expected_output": "Steps 0-2 on a copy (18 functions, the Pathed out components per function); runs the whole shape catalogue with pathout-shapes/bin/run_all.sh and filters with --relevant auto (159 hits, 4 in PATHOUT functions, 2 relevant: params[index] in ngx_http_ssi_body_filter, where OVERRUN_SYMBOLIC pathed out); reads the two survivors and gives each a tiered verdict, handing off to coverity-verify if reading cannot settle them; slices at least the worst function through coverity-function-slice; measures the cost of the limit on the whole project (identical defect sets at 50,000; two functions never finish); recommends with a price.",
       "assertions": [
         "Runs the shape catalogue even though no defect has escaped, and reports the survivor count",
-        "Reads the survivors and reports a verdict with a tier for each, or hands them to coverity-fuzz-triage",
+        "Reads the survivors and reports a verdict with a tier for each, or hands them to coverity-verify",
         "Measures the cost of the limit on the whole project, not on --tu scoped runs alone",
         "Does not treat the original idir as scratch",
         "States which PATHOUT functions were not taken past Step 1"

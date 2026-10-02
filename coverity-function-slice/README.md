@@ -59,7 +59,7 @@ frontier model, or to the vendor, without carrying the codebase's name.
 ## Who calls it
 
 `coverity-pathout` uses it for the function that hit the path limit and
-for restructuring experiments on the slice; `coverity-fuzz-triage` uses
+for restructuring experiments on the slice; `coverity-verify` uses
 the slice as its fuzz target and puts the callee models back as stubs. On
 its own it answers "show me what Coverity saw for `foo`" and "give me a
 file I can iterate on without rebuilding". The reason it is a separate

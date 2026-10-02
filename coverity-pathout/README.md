@@ -51,7 +51,7 @@ nginx: 159 hits, 4 in PATHOUT functions, 2 where the relevant checker
 pathed out. On subversion, keyed on a null dereference a later stage found: 503, 115,
 0 (27 with the reverse shape counted; all 27 refuted by reading). The
 survivors are read, and what reading cannot settle goes to
-`coverity-fuzz-triage` to be run.
+`coverity-verify` to be run.
 
 **The cost of the notice is measured, on the whole project.** `--paths N
 --print-paths` on a copy says how many paths each function needed, and a
@@ -80,7 +80,7 @@ into a helper, measured on the slice.
 The function body, the standalone slice and the obfuscated twin are
 [`coverity-function-slice`](../coverity-function-slice/README.md); running a
 candidate to confirm or refute it is
-[`coverity-fuzz-triage`](../coverity-fuzz-triage/README.md). This skill
+[`coverity-verify`](../coverity-verify/README.md). This skill
 calls both; install the three together.
 
 ## Requirements
@@ -94,7 +94,7 @@ calls both; install the three together.
 ## Install
 
 ```bash
-cp -r coverity-pathout coverity-function-slice coverity-fuzz-triage ~/.claude/skills/
+cp -r coverity-pathout coverity-function-slice coverity-verify ~/.claude/skills/
 ```
 
 Then: "the analysis log says 189 functions exceeded the path limit -- which

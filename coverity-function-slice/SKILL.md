@@ -17,7 +17,7 @@ description: >
   names and constants, and proves by analyzing both copies that the twin
   analyzes identically. Requires the Coverity Analysis installation of the
   version that wrote the intermediate directory. Used by coverity-pathout
-  (the function that hit the path limit) and coverity-fuzz-triage (the
+  (the function that hit the path limit) and coverity-verify (the
   fuzz target), and on its own whenever one function is the question.
 ---
 
@@ -33,7 +33,7 @@ Read `coverity/RULES.md` first (rules 3 and 35 bear directly).
 
 **This skill is one of a bundle of three** in the CoveritySkills
 repository, beside `coverity-pathout` (which calls this one for the body
-of a function that hit the path limit) and `coverity-fuzz-triage` (which
+of a function that hit the path limit) and `coverity-verify` (which
 uses the slice as its fuzz target). It stands alone, but if you have only
 this file, clone the repository and work from the clone so the rules and
 the siblings are where the text says they are:
@@ -122,7 +122,7 @@ prototypes with no models, globals are `extern`, static callees lose
 function whose behaviour depends on what its callees are modelled to do
 (a PATHOUT count, a NULL_RETURNS finding) the standalone numbers can
 differ; five of nginx's eighteen PATHOUT functions finish under the limit
-as slices for exactly that reason. `coverity-fuzz-triage` puts the callee
+as slices for exactly that reason. `coverity-verify` puts the callee
 models back as stubs when execution is the question.
 
 **C++.** Free functions work, including calls to static members of classes
@@ -233,7 +233,7 @@ measured vs reasoned (rule 23). If `--obfuscate` was run, quote the
 | Question | Skill |
 |---|---|
 | "Why did this function exceed the path limit, and what did it cost?" | `coverity-pathout` (it calls this skill for the body) |
-| "Is this finding real? Run it." | `coverity-fuzz-triage` (the slice is its target; the callee models come back as stubs) |
+| "Is this finding real? Run it." | `coverity-verify` (the slice is its target; the callee models come back as stubs) |
 | "Was the function even captured?" / the file is not in the emit | `coverity` (capture fidelity, rule 34) |
 | The idir is from a version you do not have installed | stop and ask: name the version `emit/version` requires and let the user install it or re-capture. `coverity-recreate-from-emit` is expensive and is a last resort the user must ask for |
 

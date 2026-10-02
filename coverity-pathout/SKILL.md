@@ -18,7 +18,7 @@ description: >
   filtered to the PATHOUT functions where that checker stopped -- a
   catalogue of thirteen tested shapes is run whenever there is a PATHOUT,
   whether or not a later stage has found anything. Uses coverity-function-slice
-  for the function body and coverity-fuzz-triage to confirm candidates by
+  for the function body and coverity-verify to confirm candidates by
   execution. Requires a local Coverity Analysis installation of the
   version that wrote the intermediate directory.
 ---
@@ -53,7 +53,7 @@ this skill adds is 36; rule 35 belongs to `coverity-function-slice`.
 
 **This skill is one of a bundle of three**, and it calls the other two by
 relative path: `coverity-function-slice` (the function body, the
-standalone slice) and `coverity-fuzz-triage` (an execution verdict on a
+standalone slice) and `coverity-verify` (an execution verdict on a
 candidate). If you have only this file -- fetched from a URL, or copied
 alone -- clone the repository and work from the clone before starting:
 
@@ -231,13 +231,13 @@ functions, **0** where `FORWARD_NULL` pathed out, 27 where `REVERSE_INULL`
 did. Exclude the known instance.
 
 **Then read each survivor**, and hand the ones reading cannot settle to
-`coverity-fuzz-triage`. All 27 subversion survivors were refuted by
+`coverity-verify`. All 27 subversion survivors were refuted by
 reading (preconditions, allocate-if-null macros, invariants between
 variables, reassignment; `references/escape-hunt.md` has the catalogue).
 Reading is inference, and it is what the skill exists to replace where
 inference cannot reach a verdict; so when the user asks for execution
 verdicts, or says the run is a test of the pipeline, send **every**
-survivor to `coverity-fuzz-triage` and report the reading verdict beside
+survivor to `coverity-verify` and report the reading verdict beside
 the execution verdict rather than instead of it.
 A survivor list with a verdict and tier per entry is part of every PATHOUT
 report; "the catalogue was not run" is a gap to state (rule 22). The
@@ -435,7 +435,7 @@ user chose to spend (rule 22).
 | Question | Skill |
 |---|---|
 | The function's body, a file that compiles alone, an obfuscated twin | `coverity-function-slice` |
-| A survivor reading cannot settle: run it | `coverity-fuzz-triage` |
+| A survivor reading cannot settle: run it | `coverity-verify` |
 | "Was the function even captured?" / the file is not in the emit | `coverity` (capture fidelity, rule 34) |
 | "Would checker X have found the bug the cut-off hid?" | `coverity-defect-detectability` |
 | The idir is from a version you do not have installed | stop and ask. This skill is for current development, where the version that wrote the idir (`emit/version`, line 1) is installable; say which version is needed and let the user install it or re-run the capture. `coverity-recreate-from-emit` rebuilds an analyzable idir without the toolchain and is expensive; it is a last resort the user must ask for, not a step to take on your own |

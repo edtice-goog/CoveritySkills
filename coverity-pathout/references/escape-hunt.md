@@ -142,7 +142,7 @@ executable on its own, the derived models make its callees behave exactly
 as the analyzer believes they do, and a sanitizer is the oracle. A crash at
 the candidate's dereference, reached through a stub taking its
 `returnsnull` branch, is the confirmation; the analyzer would have accepted
-that path as feasible had it reached it. `coverity-fuzz-triage/references/fuzz-confirmation.md`
+that path as feasible had it reached it. `coverity-verify/references/fuzz-confirmation.md`
 has the recipe, the verdict tiers, and the fixture where the whole chain
 runs in about a minute: candidate flagged, sliced, stubbed from the model,
 built with clang-cl and ASan, crashing at the right line on a four-byte
