@@ -23,9 +23,10 @@ to the sign-in page, so redirects are refused; `snapshotScope.show.scope:
 "last"` returns zero rows for a project filter, so a snapshot id is asked for
 and, failing that, the stream's snapshots are listed over SOAP
 (getSnapshotsForStream, key as the WS-Security password) and the newest
-used. The CID filter form (`cid` column, `idMatcher`) is from the REST
-reference and NOT yet measured: on a 400 the tool falls back to a stream
-or project filter (measured) and picks the CID client-side, and says so.
+used. The `cid` filter (an `idMatcher`) only works beside a stream or project
+filter: alone it is accepted and returns nothing (totalRows -1), measured
+on 2026.9.0. The tool sends both, and if the row still does not come back
+it scans the stream or project and picks the CID client-side, and says so.
 
 The URL comes from the caller, never from the key's comments (rule 28). The
 key's secret is never printed. Pure standard library.
@@ -41,9 +42,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+# measured on 2026.9.0: these come back; `stream`, `project` and
+# `lastSnapshotId` are accepted and silently absent from the rows
 COLUMNS = ["cid", "checker", "displayType", "displayImpact", "displayFile",
-           "displayFunction", "lineNumber", "mergeKey", "stream", "project",
-           "lastSnapshotId", "firstSnapshotId", "cwe", "status", "classification"]
+           "displayFunction", "lineNumber", "mergeKey", "firstSnapshotId",
+           "cwe", "status", "classification"]
 WSSE = ("http://docs.oasis-open.org/wss/2004/01/"
         "oasis-200401-wss-wssecurity-secext-1.0.xsd")
 PWTYPE = ("http://docs.oasis-open.org/wss/2004/01/"
@@ -151,13 +154,26 @@ def cmd_lookup(a):
         snapshot = newest_snapshot(a.url, user, key, a.stream)
         print("snapshot: %d (newest of stream %s)" % (snapshot, a.stream), file=sys.stderr)
 
-    # 1. the CID filter, as the REST reference describes it (not yet measured)
-    filters = [{"columnKey": "cid", "matchMode": "oneOrMoreMatch",
-                "matchers": [{"class": "Cid", "type": "idMatcher", "id": cid}]}]
+    # 1. the CID filter together with the stream or project filter. Measured
+    # on Connect 2026.9.0: the cid idMatcher ALONE is accepted (HTTP 200) and
+    # returns totalRows -1 with no rows; with a stream filter beside it the
+    # answer is exactly one row.
+    filters = []
+    if a.stream:
+        filters.append({"columnKey": "streams", "matchMode": "oneOrMoreMatch",
+                        "matchers": [{"class": "Stream", "name": a.stream, "type": "nameMatcher"}]})
+    elif a.project:
+        filters.append({"columnKey": "project", "matchMode": "oneOrMoreMatch",
+                        "matchers": [{"class": "Project", "name": a.project, "type": "nameMatcher"}]})
+    filters.append({"columnKey": "cid", "matchMode": "oneOrMoreMatch",
+                    "matchers": [{"class": "Cid", "type": "idMatcher", "id": cid}]})
     status, doc = search(a.url, user, key, filters, COLUMNS, snapshot)
     how = "cid filter"
-    if status != 200:
-        # 2. the measured form: filter by stream or project, pick the CID here
+    hit = status == 200 and any(str(r.get("cid")) == str(cid) for r in rows_to_dicts(doc))
+    if not hit:
+        # 2. the measured form: filter by stream or project, pick the CID here.
+        # (A filter form the server does not understand is accepted with HTTP
+        # 200 and totalRows -1, not refused: measured on 2026.9.0.)
         if a.stream:
             filters = [{"columnKey": "streams", "matchMode": "oneOrMoreMatch",
                         "matchers": [{"class": "Stream", "name": a.stream, "type": "nameMatcher"}]}]
@@ -165,9 +181,9 @@ def cmd_lookup(a):
             filters = [{"columnKey": "project", "matchMode": "oneOrMoreMatch",
                         "matchers": [{"class": "Project", "name": a.project, "type": "nameMatcher"}]}]
         else:
-            sys.exit("the cid filter was refused (HTTP %s: %s) and no --stream/--project was given to scan instead"
-                     % (status, str(doc)[:300]))
-        print("note: the cid filter was refused (HTTP %s); scanning the %s instead" % (status, "stream" if a.stream else "project"),
+            sys.exit("the cid filter returned nothing (HTTP %s) and no --stream/--project was given to scan instead"
+                     % status)
+        print("note: the cid filter returned nothing (HTTP %s); scanning the %s instead" % (status, "stream" if a.stream else "project"),
               file=sys.stderr)
         status, doc = search(a.url, user, key, filters, COLUMNS, snapshot)
         how = "stream/project scan"
@@ -180,8 +196,10 @@ def cmd_lookup(a):
         sys.exit("CID %d not found in snapshot %s (%s; %s rows returned). Is it in another stream, or an older snapshot?"
                  % (cid, snapshot, how, doc.get("totalRows")))
     r = rows[0]
+    # the `stream` and `project` column keys come back empty on 2026.9.0, so
+    # the caller's own names are reported
     out = {"cid": cid, "snapshot": snapshot, "how": how,
-           "stream": r.get("stream"), "project": r.get("project"), "checker": r.get("checker"),
+           "stream": r.get("stream") or a.stream, "project": r.get("project") or a.project, "checker": r.get("checker"),
            "type": r.get("displayType"), "impact": r.get("displayImpact"), "cwe": r.get("cwe"),
            "file": r.get("displayFile"), "function": r.get("displayFunction"), "line": r.get("lineNumber"),
            "mergeKey": r.get("mergeKey"), "status": r.get("status"), "classification": r.get("classification")}

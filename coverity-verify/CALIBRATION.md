@@ -92,6 +92,29 @@ the 12 chosen not taken (`tpl_map_va`, `tpl_peek`: variadic targets).
 - Work products under `C:\Data\fuzz-triage-work\proftpd\` (slices,
   models, harnesses, `RESULTS.md`); not in the repository.
 
+- **The CID entry point, measured 2026-10-02** against a hosted Connect
+  2026.9.0 (HTTPS, an admin key Ed supplied, five proftpd streams, 112
+  issues in `proftpd-1.3.9`'s newest snapshot 10024). `connect_auth.py
+  check`: VALID. `getSnapshotsForStream` over SOAP with the key as the
+  WS-Security password: works over HTTPS. `issues/search`: a `cid`
+  `idMatcher` filter **alone** is accepted with HTTP 200 and returns
+  `totalRows -1`, no rows (the same for `id` as a string or without
+  `class`); an `intRangeMatcher` on `cid` is a 400 and a `keyMatcher` a
+  500; **beside a stream filter it returns exactly the one row**. Column
+  keys `cid`, `checker`, `displayType`, `displayImpact`, `displayFile`,
+  `displayFunction`, `lineNumber`, `mergeKey`, `firstSnapshotId`, `cwe`,
+  `status`, `classification` come back; `stream`, `project` and
+  `lastSnapshotId` are accepted and absent from the rows. End to end: CID
+  10206 -> `NULL_RETURNS`, `/src/parser.c`, `parse_config_path2`, line
+  1231, merge key `ddde6577...`; `select` on the local v1.3.9 idir's
+  findings by that merge key printed the same issue with its events,
+  which is the hand-off into Step 0. Lookup by `--project proftpd
+  --snapshot 10024` works the same way. The tool now sends stream (or
+  project) and cid filters together and scans only if the row still does
+  not come back. Ed's point stands: a CID lookup needs no skill, any REST
+  client does it; the tool is a convenience so the merge key lands in the
+  right place.
+
 ## Reasoned, not measured
 
 - That a stub printed from the derived model can only take behaviours the
@@ -103,20 +126,6 @@ the 12 chosen not taken (`tpl_map_va`, `tpl_peek`: variadic targets).
 
 ## Not verified
 
-- **The CID entry point against a live Connect.** `cid_lookup.py select`
-  was run on the proftpd findings file (by checker+file+function and by
-  merge key: same issue, events printed). `cid_lookup.py lookup` is built
-  on calls measured elsewhere (REST Basic with a key and the 302 trap:
-  `coverity/references/connect-auth.md`; `issues/search` with a project
-  filter and an explicit snapshot id: `coverity-cvss-report`;
-  `getSnapshotsForStream` over SOAP with the key as the WS password) plus
-  one unmeasured guess, the `cid` column filter with an `idMatcher`, which
-  falls back to the measured stream/project scan on a 400. No valid key
-  existed on this machine on 2026-10-02 (the one on disk predates the
-  2026-10-01 reinstall; Connect answered 401 and the tool said so), so the
-  first run against a real CID is still owed, and so is the column-key
-  list (`displayFunction`, `lineNumber`, `mergeKey`: the tool drops a
-  rejected one and retries).
 - Variadic targets (`tpl_map_va`, `tpl_peek`): the harness pattern does
   not cover them.
 - A confirmed finding on real code: the batch produced none, so the

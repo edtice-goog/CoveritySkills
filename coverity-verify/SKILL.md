@@ -127,12 +127,16 @@ $BIN/cov-format-errors --dir <the idir behind that snapshot> --json-output-v10 f
 python3 tools/cid_lookup.py select --findings findings.json --merge-key <from lookup>
 ```
 
-`lookup` asks Connect over REST (HTTP Basic with an authentication key,
+A CID lookup needs no skill -- any REST client, or the Connect UI, gives
+the same five fields -- so do it however is quickest; the tool exists so
+the merge key lands where Step 0 wants it. `lookup` asks Connect over REST
+(HTTP Basic with an authentication key,
 exactly as the `coverity` skill's *Connecting to Coverity Connect*
 describes: key under `~/.coverity/`, never in a repository; URL from the
 user, never from the key; check the key first with `connect_auth.py
 check`) for the stream, checker, file, function, line and **merge key** of
-the CID in a snapshot. `select` finds the same issue in the idir's own
+the CID in a snapshot (the stream, or project, filter must accompany the
+cid filter: alone the cid filter returns nothing, measured). `select` finds the same issue in the idir's own
 findings by merge key (stable across runs, rule 27) and prints the events.
 The idir is the one the user analyzed and committed; if only Connect has
 the snapshot, re-analyze the same capture with the same version and
