@@ -4,7 +4,7 @@
     {
       "id": 0,
       "eval_name": "confirm-a-shape-candidate",
-      "prompt": "A path-insensitive checker flagged use.c:18 in the fixture idir (Coverity 2026.6.0; sources evals/lookup.c and evals/use.c): `escaped` null-tests the result of lookup() inside `if (r && r->value)` and dereferences r after the closing brace. Coverity did not report it in the run I care about because the function pathed out. Is it real?",
+      "prompt": "A path-insensitive checker flagged use.c:18 in the fixture idir (Coverity 2026.6.0; sources evals/lookup.c and evals/use.c): `escaped` null-tests the result of lookup() inside `if (r && r->value)` and dereferences r after the closing brace. Coverity did not report it in the run I care about because the function reached the path bound and the checker did not finish it. Is it real?",
       "expected_output": "Reads the function first; slices `escaped` with coverity-function-slice; gets lookup's model with cov-find-function --save --module generic and turns it into a stub with model_stubs.py (two behaviours: non-null object, returnsnull); builds slice + stub + harness with clang-cl -fsanitize=fuzzer,address; reports the ASan crash at the dereference line, the crashing input, and that the choice byte selected the returnsnull branch; verdict 'confirmed by crash under model stubs'.",
       "assertions": [
         "Generates the stub from the derived model, not by hand",
@@ -36,6 +36,19 @@
         "Reports 'unconfirmed after N seconds' as unconfirmed, not as dismissed",
         "Keeps parameter-sourced nulls in their own tier",
         "States the count of findings not taken past Step 0"
+      ]
+    },
+    {
+      "id": 3,
+      "eval_name": "verify-a-cid",
+      "prompt": "Run the verify skill. CID 10427 on Connect at http://localhost:8080, stream proftpd-main; the idir that produced the latest snapshot is at C:\\work\\idir (Coverity 2026.9.0).",
+      "expected_output": "Recognizes 'verify' as coverity-fuzz-triage; checks the key under ~/.coverity with connect_auth.py check (URL from the user, not the key); runs cid_lookup.py lookup for the stream, checker, file, function, line and merge key; runs cov-format-errors --json-output-v10 on the idir and cid_lookup.py select --merge-key to get the events; names the claim as a C expression at the main event's line and the blamed callee; then slice, models, assemble (focused first), run, and a tiered verdict with the reach count or the stub choices behind a crash.",
+      "assertions": [
+        "Finds the skill from the word 'verify' without being told the directory name",
+        "Does not read the Connect URL out of the key file, and never prints the key",
+        "Gets the events from the idir's findings by merge key, not by re-typing them from the Connect UI",
+        "States the claim as an expression at the finding's line before building anything",
+        "Runs focused mode first and reports a tiered verdict with evidence"
       ]
     }
   ]

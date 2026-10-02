@@ -102,6 +102,20 @@ the 12 chosen not taken (`tpl_map_va`, `tpl_peek`: variadic targets).
 
 ## Not verified
 
+- **The CID entry point against a live Connect.** `cid_lookup.py select`
+  was run on the proftpd findings file (by checker+file+function and by
+  merge key: same issue, events printed). `cid_lookup.py lookup` is built
+  on calls measured elsewhere (REST Basic with a key and the 302 trap:
+  `coverity/references/connect-auth.md`; `issues/search` with a project
+  filter and an explicit snapshot id: `coverity-cvss-report`;
+  `getSnapshotsForStream` over SOAP with the key as the WS password) plus
+  one unmeasured guess, the `cid` column filter with an `idMatcher`, which
+  falls back to the measured stream/project scan on a 400. No valid key
+  existed on this machine on 2026-10-02 (the one on disk predates the
+  2026-10-01 reinstall; Connect answered 401 and the tool said so), so the
+  first run against a real CID is still owed, and so is the column-key
+  list (`displayFunction`, `lineNumber`, `mergeKey`: the tool drops a
+  rejected one and retries).
 - Variadic targets (`tpl_map_va`, `tpl_peek`): the harness pattern does
   not cover them.
 - A confirmed finding on real code: the batch produced none, so the

@@ -1,13 +1,16 @@
 ---
 name: coverity-fuzz-triage
 description: >
-  Confirm or refute a Coverity finding -- or a candidate from a
-  path-insensitive shape checker -- by running the function, instead of by
-  reading it. Use this skill for "is this defect real", "triage these
-  findings", "confirm the candidates", "can this null actually arrive",
-  "fuzz this function", "verify the report before I file it", "give me
-  execution verdicts", and for the question behind them all: whether an
-  analyzer claim about one function is reachable in execution. The recipe:
+  Verify a Coverity finding by execution: confirm or refute it by running
+  the function, instead of by reading it. Also answers to coverity-verify.
+  The finding may be a Connect CID ("verify CID 12345"), an entry in a
+  cov-format-errors findings file, or a candidate from a path-insensitive
+  shape checker. Use this skill for "verify this finding", "verification",
+  "run the verify skill", "is this defect real", "triage these findings",
+  "confirm the candidates", "can this null actually arrive", "fuzz this
+  function", "verify the report before I file it", "give me execution
+  verdicts", and for the question behind them all: whether an analyzer
+  claim about one function is reachable in execution. The recipe:
   the function as a standalone file (coverity-function-slice), a stub for
   every callee generated from Coverity's OWN derived model of it
   (cov-find-function --save, so the callees behave exactly as the analyzer
@@ -29,20 +32,24 @@ description: >
 # Coverity fuzz triage
 
 A finding is a claim: *some path reaches this line in this state*. The
-analyzer could not, or did not, prove it; a fuzzer can settle it by
-reaching the line. This skill turns one finding into an executable
-question and lets execution answer it. It is the confirmation stage of the
-PATHOUT escape hunt (`coverity-pathout`), and it stands on its own for
-ordinary triage: a batch of findings in, a verdict with evidence per
-finding out.
+analyzer reported it under a bound on its own work; a fuzzer can settle it
+by reaching the line. This skill turns one finding into an executable
+question and lets execution answer it. **It is the verification stage**,
+and execution-based verification is the general capability: a Connect CID
+a user hands over, a batch from a findings file, or the candidates
+`coverity-pathout` collects from functions that reached the path bound are
+all the same input once Step 0 has named the claim. On a real batch it was
+better than a reading triage in one specific way: every refutation came
+with the behaviour the analyzer had assumed, and one real defect came out
+beside a false one.
 
 Read `coverity/RULES.md` first (rules 3, 21-23, 35).
 
 **This skill is one of a bundle of three** in the CoveritySkills
 repository. It needs `coverity-function-slice` beside it (Step 1 calls its
 slicer by relative path) and is called by `coverity-pathout` for the
-candidates behind a path limit. If you have only this file, clone the
-repository and work from the clone:
+candidates it collects from functions the analyzer did not finish. If you
+have only this file, clone the repository and work from the clone:
 
 ```bash
 git clone https://github.com/edtice-goog/CoveritySkills
@@ -76,6 +83,28 @@ Four things, and each one is the answer to a way this could lie:
 
 ## Step 0: Pin the installation, the platform, and the claim
 
+**From a CID.** A real user hands over a Connect CID, not a findings file.
+The CID lives in Connect; the events live in the intermediate directory
+that produced the stream's snapshot. Two commands bridge them:
+
+```bash
+python3 tools/cid_lookup.py lookup --url <connect-url> --cid 12345 --stream <stream>     # key: ~/.coverity/ak-<host>-<port>
+$BIN/cov-format-errors --dir <the idir behind that snapshot> --json-output-v10 findings.json
+python3 tools/cid_lookup.py select --findings findings.json --merge-key <from lookup>
+```
+
+`lookup` asks Connect over REST (HTTP Basic with an authentication key,
+exactly as the `coverity` skill's *Connecting to Coverity Connect*
+describes: key under `~/.coverity/`, never in a repository; URL from the
+user, never from the key; check the key first with `connect_auth.py
+check`) for the stream, checker, file, function, line and **merge key** of
+the CID in a snapshot. `select` finds the same issue in the idir's own
+findings by merge key (stable across runs, rule 27) and prints the events.
+The idir is the one the user analyzed and committed; if only Connect has
+the snapshot, re-analyze the same capture with the same version and
+options (`cov-format-errors` reads an idir, not a server). From here on a
+CID is a findings-file entry.
+
 `<idir>/emit/version` line 1 names the Coverity version; use its `bin/`
 (rule 3). The build platform follows the capture: an idir captured under
 Linux or WSL is built and fuzzed **under WSL** (`clang -fsanitize=fuzzer,
@@ -86,7 +115,7 @@ before building anything:
 
 | from | you need |
 |---|---|
-| the finding (`cov-format-errors --json-output-v10`, or the shape checker's candidate) | the function, the TU, and the **claim as a C expression that must hold** at the finding's line: `ptr != NULL` before `*ptr = 0`; `delay_tab.dt_data != NULL` before the `memcpy`; for an OVERRUN, `1` (a reach counter; ASan is the oracle) |
+| the finding (a CID via `cid_lookup.py`, a `cov-format-errors --json-output-v10` entry, or the shape checker's candidate) | the function, the TU, and the **claim as a C expression that must hold** at the finding's line: `ptr != NULL` before `*ptr = 0`; `delay_tab.dt_data != NULL` before the `memcpy`; for an OVERRUN, `1` (a reach counter; ASan is the oracle) |
 | the events | the callee the finding **blames** (the one whose return or effect makes the claim false) and the branches the analyzer took; a seed input that follows them |
 | the checker | the oracle: ASan for dereferences, overruns and use-after-free; the claim check for anything that does not crash (`REVERSE_INULL`: the analyzer's claim is "never NULL at the check", so `arg != NULL` before the check) |
 
@@ -225,7 +254,7 @@ reasoned (rule 23).
 
 | Question | Skill |
 |---|---|
-| The finding is a candidate from behind the path limit, or you need the candidate list | `coverity-pathout` |
+| The finding is a candidate from a function that reached the path bound, or you need the candidate list | `coverity-pathout` |
 | The slice does not emit, or the target is a C++ method | `coverity-function-slice` |
 | "Would checker X have found this at all?" | `coverity-defect-detectability` |
 
@@ -239,6 +268,7 @@ coverity-fuzz-triage/
 ├── references/
 │   └── fuzz-confirmation.md             # models as stubs, the harness, the proftpd batch, verdict tiers, what is not built
 ├── tools/
+│   ├── cid_lookup.py                    # a Connect CID -> stream, checker, file, function, merge key; then the idir's events
 │   ├── model_stubs.py                   # a callee stub from its cov-find-function model
 │   ├── fz_target.py                     # slice + models + harness -> target.c; focused/free, --semantic, claim insertion
 │   └── fz_support.h                     # byte stream, choice trace, pins, arena, pointer-filled objects, __fz_claim

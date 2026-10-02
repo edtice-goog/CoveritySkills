@@ -2,8 +2,11 @@
 
 Part of [CoveritySkills](../README.md).
 
-Confirms or refutes a Coverity finding by **running the function** instead
-of reading it. The function becomes a standalone file
+Verifies a Coverity finding by **running the function** instead of reading
+it (also answers to `coverity-verify`). The finding can be a Connect CID,
+an entry in a `cov-format-errors` findings file, or a candidate from
+`coverity-pathout`'s shape catalogue; Step 0 turns each into the same
+thing, a claim at a line. The function becomes a standalone file
 (`coverity-function-slice`), every callee becomes a stub printed from
 Coverity's own derived model of it, a libFuzzer harness lets one input
 choose the arguments and every stub behaviour, and a sanitizer (or an
@@ -36,9 +39,10 @@ chain were stubbed from their models.
 
 ## Where it fits
 
-It is the confirmation stage of the PATHOUT escape hunt
-(`coverity-pathout` produces the candidates), and it stands on its own:
-a batch of ordinary findings in, a verdict with evidence per finding out.
+It is the verification stage. `coverity-pathout` sends it the candidates
+it collects from functions that reached the path bound, and it stands on
+its own: a CID or a batch of ordinary findings in, a verdict with evidence
+per finding out.
 The first real batch -- ten proftpd findings, `CALIBRATION.md` -- came
 out 0 confirmed, 5 refuted with the finding's line reached hundreds of
 thousands of times and the claim never false, 2 refuted as model gaps
@@ -57,6 +61,7 @@ which is why the trace exists and why "confirmed" always lists them.
 | `references/fuzz-confirmation.md` | why the model is the stub, the harness, the proftpd batch, the verdict tiers, what is not built |
 | `tools/fz_target.py` | slice + saved models + harness snippet -> `target.c`: libc left real, model stubs with their behaviours listed, `--claim` inserted at the finding's line, `--pin-normal --free` focused mode, `--semantic` copy semantics |
 | `tools/fz_support.h` | the byte stream, the per-stub choice trace printed on a crash, pins, the per-input arena, pointer-filled objects, the claim counter; builds with clang and clang-cl |
+| `tools/cid_lookup.py` | a Connect CID to its stream, checker, file, function and merge key over REST, then the matching issue and its events out of the idir's findings |
 | `tools/model_stubs.py` | a callee stub from its `cov-find-function --save` model |
 | `evals/` | `lookup.c` (a callee with a model), `use.c` (a caller with an unguarded dereference), `harness.c`, and `run.sh`, which runs the chain end to end |
 | `CALIBRATION.md` | what was measured, on what, and what was not |
