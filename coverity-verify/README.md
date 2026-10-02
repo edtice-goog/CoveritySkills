@@ -3,11 +3,15 @@
 Part of [CoveritySkills](../README.md).
 
 Verifies a Coverity finding by **executing it** instead of reading it.
-Verification is the general capability; the method built so far fuzzes
-the function under stubs from Coverity's own derived models, and payload
-delivery for injection findings is the seam for the next (the skill's
-*Methods* section). Formerly `coverity-fuzz-triage`, which remains as an
-alias directory. The finding can be a Connect CID,
+Verification is the general capability; the one method here fuzzes the
+function under stubs from Coverity's own derived models, which is
+deterministic and uses the analyzer's own data. The skill decides first
+whether a finding is a candidate for that method and reports the rest
+(injection classes, anything a clang harness cannot instrument) as "not a
+fuzz-triage candidate; suggest external verification" rather than
+attempting them; what else "external" might mean is an open item, not a
+plan. Formerly `coverity-fuzz-triage`, which remains as an alias
+directory. The finding can be a Connect CID,
 an entry in a `cov-format-errors` findings file, or a candidate from
 `coverity-pathout`'s shape catalogue; Step 0 turns each into the same
 thing, a claim at a line. The function becomes a standalone file

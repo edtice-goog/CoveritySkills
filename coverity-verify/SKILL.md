@@ -3,18 +3,22 @@ name: coverity-verify
 description: >
   Verify a Coverity finding by execution: confirm or refute it by running
   it, instead of by reading it. Verification is the general capability;
-  fuzzing the function under stubs from Coverity's own derived models is
-  its first method and the only one built so far, and payload delivery
-  for injection classes (SQLI, OS_CMD_INJECTION, PATH_MANIPULATION) is the
-  seam for the next. Formerly coverity-fuzz-triage, which remains as an
-  alias. The finding may be a Connect CID ("verify CID 12345"), an entry in a
+  the one method here is fuzzing the function under stubs from Coverity's
+  own derived models, which is deterministic and uses the analyzer's own
+  data. The skill first decides whether a finding is a candidate for that
+  method -- claims a sanitizer or an assertion can judge inside one
+  function -- and reports the rest (injection classes, anything a clang
+  harness cannot instrument) as "not a fuzz-triage candidate; suggest
+  external verification", with the reason, instead of attempting them.
+  Formerly coverity-fuzz-triage, which remains as an alias. The finding
+  may be a Connect CID ("verify CID 12345"), an entry in a
   cov-format-errors findings file, or a candidate from a path-insensitive
   shape checker. Use this skill for "verify this finding", "verification",
   "run the verify skill", "is this defect real", "triage these findings",
   "confirm the candidates", "can this null actually arrive", "fuzz this
   function", "verify the report before I file it", "give me execution
   verdicts", and for the question behind them all: whether an analyzer
-  claim about one function is reachable in execution. Method 1, fuzz
+  claim about one function is reachable in execution. The method, fuzz
   under model stubs: the function as a standalone file (coverity-function-slice), a stub for
   every callee generated from Coverity's OWN derived model of it
   (cov-find-function --save, so the callees behave exactly as the analyzer
@@ -42,12 +46,13 @@ question and lets execution answer it. **It is the verification stage**,
 and execution-based verification is the general capability: a Connect CID
 a user hands over, a batch from a findings file, or the candidates
 `coverity-pathout` collects from functions that reached the path bound are
-all the same input once Step 0 has named the claim. Fuzzing is one method
-of it, the one built so far; for an injection finding the method is
-delivering the payload (see *Methods*). On a real batch the fuzz method
-was better than a reading triage in one specific way: every refutation
-came with the behaviour the analyzer had assumed, and one real defect came
-out beside a false one.
+all the same input once Step 0 has named the claim. One method is built,
+fuzzing under model stubs, and the first thing the skill does is decide
+whether the finding is a candidate for it (*Methods*); the rest are
+reported, not attempted. On a real batch the method was better than a
+reading triage in one specific way: every refutation came with the
+behaviour the analyzer had assumed, and one real defect came out beside a
+false one.
 
 This skill was `coverity-fuzz-triage`; that directory is now an alias
 pointing here.
@@ -64,20 +69,27 @@ have only this file, clone the repository and work from the clone:
 git clone https://github.com/edtice-goog/CoveritySkills
 ```
 
-## Methods
+## Methods: decide first
 
-A verification method is a way to make the finding's claim executable and
-observe whether it holds. Step 0 is shared: it names the claim, the line,
-and the blamed callee or source. What differs is how the claim is reached.
+One method is built: **fuzz under model stubs** (Steps 1-4). It is a
+sensible Coverity skill because it is deterministic and runs on the
+analyzer's own data: the function as the emit holds it, the callees as
+the derived models describe them, the claim as the checker stated it.
+Before Step 1, decide whether the finding is a candidate for it:
 
-| method | for | status |
-|---|---|---|
-| **1. Fuzz under model stubs** (Steps 1-4 below) | claims about one function's own state: null dereference, overrun, divide by zero, use after free, uninitialised use, a candidate from the shape catalogue. The function runs alone, callees behave as the analyzer's models say, the input drives everything | built; measured on ten proftpd findings and the fixture |
-| **2. Payload delivery** | injection classes (SQLI, OS_CMD_INJECTION, PATH_MANIPULATION, XSS, TAINTED_STRING sinks): the claim is that untrusted data reaches a sink unneutralised, which a slice cannot show and a payload can. Verification is building the input the events describe, delivering it through the real entry point (or the request handler the finding's path starts at), and observing the sink: a marker in the query log, a file outside the root, a command that ran | not built. The seam: Step 0 names the source, the sink and the claim the same way; Steps 1-3 are replaced by "build the payload from the events, deliver it, instrument the sink"; Step 4's tiers apply with *reached the sink unneutralised* as the confirmation and *neutralised at line N* as the refutation |
+| the finding's claim | decision |
+|---|---|
+| a property of one function's own state that a sanitizer or an inserted assertion can judge at a line: null dereference (`FORWARD_NULL`, `NULL_RETURNS`, `REVERSE_INULL`), overrun and underrun (`OVERRUN`, `STRING_OVERFLOW`, `BUFFER_SIZE`), `DIVIDE_BY_ZERO`, `USE_AFTER_FREE`, double free, `NEGATIVE_RETURNS`, `INTEGER_OVERFLOW` feeding a size, `DEADCODE` and `UNUSED_VALUE` through an assertion, and every candidate from the shape catalogue | **a fuzz-triage candidate**: continue with Step 1 |
+| untrusted data reaching a sink unneutralised (`SQLI`, `OS_CMD_INJECTION`, `PATH_MANIPULATION`, `XSS`, the `TAINTED_*` family), a property of a resource outside the process (`RESOURCE_LEAK` across a connection, a file-system race), a concurrency claim (`LOCK`, `ATOMICITY`, `MISSING_LOCK`), or anything else a clang harness cannot instrument and no sanitizer judges | **not a fuzz-triage candidate; suggest external verification.** Report that as the verdict, with the reason (which sink, which property, what a harness cannot observe), and stop. Do not deliver a payload, drive a server, or improvise an oracle |
 
-Everything from here to Step 4 is method 1.
+The second row is deliberate, not a gap to fill here: delivering an SQL
+injection payload is a job for the specialty tools that exist for it, and
+not a good use of a Coverity skill. **Open item**: whether and how other
+verifications are suggested, named, or wired in is under discussion and
+not designed; nothing in this skill should be read as a plan for it. Until
+that is settled the output for such a finding is the verdict tier above.
 
-## What makes method 1 honest
+## What makes the method honest
 
 Four things, and each one is the answer to a way this could lie:
 
@@ -145,7 +157,7 @@ Read the function once. A refutation by reading is a verdict too, and it
 is cheaper than a build. But when the user asks for execution verdicts, or
 says the run is a test of the skill, build.
 
-## Step 1 (method 1): The target as a file
+## Step 1: The target as a file
 
 ```bash
 python3 ../coverity-function-slice/tools/slice_function.py --dir <idir> --bin $BIN --tu <N> --name <fn> --out <work>/<fn> --emit
@@ -157,7 +169,7 @@ the check; `NOT EMITTED` means a pretty-printer form to hand-edit first
 (`coverity-function-slice`, Step 2: dropped cast parentheses, a VLA
 printed as `char a[]` with its dimension in a comment).
 
-## Step 2 (method 1): Models for every callee
+## Step 2: Models for every callee
 
 ```bash
 $BIN/cov-find-function --dir <idir> --save -of <work>/models --module generic <callee>   # per callee, ~3 s
@@ -179,7 +191,7 @@ globals** (`delay_table_load` mmaps into `delay_tab.dt_data`; the model
 has no edge for it). The first is answered by `--semantic`; the second is
 the *model gap* verdict below.
 
-## Step 3 (method 1): Assemble, build, run -- focused first, then free
+## Step 3: Assemble, build, run -- focused first, then free
 
 ```bash
 python3 tools/fz_target.py --slice <fn>.slice.c --models <work>/models --harness harness.c \
@@ -227,6 +239,7 @@ itself.
 
 | verdict | meaning |
 |---|---|
+| **not a fuzz-triage candidate; suggest external verification** | decided before Step 1 (*Methods*): the claim is about a sink, a resource outside the process, or anything a clang harness cannot instrument. Say which, and what an external verification would have to observe. The skill stops here for this finding |
 | **refuted by reading** | the finding's variable is reassigned, asserted, or otherwise guarded in a way the analyzer did not see; say what |
 | **refuted by execution** | focused run: the finding's line reached N times, the claim never false, with real libc semantics or `--semantic` copies where the claim depended on them. Evidence, not proof: say N and the budget |
 | **refuted by execution, a path the analyzer missed** | the claim was false at the line in a way that refutes the *finding* (REVERSE_INULL on `dolist`: the check is reachable with `arg == NULL`, so it is not redundant) |
@@ -250,11 +263,15 @@ Per finding: the claim, the verdict with its tier, and the evidence line
 the model edge that is missing; the source line that refutes it). Then
 the totals: how many confirmed, refuted by execution, refuted by reading,
 model gaps, sourced-by-harness, unconfirmed under what budget, bycatch,
+how many were not fuzz-triage candidates (with the class each fell in),
 and how many were not taken past Step 0 (rule 22). Mark measured vs
 reasoned (rule 23).
 
 ## Anti-patterns
 
+- Attempting a finding the decision step routed out: building a payload,
+  standing up the server, inventing an oracle for a sink. The verdict for
+  it is "suggest external verification", and that is the whole output.
 - Hand-writing stubs that return NULL or garbage. A stub is the analyzer's
   belief about the callee, printed from its model, or it proves nothing.
 - Guarding a stub's dereference (`if (a0) *a0`). It makes the callee look
