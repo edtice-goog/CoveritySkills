@@ -13,11 +13,17 @@ second run is cheap because the first one built everything.
 
 This is also the answer to a quieter risk. A silencing change on a false
 positive costs nothing today but is not something to recommend: it can
-break code, and it can confuse a later reader or a later tool (the
-initializer that quiets `UNINIT` is a provably dead store once the
-compiler can see the callee, below). A silencing change on a **true**
-positive removes the evidence and keeps the defect. The fix check tells the
-two apart, and tells both apart from a fix.
+break code, and it can confuse a later reader or a later tool. A
+silencing change on a **true** positive removes the evidence and keeps
+the defect. The fix check tells the two apart, and tells both apart from
+a fix.
+
+It is a step on request. Most people who verify a finding, fix it and
+trust the fix will not run it, and need not. It is for the fix someone
+else made that you have reason to doubt, and for a batch of findings that
+disappeared between two versions where the question is which changes
+deserve a second look. A few will run it on their own fixes; the
+procedure does not change.
 
 ## Inputs, and the one shape they reduce to
 
@@ -38,11 +44,11 @@ the diff.
 
 ## Which fixes to check
 
-A user can run this on every finding that disappears between two runs; the
+Given two versions, every finding that disappeared can be checked; the
 cost is one slice, one emit and one fuzz run per finding beyond the
-verification of A. What they will mostly want is for the skill to pick the
-**suspicious** ones. For each merge key in A and not in B, where the
-function still exists in B, diff the two bodies and sort:
+verification of A. What a doubting reviewer mostly wants is for the skill
+to pick the **suspicious** ones. For each merge key in A and not in B,
+where the function still exists in B, diff the two bodies and sort:
 
 | the diff | decision |
 |---|---|
@@ -119,31 +125,6 @@ A silencing change is not an accusation. Upstream may have known exactly
 what it was doing, as OpenSSL did. The verdict says what the change did to
 the code, and leaves what to do about it to the people who own it.
 
-## Optional: what the optimizer says
-
-When the change is an initializer or another store that the claim was
-about, compile the fixed and unfixed copies with the callee visible
-(`-flto`; with gcc under `-fPIC` also `-fno-semantic-interposition`, or the
-exported callee stays interposable and is called through the PLT) and
-compare the generated code. Two readings:
-
-- Identical machine code classifies the change: it was an annotation for
-  the analyzer, nothing more. A surviving store is a dead store that a
-  precise enough tool may flag later.
-- For a false-positive verdict on an `UNINIT`, a deleted initializer is an
-  all-paths argument that fuzzing cannot give: the optimizer deletes it
-  only if no read can observe it, so every read is preceded by the
-  callee's write. One LTO link, and it complements the sampled evidence
-  with a sound one. It is an evidence line, not a tier; it applies to the
-  store-shaped changes and needs the callee in the link.
-
-Measured on OpenSSL: one `movb $0` per call in the shipped build (gcc
-`-O3 -fPIC`, separate compilation) and under gcc LTO with default
-interposition; identical code under clang 18 LTO and under gcc LTO without
-semantic interposition. No local checker flagged the dead store (clang
-`deadcode.DeadStores`, gcc `-Wall -Wextra`, Coverity's defaults), because
-the array's address escapes into an opaque call.
-
 ## Measured
 
 **The fixture** (`evals/run_fixcheck.sh`, Coverity 2026.6.0, clang-cl,
@@ -181,4 +162,3 @@ siblings (CIDs 12591, 12308, 12374) gave the same result.
   alters behaviour) and the *not this change* row: described from
   mechanism, no instance yet.
 - Automatic detection of a vacuous claim (step 3, third bullet).
-- The LTO comparison outside the OpenSSL case, and on Windows at all.

@@ -71,11 +71,13 @@ re-runs the same verification on the new code with the claim re-armed past
 the change, and adds a differential run of old against new on the same
 inputs. The verdict is on the change: fixed; silenced, not fixed; a
 silencing change on a false positive that left behaviour alone; or a
-"fix" that changed behaviour and should be reviewed as a code change. The
-skill picks the suspicious changes out of a batch, or checks every one on
-request. Measured on OpenSSL (an initializer that quieted an `UNINIT`
-false positive: behaviour-neutral over 746,679 differential inputs,
-deleted outright under LTO) and on the fixture (`evals/run_fixcheck.sh`: a
+"fix" that changed behaviour and should be reviewed as a code change. It
+is a step on request, for a fix someone else made that you doubt or a
+batch of findings that vanished between versions; the skill picks the
+suspicious changes out of the batch, or checks every one when asked.
+Measured on OpenSSL (an initializer that quieted an `UNINIT` false
+positive: behaviour-neutral over 746,679 differential inputs) and on the
+fixture (`evals/run_fixcheck.sh`: a
 real fix and a dereference moved into an uncaptured helper, told apart by
 execution in about four minutes).
 

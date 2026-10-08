@@ -277,13 +277,19 @@ longer follow and the defect is still there. An initializer, a cast, a
 guard that returns without reporting, a helper the analyzer has no model
 for, an annotation: each removes the finding, and only some of them remove
 the defect. On a false positive that is harmless, and still not a pattern
-to recommend (it can break code, and the initializer that quiets an
-`UNINIT` is a provably dead store once the compiler can see the callee).
-On a true positive it removes the evidence and keeps the defect. The fix
-check runs the verification twice and reads the two runs together; the
-second run is cheap because the first built everything.
-`references/fix-check.md` has the full procedure, the OpenSSL case that
-produced it and the fixture that calibrates it.
+to recommend (it can break code, and it leaves a later reader or tool a
+line that does nothing). On a true positive it removes the evidence and
+keeps the defect. The fix check runs the verification twice and reads the
+two runs together; the second run is cheap because the first built
+everything. `references/fix-check.md` has the full procedure, the OpenSSL
+case that produced it and the fixture that calibrates it.
+
+**This is a step on request, not a step after every verification.**
+Someone who verified a finding, fixed it and trusts the fix has no need
+of it. It is for the fix someone else made that you have reason to doubt,
+and for a batch of findings that disappeared between two versions where
+the question is which changes deserve a second look. A few people will
+run it on their own fixes; the procedure is the same.
 
 **Inputs.** Two idirs and a merge key present in A's findings and absent
 from B's; or one idir and a patch or PR; or one idir and the commit that
@@ -332,12 +338,6 @@ way" when the function is gone from B.
    For a true positive: does B differ from A on `c`, and is it right there
    (a functional oracle when one exists)? For a false positive: does B
    differ from A anywhere?
-6. Optional, for a store-shaped change: compile both copies with the
-   callee visible (`-flto`; gcc under `-fPIC` also needs
-   `-fno-semantic-interposition`) and compare the code. Identical code
-   classifies the change as an annotation for the analyzer; for an
-   `UNINIT` false positive a deleted initializer is an all-paths argument
-   that sampling cannot give. An evidence line, not a tier.
 
 | F on A | the change, by execution | verdict on the change |
 |---|---|---|

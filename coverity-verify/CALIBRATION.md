@@ -143,11 +143,8 @@ the 12 chosen not taken (`tpl_map_va`, `tpl_peek`: variadic targets).
   equality: 3.0.7 == 3.2.0 minus the initializer, callee unchanged.
   Toggle: `fixed.c` no findings, `unfixed.c` `UNINIT` at the read.
   Differential under MemorySanitizer with the real 3.2.0 callees: 746,679
-  inputs, 75,614,760 bits, 0 mismatches. Code generation: one `movb $0`
-  per call under gcc `-O3 -fPIC` (OpenSSL's flags) and gcc LTO with
-  default interposition; identical code under clang 18 LTO and gcc LTO
-  with `-fno-semantic-interposition`; no local dead-store checker flagged
-  the store. **Silencing change, behaviour-neutral**, which matches the
+  inputs, 75,614,760 bits, 0 mismatches. **Silencing change,
+  behaviour-neutral**, which matches the
   upstream commit message. Three siblings (CIDs 12591, 12308, 12374)
   gave the same result. The vacuous-claim pitfall was found here: the
   original MSan claim is true by construction after the initializer.
@@ -181,5 +178,4 @@ the 12 chosen not taken (`tpl_map_va`, `tpl_peek`: variadic targets).
   run covers the toolchain; no MSVC-captured finding was taken).
 - Fix-check rows without an instance: a false positive whose "fix"
   changes behaviour, and *not this change* (the toggle finding nothing in
-  either copy). The LTO comparison outside the OpenSSL case, and on
-  Windows at all.
+  either copy).
