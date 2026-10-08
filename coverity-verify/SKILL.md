@@ -67,15 +67,15 @@ change fix the defect or silence the analyzer (Step 5).
 triage.** Neither a human nor a model classifier is perfect, and setting
 models to debate a defect costs more time and tokens than running the
 code. So "run the coverity verify skill" on an open finding means: verify
-it, now, and report the tier. **Do not ask which mode, and do not ask for
-what is already in hand.** The mode is read from the input: a finding
-that is still open is verified (Steps 0-4); a proposed fix in hand (a
-patch, a pull request, a commit, a second version of the code or a second
-idir) means the fix check (Step 5). The Coverity version is in the idir,
-the platform follows the capture, the claim comes from the events, the
-budget has a default. One question is allowed when a run cannot start
-without the answer (which idir, when none was named and none is findable);
-everything else is a decision to make and state, not a prompt to issue.
+it, now, and report the tier. **The skill exists to accomplish a task,
+not to hold a conversation about it.** The mode is read from the input:
+a finding that is still open is verified (Steps 0-4); a proposed fix in
+hand (a patch, a pull request, a commit, a second version of the code or
+a second idir) means the fix check (Step 5). The Coverity version is in
+the idir, the platform follows the capture, the claim comes from the
+events, the budget has a default. Ask when a run cannot start without the
+answer (which idir, when none was named and none is findable), and
+otherwise decide, state the decision in the report, and run.
 
 This skill was `coverity-fuzz-triage`; that directory is now an alias
 pointing here.
@@ -304,8 +304,8 @@ case that produced it and the fixture that calibrates it.
 **This step is selected by the input, not offered as an option.** A
 proposed fix in hand (a patch, a pull request, a commit, a second version
 or a second idir) means the fix check; an open finding with no fix in
-hand means Steps 0-4 and nothing more. Never ask "do you also want the
-fix checked?". Someone who verified a finding, fixed it and trusts the
+hand means Steps 0-4 and nothing more; "do you also want the fix
+checked?" is not a question to ask. Someone who verified a finding, fixed it and trusts the
 fix has no need of this; it is for the reviewer doubting a fix someone
 else made, and for a batch of findings that disappeared between two
 versions where the question is which changes deserve a second look.
@@ -392,7 +392,7 @@ not this change, not checked with the reason.
 - Asking which mode, whether to fuzz, what budget, which platform, or
   anything else the finding, the idir and the request already settle.
   "Run the verify skill" on an open finding is a complete instruction;
-  the only acceptable question is the one without which no run can start.
+  a question is for what blocks the run, not for company.
 - Attempting a finding the decision step routed out: building a payload,
   standing up the server, inventing an oracle for a sink. The verdict for
   it is "suggest external verification", and that is the whole output.

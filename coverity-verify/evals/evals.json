@@ -49,7 +49,7 @@
         "Gets the events from the idir's findings by merge key, not by re-typing them from the Connect UI",
         "States the claim as an expression at the finding's line before building anything",
         "Runs focused mode first and reports a tiered verdict with evidence",
-        "Asks no question: not which mode, not whether to fuzz, not the budget or the platform; verifies the open finding and stops"
+        "Asks nothing the prompt and the idir already settle (mode, whether to fuzz, budget, platform); verifies the open finding and stops"
       ]
     },
     {

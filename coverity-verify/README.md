@@ -6,7 +6,8 @@ Verifies a Coverity finding by **executing it** instead of reading it.
 The common use is a definitive answer on one finding in place of triage:
 classifiers, human or model, are imperfect, and running the code costs
 less than a debate between them. "Run the verify skill" on an open
-finding is a complete instruction; the skill asks nothing it can decide.
+finding is a complete instruction; the skill exists to accomplish the
+task, and asks only for what it cannot decide or find.
 Verification is the general capability; the one method here fuzzes the
 function under stubs from Coverity's own derived models, which is
 deterministic and uses the analyzer's own data. The skill decides first
