@@ -61,17 +61,36 @@ real one-byte stack overflow found next to a false OVERRUN. Every
 "confirmation" on that batch fell to reading the stub choices behind it,
 which is why the trace exists and why "confirmed" always lists them.
 
+## Fixed, or silenced?
+
+A finding that is present in one version and gone in the next was either
+fixed or quieted: an initializer, a cast, a silent guard, a helper the
+analyzer has no model for, an annotation. The fix check (`SKILL.md` Step
+5, `references/fix-check.md`) verifies the finding on the old code, then
+re-runs the same verification on the new code with the claim re-armed past
+the change, and adds a differential run of old against new on the same
+inputs. The verdict is on the change: fixed; silenced, not fixed; a
+silencing change on a false positive that left behaviour alone; or a
+"fix" that changed behaviour and should be reviewed as a code change. The
+skill picks the suspicious changes out of a batch, or checks every one on
+request. Measured on OpenSSL (an initializer that quieted an `UNINIT`
+false positive: behaviour-neutral over 746,679 differential inputs,
+deleted outright under LTO) and on the fixture (`evals/run_fixcheck.sh`: a
+real fix and a dereference moved into an uncaptured helper, told apart by
+execution in about four minutes).
+
 ## What is in it
 
 | | |
 |---|---|
 | `SKILL.md` | the procedure: name the claim -> slice -> models -> assemble (focused, then free) -> verdict with tier |
 | `references/fuzz-confirmation.md` | why the model is the stub, the harness, the proftpd batch, the verdict tiers, what is not built |
+| `references/fix-check.md` | fixed, or silenced? the inputs, which fixes to check, re-arming a claim the change made vacuous, the differential run, the verdicts on the change, the OpenSSL case and the fixture |
 | `tools/fz_target.py` | slice + saved models + harness snippet -> `target.c`: libc left real, model stubs with their behaviours listed, `--claim` inserted at the finding's line, `--pin-normal --free` focused mode, `--semantic` copy semantics |
 | `tools/fz_support.h` | the byte stream, the per-stub choice trace printed on a crash, pins, the per-input arena, pointer-filled objects, the claim counter; builds with clang and clang-cl |
 | `tools/cid_lookup.py` | a Connect CID to its stream, checker, file, function and merge key over REST, then the matching issue and its events out of the idir's findings |
 | `tools/model_stubs.py` | a callee stub from its `cov-find-function --save` model |
-| `evals/` | `lookup.c` (a callee with a model), `use.c` (a caller with an unguarded dereference), `harness.c`, and `run.sh`, which runs the chain end to end |
+| `evals/` | `lookup.c` (a callee with a model), `use.c` (a caller with an unguarded dereference), `harness.c`, and `run.sh`, which runs the chain end to end; `run_fixcheck.sh` with `fixcheck/` (a fix and a silencer of the same finding) runs the fix check end to end |
 | `CALIBRATION.md` | what was measured, on what, and what was not |
 
 ## Requirements

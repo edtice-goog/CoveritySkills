@@ -115,8 +115,48 @@ the 12 chosen not taken (`tpl_map_va`, `tpl_peek`: variadic targets).
   client does it; the tool is a convenience so the merge key lands in the
   right place.
 
+### The fix check (2026-10-07)
+
+- **The fixture** (`evals/run_fixcheck.sh`, 2026.6.0 win64, clang-cl):
+  A = `use.c`, `FORWARD_NULL` at line 18, confirmed on A with `lookup=1`
+  on `0a 0a 41 0a`. B1 (`fixcheck/use_fixed.c`, `if (r == 0) return -1;`):
+  no finding in `escaped`; replaying `c` reaches the line 0 times; 20 s of
+  fuzzing: 6,038,165 inputs, line reached 4,435,314 times, claim never
+  false. **Fixed.** B2 (`fixcheck/use_silenced.c`, the dereference moved
+  into `rec_id()`, a helper outside the capture): no finding in `escaped`;
+  with `rec_id` compiled in as real code (`--keep rec_id`, body in the
+  harness) the claim fails on `c` at once, replayed and fuzzed. **Silenced,
+  not fixed.** A first candidate silencer, `r = keep(r)` through an
+  unmodelled helper, did **not** silence: `FORWARD_NULL` keys on the
+  explicit null test, not on where the pointer came from, and the toggle
+  still showed the finding (at line 23). Whole run: about four minutes.
+- **OpenSSL 3.0.7 vs 3.2.0** (`CoveritySkillsTesting/covdemo-openssl/ws/
+  verify/fix320`, 2026-10-05..07; done in the testing workspace by the
+  session that proposed the check, with 2026.9.0 linux64 under WSL, clang
+  18, gcc 13.3; its outputs are kept there and were read, not re-run,
+  here): `cipher_hw_des_cfb1_cipher`, `UNINIT` on `d[0]`, merge key
+  `e93ca9ad...`; the change `unsigned char d[1] = {0};`. F on A: refuted
+  by execution with the real callee (151,417,888 reaches / 2,315,328
+  inputs; re-poisoned per call 124,267,264 / 1,905,085, never false; the
+  model stub and the length-0 control caught at the first reach: model
+  gap, the derived model never records the write to `out`). Body
+  equality: 3.0.7 == 3.2.0 minus the initializer, callee unchanged.
+  Toggle: `fixed.c` no findings, `unfixed.c` `UNINIT` at the read.
+  Differential under MemorySanitizer with the real 3.2.0 callees: 746,679
+  inputs, 75,614,760 bits, 0 mismatches. Code generation: one `movb $0`
+  per call under gcc `-O3 -fPIC` (OpenSSL's flags) and gcc LTO with
+  default interposition; identical code under clang 18 LTO and gcc LTO
+  with `-fno-semantic-interposition`; no local dead-store checker flagged
+  the store. **Silencing change, behaviour-neutral**, which matches the
+  upstream commit message. Three siblings (CIDs 12591, 12308, 12374)
+  gave the same result. The vacuous-claim pitfall was found here: the
+  original MSan claim is true by construction after the initializer.
+
 ## Reasoned, not measured
 
+- The automatic detection of a vacuous claim in a fix check (B with the
+  blamed callee pinned to the behaviour that made the claim false on A):
+  stated from mechanism; the OpenSSL case was recognised by reading.
 - That a stub printed from the derived model can only take behaviours the
   analyzer granted the callee, so a crash through it is a path the analyzer
   would have accepted. Follows from what the model is; the subversion
@@ -139,3 +179,7 @@ the 12 chosen not taken (`tpl_map_va`, `tpl_peek`: variadic targets).
 - A DEADCODE claim through the assertion oracle.
 - clang-cl on an MSVC-captured idir with the new assembler (the fixture
   run covers the toolchain; no MSVC-captured finding was taken).
+- Fix-check rows without an instance: a false positive whose "fix"
+  changes behaviour, and *not this change* (the toggle finding nothing in
+  either copy). The LTO comparison outside the OpenSSL case, and on
+  Windows at all.

@@ -50,6 +50,19 @@
         "States the claim as an expression at the finding's line before building anything",
         "Runs focused mode first and reports a tiered verdict with evidence"
       ]
+    },
+    {
+      "id": 4,
+      "eval_name": "fixed-or-silenced",
+      "prompt": "CID 12598 (UNINIT on d[0] in cipher_hw_des_cfb1_cipher) is in our 3.0.7 stream and gone from 3.2.0. The idirs are at C:\\work\\idir-3.0.7 and C:\\work\\idir-3.2.0 (Coverity 2026.9.0, captured under WSL). The upstream commit added `unsigned char d[1] = {0};`. Was it fixed, or just silenced?",
+      "expected_output": "Verifies the finding on 3.0.7 first (refuted by execution with the real callee, or confirmed with an input c); slices the function from both idirs and shows the bodies differ only in the initializer and that the blamed callee is unchanged; toggles (emits and analyzes 3.2.0's copy and the same copy with the initializer removed; the finding appears only in the latter); notices that the original claim is true by construction after the initializer and re-arms it (__msan_poison before the callee call) instead of reporting 'never false' as a fix; runs a differential old-against-new harness on the same inputs with the real callees; gives the verdict on the change from the Step 5 table (here: silencing change, behaviour-neutral) and says what the LTO comparison adds for an initializer.",
+      "assertions": [
+        "Verifies the old version before judging the new one, and keeps the same claim, stubs and harness for both",
+        "Shows the toggle: the one change is what removes the finding, not 'the merge key is gone'",
+        "Detects that the initializer satisfies the UNINIT claim by construction and re-arms the claim",
+        "Treats any callee the change introduced as real code, never as a stub",
+        "Reports the verdict on the change from the fix-check table, not 'fixed' because the finding is gone, and not 'silenced' because the diff is small"
+      ]
     }
   ]
 }

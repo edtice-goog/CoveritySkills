@@ -131,6 +131,14 @@ all **focused mode**: with every stub free, each run ended on a bycatch
 `returnsnull` of some pool allocator before the finding's line, three in a
 row on one function.
 
+## The same run, twice: the fix check
+
+A finding that is present in one version and absent in the next gets the
+verification above on the old code, then the same claim, stubs and
+harness on the new code with the claim re-armed past the change, and a
+differential run of the two. `fix-check.md` has the procedure, the
+verdicts on the change, and the two measured cases.
+
 ## What is not built yet
 
 The stub generator handles the generic module's return, identity,

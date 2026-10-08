@@ -18,7 +18,14 @@ description: >
   "confirm the candidates", "can this null actually arrive", "fuzz this
   function", "verify the report before I file it", "give me execution
   verdicts", and for the question behind them all: whether an analyzer
-  claim about one function is reachable in execution. The method, fuzz
+  claim about one function is reachable in execution. It also answers
+  "was this fixed or just silenced?", "check this fix", "the finding is
+  gone in the new version -- did the change fix it?", "is this PR a fix
+  or a suppression?": the fix check (Step 5) verifies the finding on the
+  old code, re-runs the same verification on the new code with the claim
+  re-armed past the change, and says whether the change fixed the defect,
+  silenced the analyzer on a real one, or quieted a false positive without
+  changing behaviour. The method, fuzz
   under model stubs: the function as a standalone file (coverity-function-slice), a stub for
   every callee generated from Coverity's OWN derived model of it
   (cov-find-function --save, so the callees behave exactly as the analyzer
@@ -52,7 +59,9 @@ whether the finding is a candidate for it (*Methods*); the rest are
 reported, not attempted. On a real batch the method was better than a
 reading triage in one specific way: every refutation came with the
 behaviour the analyzer had assumed, and one real defect came out beside a
-false one.
+false one. The same machinery, run twice, answers a second question that
+reading cannot: when a finding disappears between two versions, did the
+change fix the defect or silence the analyzer (Step 5).
 
 This skill was `coverity-fuzz-triage`; that directory is now an alias
 pointing here.
@@ -260,6 +269,90 @@ stub choices, and the thing to check against the real callees is the list
 of behaviours those choices selected. For a refuted one the reason and
 the reach count are the deliverable.
 
+## Step 5: The fix check -- fixed, or silenced?
+
+A finding present in version A and absent in version B has two readings:
+B fixed the defect, or B changed the code in a way the analyzer can no
+longer follow and the defect is still there. An initializer, a cast, a
+guard that returns without reporting, a helper the analyzer has no model
+for, an annotation: each removes the finding, and only some of them remove
+the defect. On a false positive that is harmless, and still not a pattern
+to recommend (it can break code, and the initializer that quiets an
+`UNINIT` is a provably dead store once the compiler can see the callee).
+On a true positive it removes the evidence and keeps the defect. The fix
+check runs the verification twice and reads the two runs together; the
+second run is cheap because the first built everything.
+`references/fix-check.md` has the full procedure, the OpenSSL case that
+produced it and the fixture that calibrates it.
+
+**Inputs.** Two idirs and a merge key present in A's findings and absent
+from B's; or one idir and a patch or PR; or one idir and the commit that
+removed the finding. Each reduces to **two copies of the function that
+differ only in the change**: slice both, or slice one and apply (or
+reverse) the hunk. Diff the bodies and the blamed callee's body first, and
+say so if they differ in more than the change.
+
+**Which fixes.** A user can check every finding that disappeared; most
+will want the suspicious ones picked out. Check a change when it touches
+only the finding's variable or line and is an initializer, `memset` or
+default assignment, a cast or `(void)`, a guard whose only effect is a
+silent `return`/`continue`, a use moved into a helper, macro or call
+through a pointer, a `/* coverity[...] */` or other suppression, or a copy
+through an opaque function; when the finding's line is unchanged and
+something else removed the finding; and whenever the commit message says
+silence, quiet, appease, warning, false positive, or names the analyzer.
+Report "fix not checked: the change alters what the code does" for a
+change that adds real handling, changes a size or a contract, or removes
+the use, unless the user asked for every one; and "not checkable this
+way" when the function is gone from B.
+
+**Procedure.**
+
+1. Verify F on A (Steps 0-4); keep the claim, the stubs, the harness and,
+   for a confirmed finding, the crashing input `c`.
+2. **Toggle**: `cov-emit` and `cov-analyze` B's copy and B's copy with
+   the change reverted, with the recorded emit flags. The finding must be
+   in the reverted copy and absent from B's; in neither means *not this
+   change*. "The merge key is gone" is weaker than this.
+3. **Re-arm the claim for B.** A vacuous claim is the failure mode of the
+   whole check: it reports every silencing change as a fix. A callee the
+   change introduced is **real code, never a stub** (slice it, or `--keep`
+   it and compile its body in; a stub for a function the analyzer could
+   not see is as blind as the analyzer was). A change that satisfies the
+   claim by construction (an initializer for an `UNINIT` claim) is poisoned
+   or checked past: `__msan_poison(d, 1)` before the callee call turns "is
+   `d` initialised at the read" back into "did this call write `d`". To
+   detect rather than recognise a vacuous claim, run B with the blamed
+   callee pinned to the behaviour that made the claim false on A; if the
+   claim still never fails, the change satisfies it by itself.
+4. Run B with the re-armed claim: replay `c`, then fuzz under A's budget.
+5. **Differential run**, A against B: both copies in one file, the old one
+   renamed, the same input and starting state into both, real callees
+   where the claim depends on them, a trap when outputs or state differ.
+   For a true positive: does B differ from A on `c`, and is it right there
+   (a functional oracle when one exists)? For a false positive: does B
+   differ from A anywhere?
+6. Optional, for a store-shaped change: compile both copies with the
+   callee visible (`-flto`; gcc under `-fPIC` also needs
+   `-fno-semantic-interposition`) and compare the code. Identical code
+   classifies the change as an annotation for the analyzer; for an
+   `UNINIT` false positive a deleted initializer is an all-paths argument
+   that sampling cannot give. An evidence line, not a tier.
+
+| F on A | the change, by execution | verdict on the change |
+|---|---|---|
+| confirmed (input `c`) | B's re-armed claim never fails; B differs from A on `c` and is right there | **fixed** |
+| confirmed | B's re-armed claim fails on `c`, or B is identical to A on `c`, or still wrong there | **silenced, not fixed** |
+| refuted | identical to A everywhere in the differential run | **silencing change, behaviour-neutral**: harmless; nothing to fix; not a pattern to recommend |
+| refuted | differs from A somewhere | **the "fix" changed behaviour**: review it as the code change it was |
+| any | the toggle shows the finding absent from the reverted copy too | **not this change**: something else in B removed the finding |
+| any | not taken past the sorting rule | **fix not checked**, with the reason |
+
+The verdict says what the change did to the code. Upstream may have known
+exactly what it was doing, as OpenSSL did when it quieted a false
+positive with an initializer; whether to keep such a change is the
+owners' call, and the report gives them the evidence for it.
+
 ## Reporting
 
 Per finding: the claim, the verdict with its tier, and the evidence line
@@ -269,7 +362,11 @@ the totals: how many confirmed, refuted by execution, refuted by reading,
 model gaps, sourced-by-harness, unconfirmed under what budget, bycatch,
 how many were not fuzz-triage candidates (with the class each fell in),
 and how many were not taken past Step 0 (rule 22). Mark measured vs
-reasoned (rule 23).
+reasoned (rule 23). For a fix check, per finding: the verdict on A, the
+toggle result, how the claim was re-armed, the differential count, and
+the verdict on the change from the Step 5 table; then the totals: fixed,
+silenced not fixed, silencing but behaviour-neutral, behaviour changed,
+not this change, not checked with the reason.
 
 ## Anti-patterns
 
@@ -292,6 +389,18 @@ reasoned (rule 23).
 - Reporting "no crash in 60 seconds" without the reach count.
 - Using a different Coverity version than the one that wrote the idir for
   `cov-find-function`; the models are per emit.
+- In a fix check, running A's claim unchanged on B and calling "never
+  false" a fix. An initializer makes an `UNINIT` claim true by
+  construction; a default assignment does the same to a null claim.
+  Re-arm it, or every silencing change reports as a fix.
+- In a fix check, stubbing a callee the change introduced. The analyzer
+  lost the finding because it could not see into that callee; a stub
+  for it is as blind. Measured: with the helper compiled in as real code
+  the hidden dereference crashed on the same input as the original.
+- Calling a change "silenced" because the finding is gone and the diff is
+  small. The toggle and the re-armed run are the evidence; OpenSSL's
+  initializer was a silencing change on a false positive, and the report
+  says that, not "silenced".
 
 ## Where other skills take over
 
@@ -309,7 +418,8 @@ coverity-verify/                         # formerly coverity-fuzz-triage; that d
 ├── README.md
 ├── CALIBRATION.md                       # what was measured, on what, and what was not
 ├── references/
-│   └── fuzz-confirmation.md             # models as stubs, the harness, the proftpd batch, verdict tiers, what is not built
+│   ├── fuzz-confirmation.md             # models as stubs, the harness, the proftpd batch, verdict tiers, what is not built
+│   └── fix-check.md                     # fixed, or silenced? inputs, which fixes to check, re-arming the claim, the verdicts, OpenSSL and the fixture
 ├── tools/
 │   ├── cid_lookup.py                    # a Connect CID -> stream, checker, file, function, merge key; then the idir's events
 │   ├── model_stubs.py                   # a callee stub from its cov-find-function model
@@ -317,7 +427,9 @@ coverity-verify/                         # formerly coverity-fuzz-triage; that d
 │   └── fz_support.h                     # byte stream, choice trace, pins, arena, pointer-filled objects, __fz_claim
 └── evals/
     ├── run.sh                           # candidate -> slice -> model stub -> fuzz, on the fixture, about a minute
+    ├── run_fixcheck.sh                  # the fix check on the fixture: a fix and a silencer, toggled, replayed, fuzzed; a few minutes
     ├── evals.json
     ├── lookup.c, use.c                  # a callee with a derived model, a caller with an unguarded dereference
-    └── harness.c                        # the harness pattern
+    ├── harness.c                        # the harness pattern
+    └── fixcheck/                        # use_fixed.c (a fix), use_silenced.c + rec_id.c (the dereference moved out of the capture), harness.c
 ```
