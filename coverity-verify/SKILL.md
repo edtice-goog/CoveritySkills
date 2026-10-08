@@ -63,6 +63,20 @@ false one. The same machinery, run twice, answers a second question that
 reading cannot: when a finding disappears between two versions, did the
 change fix the defect or silence the analyzer (Step 5).
 
+**The common case is a definitive answer on one finding, in place of
+triage.** Neither a human nor a model classifier is perfect, and setting
+models to debate a defect costs more time and tokens than running the
+code. So "run the coverity verify skill" on an open finding means: verify
+it, now, and report the tier. **Do not ask which mode, and do not ask for
+what is already in hand.** The mode is read from the input: a finding
+that is still open is verified (Steps 0-4); a proposed fix in hand (a
+patch, a pull request, a commit, a second version of the code or a second
+idir) means the fix check (Step 5). The Coverity version is in the idir,
+the platform follows the capture, the claim comes from the events, the
+budget has a default. One question is allowed when a run cannot start
+without the answer (which idir, when none was named and none is findable);
+everything else is a decision to make and state, not a prompt to issue.
+
 This skill was `coverity-fuzz-triage`; that directory is now an alias
 pointing here.
 
@@ -166,9 +180,12 @@ before building anything:
 | the events | the callee the finding **blames** (the one whose return or effect makes the claim false) and the branches the analyzer took; a seed input that follows them |
 | the checker | the oracle: ASan for dereferences, overruns and use-after-free; the claim check for anything that does not crash (`REVERSE_INULL`: the analyzer's claim is "never NULL at the check", so `arg != NULL` before the check) |
 
-Read the function once. A refutation by reading is a verdict too, and it
-is cheaper than a build. But when the user asks for execution verdicts, or
-says the run is a test of the skill, build.
+Read the function once, so the claim and the blamed callee are right.
+Then build. "Run the verify skill" asks for an execution verdict, and a
+refutation by reading goes beside it as a note, not in its place; the
+only findings that skip the build are the ones routed out in *Methods*
+and the *model says impossible* tier, where no model edge can produce the
+bad value.
 
 ## Step 1: The target as a file
 
@@ -284,12 +301,14 @@ two runs together; the second run is cheap because the first built
 everything. `references/fix-check.md` has the full procedure, the OpenSSL
 case that produced it and the fixture that calibrates it.
 
-**This is a step on request, not a step after every verification.**
-Someone who verified a finding, fixed it and trusts the fix has no need
-of it. It is for the fix someone else made that you have reason to doubt,
-and for a batch of findings that disappeared between two versions where
-the question is which changes deserve a second look. A few people will
-run it on their own fixes; the procedure is the same.
+**This step is selected by the input, not offered as an option.** A
+proposed fix in hand (a patch, a pull request, a commit, a second version
+or a second idir) means the fix check; an open finding with no fix in
+hand means Steps 0-4 and nothing more. Never ask "do you also want the
+fix checked?". Someone who verified a finding, fixed it and trusts the
+fix has no need of this; it is for the reviewer doubting a fix someone
+else made, and for a batch of findings that disappeared between two
+versions where the question is which changes deserve a second look.
 
 **Inputs.** Two idirs and a merge key present in A's findings and absent
 from B's; or one idir and a patch or PR; or one idir and the commit that
@@ -370,6 +389,10 @@ not this change, not checked with the reason.
 
 ## Anti-patterns
 
+- Asking which mode, whether to fuzz, what budget, which platform, or
+  anything else the finding, the idir and the request already settle.
+  "Run the verify skill" on an open finding is a complete instruction;
+  the only acceptable question is the one without which no run can start.
 - Attempting a finding the decision step routed out: building a payload,
   standing up the server, inventing an oracle for a sink. The verdict for
   it is "suggest external verification", and that is the whole output.

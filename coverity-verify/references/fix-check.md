@@ -18,12 +18,14 @@ silencing change on a **true** positive removes the evidence and keeps
 the defect. The fix check tells the two apart, and tells both apart from
 a fix.
 
-It is a step on request. Most people who verify a finding, fix it and
-trust the fix will not run it, and need not. It is for the fix someone
-else made that you have reason to doubt, and for a batch of findings that
-disappeared between two versions where the question is which changes
-deserve a second look. A few will run it on their own fixes; the
-procedure does not change.
+The input selects it; nobody is asked. A proposed fix in hand (a patch,
+a pull request, a commit, a second version or a second idir) means the
+fix check; an open finding means plain verification and no offer of
+more. Most people who verify a finding, fix it and trust the fix will not
+come back, and need not. It is for the fix someone else made that you
+have reason to doubt, and for a batch of findings that disappeared
+between two versions where the question is which changes deserve a
+second look.
 
 ## Inputs, and the one shape they reduce to
 

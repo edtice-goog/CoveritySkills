@@ -3,6 +3,10 @@
 Part of [CoveritySkills](../README.md).
 
 Verifies a Coverity finding by **executing it** instead of reading it.
+The common use is a definitive answer on one finding in place of triage:
+classifiers, human or model, are imperfect, and running the code costs
+less than a debate between them. "Run the verify skill" on an open
+finding is a complete instruction; the skill asks nothing it can decide.
 Verification is the general capability; the one method here fuzzes the
 function under stubs from Coverity's own derived models, which is
 deterministic and uses the analyzer's own data. The skill decides first
@@ -71,10 +75,12 @@ re-runs the same verification on the new code with the claim re-armed past
 the change, and adds a differential run of old against new on the same
 inputs. The verdict is on the change: fixed; silenced, not fixed; a
 silencing change on a false positive that left behaviour alone; or a
-"fix" that changed behaviour and should be reviewed as a code change. It
-is a step on request, for a fix someone else made that you doubt or a
-batch of findings that vanished between versions; the skill picks the
-suspicious changes out of the batch, or checks every one when asked.
+"fix" that changed behaviour and should be reviewed as a code change. The
+input selects it, nobody is asked: a proposed fix in hand means the fix
+check, an open finding means plain verification. It serves the reviewer
+doubting a fix someone else made, or a batch of findings that vanished
+between versions; the skill picks the suspicious changes out of the
+batch, or checks every one when asked.
 Measured on OpenSSL (an initializer that quieted an `UNINIT` false
 positive: behaviour-neutral over 746,679 differential inputs) and on the
 fixture (`evals/run_fixcheck.sh`: a
