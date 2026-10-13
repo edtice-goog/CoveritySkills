@@ -1150,6 +1150,28 @@ to read, harder to search, harder to correlate with a repository, and in a
 customer-facing setting it exposes a local directory layout nobody wants on
 screen.
 
+**The functional reason is bigger than the cosmetic one.** When stripped paths
+do not agree across the snapshots in a stream, Connect **declines to line files
+up across versions at all**, and the ability to move forward and backward
+through a file's history in the UI is simply gone. Everything else keeps
+working, so nothing announces the loss.
+
+That is a deliberate product choice, not a defect. Lining up paths is ill-posed
+in general: a project can hold `foo/my_file.c` and `bar/my_file.c`, builds can
+sit at different roots, and files move between directories between releases.
+Declining to offer the navigation beats offering it inconsistently.
+
+Note what this does **not** affect: defect identity. Merge keys are computed
+from properties of the parsed code and are **path-independent**, so CIDs track
+across differently-named checkouts whether or not you strip. Measured — one
+version built in two differently-named directories produced identical merge key
+sets, 112 of 112. Stripping is about the UI lining up *files*, not about
+Coverity lining up *defects*.
+
+Since `--strip-path` is per-commit and each idir records its own build root in
+`build-cwd.txt`, differing build paths across versions are workable: strip each
+to the same relative shape. What must agree is the stripped result.
+
 **The trap: a prefix that does not match is a silent no-op.** No error, no
 warning, no diagnostic of any kind — the commit reports complete success and
 the damage only surfaces later, when someone cannot find a file in the UI. The

@@ -9,12 +9,15 @@ backdated commit.
 
 Defects are identified by mergeKey, the same identity Coverity Connect uses to
 assign a CID across snapshots. That makes the counts here a faithful preview of
-what Connect will show *provided* two conditions hold:
+what Connect will show *provided* every version was analyzed with the SAME
+pinned analyzer version.
 
-  1. every version was built at the same path, and
-  2. every version was analyzed with the SAME pinned analyzer version.
+Build paths do not enter into it: merge keys are computed from properties of
+the parsed code and are path-independent by design (measured -- one version
+built in two differently-named directories yielded identical merge key sets,
+112 of 112).
 
-The second condition is a precondition, not a nicety. Rule 27 warns against
+The pinned-analyzer condition is a precondition, not a nicety. Rule 27 warns against
 comparing raw merge keys between local result sets because keys can move across
 analyzer versions, with Connect's antecedent merge keys doing the reconciling.
 Pinned to one analyzer, no key moves and no antecedent is created, so that
@@ -158,17 +161,20 @@ def main() -> int:
         order.append(tag)
 
     # --- merge-key stability guard -------------------------------------
-    # Adjacent releases of a mature project share most of their defects. Zero
-    # overlap means merge keys did not line up -- almost always because the
-    # versions were built at different paths -- and every defect would appear
-    # newly introduced in every snapshot. Catch it here, before the one-shot
-    # backdated commit burns first-detected dates that cannot be rewritten.
+    # Adjacent releases of a mature project share most of their defects, so
+    # zero overlap means something is structurally wrong: versions analyzed
+    # with different analyzer versions (where Connect's antecedent merge keys
+    # would reconcile what a local comparison cannot -- rule 27), a mispaired
+    # corpus, or simply unrelated code. It is NOT caused by differing build
+    # paths; merge keys are path-independent. Catch it here regardless, before
+    # the one-shot backdated commit burns dates that cannot be rewritten.
     for a, b in zip(order, order[1:]):
         shared = len(sets[a].keys() & sets[b].keys())
         if shared == 0:
-            print(f"[FATAL] {a} and {b} share zero merge keys. Defects will "
-                  f"not merge into stable CIDs. Check that every version was "
-                  f"built at the SAME path.", file=sys.stderr)
+            print(f"[FATAL] {a} and {b} share zero merge keys. Check that "
+                  f"both were analyzed with the SAME analyzer version, and "
+                  f"that these two versions really are adjacent releases of "
+                  f"the same project.", file=sys.stderr)
             return 2
         pct = 100.0 * shared / max(len(sets[a]), 1)
         print(f"[ok] {a} -> {b}: {shared} shared merge keys "

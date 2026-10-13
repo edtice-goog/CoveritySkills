@@ -18,8 +18,9 @@
 
 ## Preparing the build tree
 
-Clone once into a **dedicated** tree at a **fixed path**, separate from any
-working checkout:
+Clone once into a **dedicated** tree, separate from any working checkout. A
+single fixed path is not required for defect continuity, but it is the cheapest
+way to make one `--strip-path` prefix work for every version (see below):
 
 ```
 git clone <source> ~/demo/<project>
@@ -36,8 +37,27 @@ git clean -xdfq
 from the previous version will otherwise be captured, and the deltas will
 include artifacts of your own process.
 
-**Never use per-version directories.** Worktrees, versioned unpack dirs, and
-`/tmp/build-$TAG` all break merge-key continuity. See SKILL.md Step 1.
+**Per-version directories are allowed, but they cost you something.** They do
+*not* break defect continuity -- merge keys are path-independent, so CIDs track
+across differently-named checkouts (measured: identical merge key sets for one
+version built in two directories). What they affect is **`--strip-path`**.
+
+`--strip-path` is per-commit, and each idir records its own build root in
+`build-cwd.txt`, so differing build paths are workable: strip each version's own
+root. What matters is that the **stripped** paths agree across versions. If they
+do not, Coverity Connect **declines to line files up across versions at all**,
+and you lose the ability to move forward and backward through a file's history
+in the UI.
+
+That is a deliberate product choice rather than a bug. Lining up paths is
+ill-posed in general -- a project can hold `foo/my_file.c` and `bar/my_file.c`,
+builds can sit at different roots, and files move between directories between
+releases. Declining to offer navigation beats offering it inconsistently, and
+everything else in the UI keeps working.
+
+For a multi-version demo dataset that navigation is much of the point, so get
+the stripped paths consistent. One fixed build tree is simply the cheapest way
+to guarantee it: a single `--strip-path` prefix then cleans every version.
 
 ## Cross-platform capture
 

@@ -84,7 +84,7 @@ evidence, in `RULES.md`:
 | 28 | Never take the connection target from an auth key file (a mismatch is normal) |
 | 29 | One stream per branch; a stream must move forward only |
 | 30 | Name the global invariant, or do not dismiss the finding |
-| 31 | Always `--strip-path` when committing, and confirm it took effect |
+| 31 | Always `--strip-path` when committing (the UI stops lining up files without it), and confirm it took effect |
 | 32 | Configure compiler wrappers like ccache — never disable them |
 | 33 | If you move an intermediate directory, preserve its timestamps |
 | 34 | Capture is not all-or-nothing — a captured file can be missing functions |
