@@ -8,9 +8,8 @@
 # and that no earlier first-detected date shifts -- are cheap and are performed
 # per commit by tools/commit_sweep.py.
 #
-# Everything resolves relative to this script, so running it in place on the
-# archive host and running it after copying the directory elsewhere are the
-# same code path.
+# Everything resolves relative to this script, so running it where it sits and
+# running it after copying the dataset somewhere else are the same code path.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -71,7 +70,7 @@ NVERS=$(read_json "len(m['streams'])")
 [ -z "$PROJECT" ] && PROJECT=$(read_json "m['commit']['suggested_project']")
 
 # Quick check 1: every idir the manifest names is actually here. Catches a
-# truncated copy, which is the realistic failure mode after an scp.
+# truncated copy, the realistic failure mode after moving the dataset.
 MISSING=0
 for t in $(read_json "' '.join(s['tag'] for s in m['streams'])"); do
   [ -d "$HERE/idirs/$t" ] || { echo "missing idir: $t" >&2; MISSING=1; }

@@ -17,3 +17,9 @@ coverity-issue-transition-inference-workspace/
 # (see CONTRIBUTING.md). Keep them beside the checkout, not in it.
 pathout-cpp-repro/
 *-repro/
+
+# Checker-selection workspace: measured checker data, idirs, customer runs
+coverity-checker-selection-workspace/
+
+# Site configuration: staging root and archive host. Never committed.
+archive-target.local

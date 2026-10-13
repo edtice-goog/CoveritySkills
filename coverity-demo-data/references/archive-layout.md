@@ -1,10 +1,19 @@
 # Archiving a dataset: standard layout
 
 A demo dataset is expensive to build and cheap to reuse, so it belongs in a
-shared library rather than on the machine that happened to build it. This is
-the layout for that library. Its purpose is narrow and worth stating: **the
-next person to want this data should not have to interrogate the directory to
-find out how to use it.**
+standard place with a predictable shape rather than wherever the build
+happened to leave it. Its purpose is narrow and worth stating: **the next
+person to want this data should not have to interrogate the directory to find
+out how to use it** -- and a dataset built for one project should look exactly
+like a dataset built for another.
+
+**The archive is local, and nothing here touches the network.**
+`publish_dataset.py` writes to a directory you name and does no more than that.
+Replicating an archive onto a shared host, so a team can draw on a common
+library, is a reasonable thing to want and is deliberately **out of scope**: a
+skill that instructed an agent to copy data to a remote host would be
+indistinguishable, from the outside, from a compromised one. If you want that,
+build it yourself around this layout -- the layout is the portable part.
 
 ## The validation asymmetry
 
@@ -138,6 +147,6 @@ directory and says so.
 
 Once published, a dataset is not edited. Re-publishing with a new slug costs
 only disk, and `SHA256SUMS` is the seal: it exists for periodic archive
-integrity audits, not for the commit path, since scp and rsync already detect
-transfer corruption. If something needs changing, publish a new dataset and let
+integrity audits, not for the commit path -- ordinary file copying already
+detects corruption. If something needs changing, publish a new dataset and let
 the old one age out.

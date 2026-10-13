@@ -280,7 +280,10 @@ def main():
     ap.add_argument("--project", required=True)
     ap.add_argument("--slug", required=True,
                     help="what distinguishes this dataset, e.g. releases24-defaults")
-    ap.add_argument("--archive-root", required=True)
+    ap.add_argument("--archive-root", default=os.environ.get("COVERITY_DEMO_ARCHIVE"),
+                    help="staging archive root. Defaults to $COVERITY_DEMO_ARCHIVE "
+                         "so every session publishes to the same place without "
+                         "hardcoding a path; keep it SHORT (see archive-layout.md)")
     ap.add_argument("--tags", help="default <workspace>/tag-streams.txt")
     ap.add_argument("--cov-bin", required=True)
     ap.add_argument("--source-repo")
@@ -290,6 +293,9 @@ def main():
                     help="hardlink idirs instead of copying (same filesystem only)")
     ap.add_argument("--validate-only", action="store_true")
     args = ap.parse_args()
+    if not args.archive_root:
+        fail("no --archive-root and $COVERITY_DEMO_ARCHIVE is unset. Publish to "
+             "the configured staging root so every dataset lands in one place.")
 
     ws = pathlib.Path(args.workspace)
     idirs_root = ws / "idirs"

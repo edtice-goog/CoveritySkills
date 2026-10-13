@@ -448,9 +448,9 @@ of them can diagnose it.
 
 **Each dataset stands alone.** It carries its own `commit.sh` and a bundled
 copy of `commit_sweep.py`, so using it does not require this skill to be
-installed. `commit.sh` resolves paths relative to itself, so running it on the
-archive host and running it after copying the directory elsewhere are the same
-code path:
+installed. `commit.sh` resolves paths relative to itself, so running it where it sits
+and running it after copying the dataset somewhere else are the same code
+path:
 
 ```
 ./commit.sh --install <coverity-analysis-root> --url http://<host>:8080             --auth-key-file <key.json> [--platform-bin <connect>/bin] [--dry-run]
