@@ -421,17 +421,50 @@ two-check cycle idiom that a copy-paste heuristic misread, and knowing that a
 defect title, the checker name, or the event trace alone. The audit is cheap
 and the failure mode is public, so this is the wrong place to economise.
 
-## Step 5: Hand off
+## Step 5: Publish the dataset to the archive
 
-Deliver, alongside the populated instance:
+A dataset is expensive to build and cheap to reuse, so it does not belong on
+the machine that happened to build it. Publish it to the shared library, where
+the next person can commit it without rebuilding anything and without
+interrogating the directory to work out how.
 
-- Which versions were committed, with their backdate values
-- The Phase 2 population table, since it is the story's evidence
-- Audit verdicts for story-surfaced defects and the per-checker sample
-- The restore point -- **both** the database backup and the retained idirs --
-  and the reminder that redoing Phase 3 requires both
+```
+publish_dataset.py --workspace . --project <name> --slug <what-distinguishes-it>     --archive-root <library> --cov-bin <analysis>/bin     --source-repo <clone> --description "..."
+```
 
-Record the dataset's limits honestly. `--backdate` moves snapshot and
-first-detected dates; it does **not** backdate triage history, ownership, or
-comment timestamps. A demo needing aged triage needs a separate mechanism, and
-claiming otherwise on stage is the kind of thing an audience checks.
+`references/archive-layout.md` has the layout and the MANIFEST contract. Two
+properties of it are load-bearing:
+
+**Validation is exhaustive here and nowhere else.** Publishing runs every check
+that can be made locally -- every version present and analyzed, one pinned
+analyzer across the corpus, each idir's recorded build root genuinely
+prefixing its own captured paths, stripped paths lining up across versions,
+non-zero merge-key overlap within each stream, and stream shape per rule 29.
+A failure writes **nothing**, including no partial dataset. Committing *from*
+the library then does only quick checks, because whoever does that wants data
+in Connect promptly and could not fix a structural problem anyway. A broken
+dataset must never reach the library: every later consumer pays for it and none
+of them can diagnose it.
+
+**Each dataset stands alone.** It carries its own `commit.sh` and a bundled
+copy of `commit_sweep.py`, so using it does not require this skill to be
+installed. `commit.sh` resolves paths relative to itself, so running it on the
+archive host and running it after copying the directory elsewhere are the same
+code path:
+
+```
+./commit.sh --install <coverity-analysis-root> --url http://<host>:8080             --auth-key-file <key.json> [--platform-bin <connect>/bin] [--dry-run]
+```
+
+Hand off the dataset's location, plus:
+
+- The Phase 2 population table, since it is the evidence for what the data shows
+- Audit verdicts -- the per-checker sample and anything a story surfaced
+- The reminder that the consumer takes **their own** database backup before
+  committing, because first detected is write-once on their instance
+
+Record the dataset's limits honestly in `--description`. `--backdate` moves
+snapshot and first-detected dates; it does **not** backdate triage history,
+ownership, or comment timestamps. A demo needing aged triage needs a separate
+mechanism, and claiming otherwise on stage is the kind of thing an audience
+checks.

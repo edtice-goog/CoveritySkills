@@ -81,3 +81,63 @@ these from the artifacts instead of trusting a human:
 
 Anything derived from the artifact cannot drift from it. Anything a human types
 can.
+
+## MANIFEST.json, concretely
+
+Abridged from a real dataset. Tools read this; nothing else on disk duplicates
+it.
+
+```json
+{
+  "schema": 1,
+  "project": "proftpd",
+  "dataset": "2026-10-13-releases24-defaults",
+  "description": "24 releases across five branch streams, 2015-2025 ...",
+  "built_at": "2026-10-13T18:22:04-04:00",
+  "analysis": { "version": "2025.9.0" },
+  "commit": {
+    "strip_path": "/home/etice/demo/proftpd",
+    "strip_path_per_tag": { "v1.3.5a": "/home/etice/demo/proftpd" },
+    "suggested_project": "proftpd"
+  },
+  "streams": [
+    { "tag": "v1.3.5a", "date": "2015-05-27", "stream": "proftpd-1.3.5", "cids": 176 }
+  ],
+  "source": {
+    "url": "https://github.com/proftpd/proftpd.git",
+    "shas": { "v1.3.5a": "379bdb0d413f9489768c29c3a36e7bc854c85395" }
+  },
+  "counts": { "versions": 24, "streams": ["proftpd-1.3.5"], "cids_at_tip": 112 },
+  "audit": { "present": true }
+}
+```
+
+`strip_path` is the single root when the whole corpus shares one, and `null`
+otherwise; `strip_path_per_tag` always carries every version's own root. Build
+roots need not match across versions -- merge keys are path-independent and
+`--strip-path` is per-commit -- so a corpus assembled from differently-rooted
+builds is legal. What must hold is that the *stripped* paths agree, which is
+what publish checks.
+
+## Two practical traps
+
+**Keep the archive root short on Windows.** An idir nests deeply
+(`emit/<host>/config/<md5>/<compiler>-config-N/...`), and the archive adds a
+project and a dataset level above that. A long root pushes ordinary files past
+`MAX_PATH` and a naive copy fails partway. `publish_dataset.py` uses the
+extended-length prefix so it works regardless, but anything else touching the
+tree -- Explorer, a zip tool, a hand-rolled copy -- may not.
+
+**A failed publish must leave nothing.** Validation failing writes nothing by
+construction, but assembly can fail too (a full disk, a path limit, an
+interrupted copy). A half-copied dataset in the library is worse than no
+dataset, because it looks usable. `publish_dataset.py` removes the partial
+directory and says so.
+
+## Datasets are immutable
+
+Once published, a dataset is not edited. Re-publishing with a new slug costs
+only disk, and `SHA256SUMS` is the seal: it exists for periodic archive
+integrity audits, not for the commit path, since scp and rsync already detect
+transfer corruption. If something needs changing, publish a new dataset and let
+the old one age out.
