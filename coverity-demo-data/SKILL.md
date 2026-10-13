@@ -432,8 +432,12 @@ interrogating the directory to work out how.
 publish_dataset.py --workspace . --project <name> --slug <what-distinguishes-it>     --archive-root <library> --cov-bin <analysis>/bin     --source-repo <clone> --description "..."
 ```
 
-`references/archive-layout.md` has the layout and the MANIFEST contract. Two
-properties of it are load-bearing:
+`references/archive-layout.md` has the layout, the MANIFEST contract, and the
+checklist of what publishing expects of a workspace -- use that checklist to
+bring an already-built dataset into the standard shape, running
+`--validate-only` first to see what is wrong before anything is written.
+
+Two properties of the archive are load-bearing:
 
 **Validation is exhaustive here and nowhere else.** Publishing runs every check
 that can be made locally -- every version present and analyzed, one pinned

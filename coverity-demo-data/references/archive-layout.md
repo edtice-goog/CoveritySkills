@@ -91,6 +91,40 @@ these from the artifacts instead of trusting a human:
 Anything derived from the artifact cannot drift from it. Anything a human types
 can.
 
+## What publishing expects of a workspace
+
+This is the compliance checklist for a session that already built a dataset and
+now wants it in the standard shape. Required:
+
+```
+<workspace>/
+  idirs/<tag>/           one ANALYZED idir per version (cov-analyze has run)
+  tag-streams.txt        "<tag> <YYYY-MM-DD> [stream]", one per line
+```
+
+The date is the release date to backdate to. The third field is the stream, and
+it is how concurrent release lines stay apart (rule 29); omit it only for a
+single-stream corpus. Pass `--tags` if the file lives elsewhere or is named
+differently.
+
+Carried through if present, ignored if not: `audit/`, `logs/`, and a top-level
+triage report.
+
+Nothing else is asked for, because everything else is **derived** from the
+idirs -- the strip path from `build-cwd.txt`, the analyzer version from
+`output/version`, whether analysis ran from `output/ANALYSIS.metrics.xml`, the
+captured file list from `cov-manage-emit`. You do not supply those and cannot
+get them wrong.
+
+Run with `--validate-only` first. It reports every problem it can find without
+writing anything, which is the cheap way to discover that a corpus has mixed
+analyzer versions or a stream carrying two releases on one date.
+
+Choose `--slug` to name what distinguishes this dataset from another of the
+same project -- the version span, the checker configuration, the analyzer
+version -- because that is the question someone browsing the archive is asking.
+`releases24-defaults` answers it; `final` does not.
+
 ## MANIFEST.json, concretely
 
 Abridged from a real dataset. Tools read this; nothing else on disk duplicates
