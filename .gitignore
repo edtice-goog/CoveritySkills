@@ -18,8 +18,5 @@ coverity-issue-transition-inference-workspace/
 pathout-cpp-repro/
 *-repro/
 
-# Checker-selection workspace: measured checker data, idirs, customer runs
-coverity-checker-selection-workspace/
-
 # Site configuration: staging root and archive host. Never committed.
 archive-target.local
