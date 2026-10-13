@@ -60,27 +60,35 @@ recoverable only by restoring the database.
 ```
 coverity-demo-data/
 ├── SKILL.md                          # reset point → capture → select →
-│                                     #   commit oldest-first → audit → hand off
+│                                     #   commit oldest-first → audit → publish
 ├── references/
 │   ├── backdating.md                 # measured --backdate semantics + the
 │   │                                 #   verification SQL to run after each commit
-│   ├── corpus.md                     # choosing a corpus, fixed build trees,
+│   ├── archive-layout.md             # the shared dataset library: layout,
+│   │                                 #   MANIFEST contract, validation asymmetry
+│   ├── corpus.md                     # choosing a corpus, target-poor projects,
 │   │                                 #   cross-platform capture
 │   ├── selection.md                  # story shapes and the legibility rule
 │   ├── triage-verdicts.md            # global invariants, heuristic misfires,
 │   │                                 #   and how to make a dismissal falsifiable
 │   ├── worked-example-proftpd.md     # the calibration session, with the numbers
-│   └── worked-example-fp-audit.md    # a real triage pass: 3 of 9 sampled
+│   └── worked-example-fp-audit.md    # a real triage pass: 4 of 9 sampled
 │                                     #   defects were false positives
 └── tools/
-    ├── capture.sh                    # fixed-path serial capture, verified
+    ├── capture.sh                    # serial capture, build failure verified
     ├── phase2.py                     # merge-key set algebra + stability guard
     ├── audit_bundle.py               # FP-audit bundles: trace + real source,
     │                                 #   read from git at the tag
-    └── commit_sweep.py               # oldest-first backdated commits, halting
-                                      #   the moment earlier dates shift
+    ├── commit_sweep.py               # oldest-first backdated commits, halting
+    │                                 #   the moment earlier dates shift
+    ├── publish_dataset.py            # validate exhaustively, then assemble a
+    │                                 #   self-contained dataset in the archive
+    └── commit_template.sh            # the commit.sh each dataset carries
 ```
 
-Status: mechanics validated end-to-end on proftpd (three releases, 2022-2025)
-against a live Connect. Scaling to the full ~20-release chain and a real demo
-script is the next step.
+Status: validated end-to-end on proftpd -- 24 releases across five branch
+streams, 2015-2025, 222 CIDs, committed to a live Connect with the backdated
+first-detected distribution matching the offline projection exactly. Nine
+findings triaged; four were false positives, three of them global invariants.
+Published to an archive dataset (697 MB, 2916 files) whose bundled `commit.sh`
+re-commits it elsewhere without this skill installed.
