@@ -70,9 +70,13 @@ $BIN/cov-manage-emit --dir <idir> --ticker-mode none --tu <N> \
   it otherwise.
 - 0.4 s; 509 lines for a 963-line function. A miss prints nothing and exits
   0 -- check for the `Matching function` header.
-- The body is what the analyzer saw: **macros expanded**, `sizeof` folded
-  (`4UL /* sizeof (gid_t) */`), `errno` as `*__errno_location()`, types
-  canonical. Branches hidden in macros are visible here and nowhere else.
+- The body is what the analyzer saw: **macros expanded**, `errno` as
+  `*__errno_location()`, types canonical. The printer folds `sizeof` to the
+  capture's constant (`4UL /* sizeof (gid_t) */`); the slicer restores the
+  expression from that comment, so a BAD_SIZEOF survives re-analysis and a
+  build with another pointer size computes its own value (`--fold-sizeof`
+  keeps the constant). Branches hidden in macros are visible here and
+  nowhere else.
   Line numbers are not preserved inside the body; the header's `declared
   at:` is the anchor, and `--tu N print-source` gives the captured source
   with a three-line header offset for a side-by-side.
@@ -111,10 +115,20 @@ NOT VERIFY` (exit 2), cov-emit accepted the file but dropped the function
 on a parse diagnostic, and there is no result yet: read the quoted
 diagnostics, fix the slice (or the slicer -- the forms seen so far,
 `for (; true; )`, a function-local `enum <anonymous>`, `struct fn::tag`,
-transparent-union arguments, `NULL`/`va_*`, are rewritten; a cast whose
-parentheses the pretty-printer dropped, `((uint32_t *)m[1] & 65535)`, is
-not and needs a hand edit), and re-run. Never report that run's
-`paths_exceeded count: 0` as a result.
+transparent-union arguments, `NULL`/`va_*`, are rewritten), and re-run.
+Never report that run's `paths_exceeded count: 0` as a result.
+
+**One printer form compiles and means something else.** `--print-definitions`
+prints every subscript base bare: `(*__ctype_b_loc())[c]` comes out as
+`*__ctype_b_loc()[c]`, `(*opt)[1]` as `*opt[1]`, `((T *)p)[i]` as
+`(T *)p[i]`. Those type-check, so `cov-emit: emitted` passes and the slice
+computes a different value (two false crashes on proftpd, one on the
+finding's own line). The slicer repairs them from the `--print-debug` tree,
+which keeps the structure, and prints a `repaired:` line naming each base
+and its source line. Read the `note:` lines too: a base whose printed text
+also occurs with the other meaning, or whose form the slicer cannot spell
+(a conditional, a comma expression), is left as printed and named by
+source line for a hand check.
 
 **What is different from the original, and say so**: callees are
 prototypes with no models, globals are `extern`, static callees lose

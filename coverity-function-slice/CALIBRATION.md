@@ -186,9 +186,9 @@ All dates 2026-09-09.
     pretty-printer writes as `((uint32_t *)m[1] & 65535)` -- the
     parentheses around the cast are dropped, so the subscript binds first
     and cov-emit says `expression must have integral type` (slice lines 452
-    and 456). Not rewritten: the printed text is the same for a genuine
-    `(T *)m[1]`, so a textual fix would be a guess. Edit the two lines by
-    hand in the slice, or read the function from the preprocessed TU.
+    and 456). At the time not rewritten, because the printed text is the
+    same for a genuine `(T *)m[1]`; since 2026-10-15 the tree decides (the
+    *subscript bases* entry below).
   - `--analyze` now reports the missing `wur:` line as `COULD NOT VERIFY`
     (with `function "<name>" not emitted, see cov-emit.log` when cov-emit
     said so), suppresses the misleading count line, and exits 2; the
@@ -244,6 +244,37 @@ All dates 2026-09-09.
   `-I/-D/--sys_include` succeeded; `cov-analyze` analyzed 12 functions.
   Not runnable for the WSL-built proftpd idir on Windows: the recorded
   `cov-emit` is a Linux binary.
+
+- **Subscript bases printed bare, and sizeof folded (2026-10-15).** The
+  Coverity triage study found the pretty-printer form that *compiles and
+  means something else*: proftpd `parse_list_opts` printed glibc's
+  `(*__ctype_b_loc())[c]` as `*__ctype_b_loc()[c]` (indexes the pointer,
+  then dereferences) and `*(*opt + 1)` as `*opt[1]`; both emitted, and the
+  fuzz run under them crashed twice, once on the finding's own line. On
+  rockbox `(_ctype_ + 1)[c]` printed as `_ctype_ + 1[c]` and stopped two
+  functions from emitting. Measured on a fixture (`cov-emit --c`, 2026.6.0,
+  `--print-definitions` beside `--print-debug`): the printer parenthesizes
+  by precedence everywhere except a subscript base, which it prints bare
+  whatever it is (`(*rr)->id`, `(*fp)(a)`, `(a + b) * c`, `-(a + b)` all
+  survive; `(*f())[c]`, `(*p)[1]`, `(p + 1)[c]`, `(&a)[0]`, `((T *)p)[i]`
+  and `(a ? p : q)[i]` do not). The tree carries `isParenthesized` and the
+  full structure, so the slicer now renders each offending base from the
+  tree the way the printer spells it, locates it as `<base>[` and
+  parenthesizes it; the fixture's six sites repair and the slice emits with
+  no diagnostic (`evals/fixture.sh`). Honest limits, both exercised on the
+  fixture: text that also occurs with the other meaning is counted, not
+  guessed (`*opt[` twice for one site: reported by source line); a base the
+  renderer cannot spell (a conditional, a comma expression) is reported by
+  source line, and the comma form still goes through the diagnostic-driven
+  rewrite as before. The folded `sizeof` (the study's rockbox
+  SIZEOF_MISMATCH gave a false confirmation when an ILP32 slice was built
+  LP64, and openssl's BAD_SIZEOF did not reproduce from the slice) is
+  restored from the printer's own comment: `8ULL /* sizeof (&r) */` becomes
+  `(sizeof (&r))`, kept folded when it names a struct the slice does not
+  define, and folded back on a cov-emit diagnostic. Re-run on real code:
+  nginx `ngx_http_parse_request_line` (TU 73, the `ngx_str6cmp` cast that
+  PR #2 left) and proftpd `parse_list_opts` now emit from the tree repair
+  with no diagnostic round.
 
 ## Reasoned, not measured
 
