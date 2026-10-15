@@ -102,7 +102,7 @@ Before Step 1, decide whether the finding is a candidate for it:
 
 | the finding's claim | decision |
 |---|---|
-| a property of one function's own state that a sanitizer or an inserted assertion can judge at a line: null dereference (`FORWARD_NULL`, `NULL_RETURNS`, `REVERSE_INULL`), overrun and underrun (`OVERRUN`, `STRING_OVERFLOW`, `BUFFER_SIZE`), `DIVIDE_BY_ZERO`, `USE_AFTER_FREE`, double free, `NEGATIVE_RETURNS`, `INTEGER_OVERFLOW` feeding a size, `DEADCODE` and `UNUSED_VALUE` through an assertion, and every candidate from the shape catalogue | **a fuzz-triage candidate**: continue with Step 1 |
+| a property of one function's own state that a sanitizer or an inserted assertion can judge at a line: null dereference (`FORWARD_NULL`, `NULL_RETURNS`, `REVERSE_INULL`), overrun and underrun (`OVERRUN`, `STRING_OVERFLOW`, `BUFFER_SIZE`), `DIVIDE_BY_ZERO`, `USE_AFTER_FREE`, double free, `NEGATIVE_RETURNS`, `INTEGER_OVERFLOW` feeding a size, `SIZEOF_MISMATCH` and `BAD_SIZEOF` (an assertion on the computed size against the needed one, ASan on an exactly sized block; the slice carries `sizeof` as an expression and is built at the capture's pointer size), `DEADCODE` and `UNUSED_VALUE` through an assertion, and every candidate from the shape catalogue | **a fuzz-triage candidate**: continue with Step 1 |
 | untrusted data reaching a sink unneutralised (`SQLI`, `OS_CMD_INJECTION`, `PATH_MANIPULATION`, `XSS`, the `TAINTED_*` family), a property of a resource outside the process (`RESOURCE_LEAK` across a connection, a file-system race), a concurrency claim (`LOCK`, `ATOMICITY`, `MISSING_LOCK`), or anything else a clang harness cannot instrument and no sanitizer judges | **not a fuzz-triage candidate; suggest external verification.** Report that as the verdict, with the reason (which sink, which property, what a harness cannot observe), and stop. Do not deliver a payload, drive a server, or improvise an oracle |
 
 The second row is deliberate, not a gap to fill here: delivering an SQL
@@ -136,7 +136,74 @@ Four things, and each one is the answer to a way this could lie:
 - **Values the harness supplies get their own tiers.** A harness can hand
   NULL to any parameter, any global, and make any function-pointer hook
   return. Those are reported as *parameter-sourced*, *global-sourced*,
-  *hook-sourced*, never as confirmed.
+  *hook-sourced*, never as confirmed; the function's contract then decides
+  them (*Verdict rules*).
+
+## Verdict rules
+
+The tiers in Step 4 are the evidence. The verdict on the finding is one
+word, and these rules say how the evidence becomes it. They were set as
+precedents in a triage study of four codebases (2026-10-09 to 10-15),
+each on a defect that needed it, so that two people, or two runs, reach
+the same verdict from the same evidence.
+
+- **Fix or No fix.** Does the code need changing? A false positive and an
+  intentional behaviour are both *No fix*. No severity is recorded: a
+  low-severity defect chains with others, and fixing one costs less than
+  arguing about its rank.
+- **Execution decides.** Every fact the verdict rests on is marked
+  *executed*, *modelled* (a stub behaviour, a model edge) or *read*. A
+  verdict whose claim depends on a *read* fact is an inference and says
+  so. Another triager's answer, human or model, never decides a row.
+- **Contract first.** When only a harness-chosen input makes the claim
+  fail (the *parameter-sourced* tier), look for the function's contract
+  before looking at its callers. A **stated** contract is a comment, a
+  header or API documentation. An **implied** contract is code that exists
+  to enforce one: a NULL test, a range reduction, a clamp, an
+  invalid-input return. An in-contract input that fails is **Fix**,
+  whatever today's callers pass: a null check in one place is evidence the
+  variable can be null, and a caller reading the function would conclude
+  it is null-safe. Only with no stated or implied contract do the callers
+  decide, and they are **fuzzed** up to an input boundary, never read.
+  Every report states the contract with `file:line`, or "none".
+- **Only the finding's own claim counts.** The finding is *Fix* when
+  execution confirms the analyzer's claim, or a rule above applied to that
+  claim's subject makes it a defect. Any other defect execution turns up,
+  however close, is *bycatch*: logged separately, never credited to the
+  finding. A null-pointer finding does not get credit because the fuzzer
+  found an overflow next to it.
+- **A negative value reaching a sink** is decided by contracts, in order:
+  the flagged function's own code knows the value can be negative (a
+  branch on it, a guard elsewhere) and still passes it: *Fix*, which is
+  contract first again; the sink's stated or implied contract rejects a
+  negative (an index, a size, a count): *Fix*; otherwise *No fix*, and any
+  misbehaviour inside the sink is bycatch.
+- **A redundant defensive guard is not a defect.** A guard that can never
+  fire, in code that is otherwise consistent, is *No fix*; otherwise every
+  assertion would be one. Whether a guard is redundant depends on the
+  architecture: a program that validates at its input layer legitimately
+  protects its callees. This is not contract first, which covers a body
+  that breaks its own guard's contract (a dereference before the null
+  check); and an upstream tidy-up that deletes the guard is a
+  maintainer's reading, not evidence.
+- **Input files are untrusted.** Data read from a file the program is
+  given (configuration, topology, state) is untrusted, so malformed input
+  that crashes the program instead of being rejected is an in-contract
+  failure, and *Fix*. Shipped sample files do not make the input trusted.
+- **Absurd configuration.** A defect reachable only through a
+  configuration no deployment uses (a session timeout of 136 years) is *No
+  fix*. A clamp is still a fine improvement; a defect that will break
+  legitimate inputs later is *Fix*.
+- **A documented callee failure** counts only if use covered by a contract
+  can reach it. A trigger that only an unstated scenario reaches (a
+  callback that calls `exit` while the library holds a lock) is *No fix*,
+  unless the next rule applies.
+- **Amplification.** For a trigger outside every stated or implied
+  contract: *Fix* only if execution shows the code turning the
+  misbehaviour into something worse than the misbehaving input could
+  already do: memory corruption or a sanitizer report, command or code
+  execution, a privilege change, exposure of data. Termination, a hang, an
+  error return or a log line stay *No fix*.
 
 ## Step 0: Pin the installation, the platform, and the claim
 
@@ -171,8 +238,13 @@ CID is a findings-file entry.
 Linux or WSL is built and fuzzed **under WSL** (`clang -fsanitize=fuzzer,
 address`; the slice's types are LP64 and its libc is glibc, and clang-cl
 would silently change `long` to 4 bytes and lose `__errno_location`); an
-MSVC capture uses clang-cl on Windows. Then, per finding, write down
-before building anything:
+MSVC capture uses clang-cl on Windows. Build at the capture's **pointer
+size** too: `cov-emit.flags` beside the slice records `--type_sizes`, and
+a capture with 4-byte pointers (an embedded target, an ILP32 build) is
+built with `-m32`, or every size claim is judged against a layout the
+program never had (measured: an ILP32 `SIZEOF_MISMATCH` built LP64 gave a
+false confirmation). Then, per finding, write down before building
+anything:
 
 | from | you need |
 |---|---|
@@ -219,7 +291,11 @@ proftpd findings: **it never says a copy equals its source** (`pstrdup`'s
 model is "allocates, may return null"), and **it records no writes to
 globals** (`delay_table_load` mmaps into `delay_tab.dt_data`; the model
 has no edge for it). The first is answered by `--semantic`; the second is
-the *model gap* verdict below.
+the *model gap* verdict below. One thing it does carry and the stub
+reproduces: an `accessdbuffer(<arg N>)` edge with an `index_value` or a
+`buffer_size` is the analyzer's claim that the callee reads that far into
+the argument, and the stub reads that byte, so an interprocedural OVERRUN
+(the callee reads `name[7]`) can crash under stubs at all.
 
 ## Step 3: Assemble, build, run -- focused first, then free
 
@@ -254,6 +330,17 @@ choice trace, the pins, the per-input arena and the claim counter.
 - **Seeds**: put an input that follows the analyzer's events in `seeds/`
   (a `"syslog:"` prefix took the finding's line from once in 7,617 inputs
   to hundreds of thousands of times).
+- **More real code when the verdict leans on a stub.** A stub is the
+  analyzer's belief about a callee, and the belief is sometimes the
+  question: a dropped access extent, a write the model does not record, a
+  copy the model cannot describe. Then give the run more real code instead
+  of trusting the stub, one level at a time and only as far as the claim
+  needs: **L0** stubs; **L1** the real callees (`--keep` them and compile
+  their slices in); **L2** the real callers, up to an input boundary;
+  **L3** the project's real objects, with the harness at an entry point.
+  Say which level the verdict was reached at. The study's runs that
+  climbed did so because the stub could not settle the claim, and every
+  one that reached L1 settled it there.
 
 The harness is per target; `evals/harness.c` and the proftpd ones in the
 calibration are the pattern: `FZ_BEGIN(data, size); FZ_PINS_DEFAULT();`,
@@ -277,7 +364,7 @@ itself.
 | **confirmed by crash under model stubs** | the claim was false at the line; **list the stub choices**, then check each against the real callee. Only when every behaviour relied on is one the real callee has is this a defect |
 | **model over-approximates the callee** | the crash relied on a stub behaviour the real callee cannot have (a copy without its source's slash). Refuted; `--semantic` or a user model closes it |
 | **model gap** | the crash relied on the model's silence: a global the callee writes and the model does not record (`session.d`, `delay_tab.dt_data`). Refuted for the finding; the gap is the analyzer's false positive too, and a user model fixes both |
-| **parameter-, global-, hook-sourced** | the harness supplied the NULL (a parameter, `main_server`, `tpl_hook.fatal` returning). A question about callers and configuration, not this function |
+| **parameter-, global-, hook-sourced** | the harness supplied the NULL (a parameter, `main_server`, `tpl_hook.fatal` returning). Not a refutation: the function's contract decides it (*Verdict rules*, contract first): an in-contract input that fails is Fix; with no stated or implied contract, fuzz the callers to an input boundary |
 | **unconfirmed after N seconds** | the line was reached but not often, or not at all; say which. Not a refutation |
 | **bycatch** | a crash elsewhere in the function under a model-permitted behaviour (an unchecked `returnsnull`, an overflow in another branch). Report it separately; it may be real |
 
@@ -374,9 +461,12 @@ owners' call, and the report gives them the evidence for it.
 
 ## Reporting
 
-Per finding: the claim, the verdict with its tier, and the evidence line
+Per finding: the claim, the verdict (*Fix* or *No fix*) with its tier, the
+contract (`file:line`, or "none") when the tier is harness-sourced, the
+real-code level the verdict was reached at, and the evidence line
 (reach count and inputs; the crash frame and input with the stub choices;
-the model edge that is missing; the source line that refutes it). Then
+the model edge that is missing; the source line that refutes it), each
+fact marked executed, modelled or read. Then
 the totals: how many confirmed, refuted by execution, refuted by reading,
 model gaps, sourced-by-harness, unconfirmed under what budget, bycatch,
 how many were not fuzz-triage candidates (with the class each fell in),

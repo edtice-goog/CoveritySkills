@@ -98,8 +98,8 @@ def behaviour(path):
     model says -1 or 0 would give the fuzzer behaviours the analyzer never
     granted the callee."""
     b = {"null": False, "nonnull": False, "identity": None, "alloc": False,
-         "deref": set(), "writes": [], "pre": [], "ret_eq": None, "ret_ne": [],
-         "ret_lt": None, "ret_gt": None, "negative": False, "zero": False}
+         "deref": set(), "access": set(), "access_skipped": [], "writes": [], "pre": [],
+         "ret_eq": None, "ret_ne": [], "ret_lt": None, "ret_gt": None, "negative": False, "zero": False}
     for lab in path:
         if lab.startswith("returnsnull") or lab == "<return value> <- == 0":
             b["null"] = True
@@ -113,6 +113,24 @@ def behaviour(path):
             b["alloc"] = True
         elif lab.startswith("dereference(<arg "):
             b["deref"].add(int(re.search(r"<arg (\d+)>", lab).group(1)))
+        elif lab.startswith("accessdbuffer("):
+            # `accessdbuffer(<arg N>): elem_size -> E; index_value -> K` is the
+            # analyzer's claim that the callee reads element K of the buffer
+            # argument N points to; `buffer_size -> B` that it reads B bytes of
+            # it. The stub reads that byte, so an interprocedural OVERRUN (the
+            # callee reads name[7]) can crash under stubs at all. Forms on a
+            # pointee or a field (`*<arg N>`, `<arg N>->base`) are not spelled.
+            m = re.match(r"^accessdbuffer\(<arg (\d+)>\)(?::(.*))?$", lab.strip().rstrip(";"))
+            if m:
+                n = int(m.group(1))
+                facts = dict(re.findall(r"(\w+) -> (-?\d+)", m.group(2) or ""))
+                elem = int(facts.get("elem_size", "1")) or 1
+                if "index_value" in facts:
+                    b["access"].add((n, int(facts["index_value"]) * elem, lab.strip().rstrip("; ")))
+                elif "buffer_size" in facts and int(facts["buffer_size"]) > 0:
+                    b["access"].add((n, int(facts["buffer_size"]) - 1, lab.strip().rstrip("; ")))
+            else:
+                b["access_skipped"].append(lab.strip().rstrip("; "))
         elif lab.startswith("write("):
             # only writes the model marks as storing a non-null pointer are
             # reproducible without knowing the field's type
@@ -171,6 +189,7 @@ def stub(proto, dot):
     for p in paths(edges, finals):
         b = behaviour(p)
         key = (b["null"], b["nonnull"], b["identity"], b["alloc"], tuple(sorted(b["deref"])),
+               tuple(sorted(b["access"])),
                b["ret_eq"], tuple(sorted(set(b["ret_ne"]))), b["ret_lt"], b["ret_gt"], b["negative"], b["zero"])
         if key in seen:
             continue
@@ -193,6 +212,20 @@ def stub(proto, dot):
             # so the stub must too -- for the analyzer (a null here is the defect)
             # and for a fuzzer (a null here is the crash that confirms it)
             out.append("  { volatile char __t = *(volatile char *)%s; (void)__t; }   /* model: dereference(<arg %d>) */" % (args[i], i))
+    # the farthest byte the model says the callee reads through each pointer
+    # argument, read unconditionally for the same reason as the dereferences
+    access = {}
+    skipped = []
+    for b in behs:
+        for i, off, lab in b["access"]:
+            if i < len(plist) and plist[i].rstrip().endswith("*") and off > access.get(i, (-1, ""))[0]:
+                access[i] = (off, lab)
+        skipped += [s for s in b["access_skipped"] if s not in skipped]
+    for i in sorted(access):
+        off, lab = access[i]
+        out.append("  { volatile char __t = ((volatile char *)%s)[%d]; (void)__t; }   /* model: %s */" % (args[i], off, lab))
+    for s in skipped:
+        out.append("  /* model: %s -- a pointee or field access the stub does not spell */" % s)
     # one body per behaviour; behaviours that come out identical (they differed
     # only in preconditions the stub cannot act on) are folded, so the choice
     # index the trace reports is one of genuinely distinct behaviours

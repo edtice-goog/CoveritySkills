@@ -34,7 +34,8 @@
       "assertions": [
         "Reads before fuzzing and reports refutations by reading with the reason",
         "Reports 'unconfirmed after N seconds' as unconfirmed, not as dismissed",
-        "Keeps parameter-sourced nulls in their own tier",
+        "Keeps parameter-sourced nulls in their own tier, then decides them by the function's stated or implied contract (file:line, or 'none') before fuzzing any caller",
+        "Gives each verdict as Fix or No fix with no severity, each fact marked executed, modelled or read",
         "States the count of findings not taken past Step 0"
       ]
     },

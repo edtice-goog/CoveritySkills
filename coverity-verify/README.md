@@ -66,6 +66,20 @@ real one-byte stack overflow found next to a false OVERRUN. Every
 "confirmation" on that batch fell to reading the stub choices behind it,
 which is why the trace exists and why "confirmed" always lists them.
 
+## From evidence to a verdict
+
+The tiers are the evidence; the verdict is *Fix* or *No fix*, with no
+severity, and the rules that turn one into the other (`SKILL.md`, *Verdict
+rules*) came out of a triage study that needed them: execution decides and
+every fact is marked executed, modelled or read; a harness-sourced failure
+is decided by the function's stated or implied contract before any caller
+is looked at, and callers are fuzzed, never read; only the finding's own
+claim counts and everything else is bycatch; a redundant guard, an absurd
+configuration and an unstated scenario are No fix unless execution shows
+amplification. When a verdict leans on a stub, the run gets more real code
+instead: real callees, then callers to an input boundary, then the
+project's own objects.
+
 ## Fixed, or silenced?
 
 A finding that is present in one version and gone in the next was either

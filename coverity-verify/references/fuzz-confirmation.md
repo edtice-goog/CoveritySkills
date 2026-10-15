@@ -142,9 +142,11 @@ verdicts on the change, and the two measured cases.
 ## What is not built yet
 
 The stub generator handles the generic module's return, identity,
-allocation, dereference and non-null write edges. It does not read the
-`uninit` module, does not size allocations from types, and cannot record
-global writes because the generic model does not carry them. Harnesses
+allocation, dereference, non-null write and `accessdbuffer` edges (the
+farthest byte the model says the callee reads through an argument; pointee
+and field forms are left as a comment). It does not read the `uninit`
+module, does not size allocations from types, and cannot record global
+writes because the generic model does not carry them. Harnesses
 are written per target from the pattern in `evals/harness.c`; generating
 the argument block from the target's signature (scalars, strings, objects,
 and a choice byte where the finding is about the parameter) is the next
