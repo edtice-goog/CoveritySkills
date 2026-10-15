@@ -1,0 +1,58 @@
+// Path-INSENSITIVE shape for INTEGER_OVERFLOW's cast_overflow /
+// cast_underflow events (and OVERFLOW_BEFORE_WIDEN's neighbour): an
+// arithmetic result (+ - * <<) with a variable operand never compared with a
+// relational operator in the function is cast -- explicitly, or implicitly
+// by an assignment, initializer or argument -- to an integer type with fewer
+// bits than the operation's own type. `int n = a * b` with size_t operands,
+// `(short)(len + 1)`, `(unsigned char)(x << 3)`. Whether the value fits is
+// the value question the path-sensitive checker could not finish. A cast to
+// the same width with a different signedness is NOT reported: size_t to int
+// at equal width is everywhere and would drown the filter.
+include `C/C++`;
+
+function varKey(r : astnode) : string? ->
+    if r matches variableReference as v then (v.mangledName ?? v.identifier) else null endif;
+
+function refsVar(e : expression, sym : string) : bool ->
+    stripCasts(e) matches variableReference as r && varKey(r) == sym;
+
+function root(n : astnode) : astnode ->
+    if n.parent matches NonNull as p then root(p) else n endif;
+
+function isRelational(n : astnode) : bool ->
+    n matches binaryOperator as b
+    && (b.operator == `<` || b.operator == `<=` || b.operator == `>` || b.operator == `>=`);
+
+function everCompared(sym : string, fn : astnode) : bool ->
+    exists b in allMatchingCodeIn(binaryOperator, fn)
+        where isRelational(b) && (refsVar(b.lhsExpression, sym) || refsVar(b.rhsExpression, sym));
+
+function isArith(n : astnode) : bool ->
+    n matches binaryOperator as b
+    && (b.operator == `+` || b.operator == `-` || b.operator == `*` || b.operator == `<<`);
+
+function hasUnboundedOperand(n : astnode, fn : astnode) : bool ->
+    n matches binaryOperator as b
+    && ((varKey(stripCasts(b.lhsExpression)) matches NonNull as l && !everCompared(l, fn))
+        || (varKey(stripCasts(b.rhsExpression)) matches NonNull as r && !everCompared(r, fn)));
+
+function bits(t : type) : int ->
+    if t matches intType as i then i.sizeInBits else 0 endif;
+
+// a cast whose operand (its one child) is arithmetic wider than the target
+function narrowsArith(c : astnode, fn : astnode) : bool ->
+    c matches castOperator as k
+    && bits(k.type) > 0
+    && exists ch in k.children
+           where ch matches expression as op
+                 && isArith(op) && hasUnboundedOperand(op, fn)
+                 && bits(op.type) > bits(k.type);
+
+checker {
+    name = "PATHOUT_CANDIDATE_NARROWING_CAST_OF_ARITHMETIC";
+    reports = for c in globalset allFunctionCode
+        where narrowsArith(c, root(c))
+        : { events = [ { description = "Candidate: arithmetic on a variable never compared in this function is narrowed to a smaller integer type here."
+                                       + " Path-insensitive; whether the value fits decides it.";
+                         location = c.location; } ]; };
+};

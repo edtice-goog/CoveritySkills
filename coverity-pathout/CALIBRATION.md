@@ -163,7 +163,7 @@ All dates 2026-09-09.
   had already dropped it on that basis. `bufpt` (first draft's survivor):
   reassigned to the stack array `buf` before the flagged dereference.
 - **The whole catalogue, no escape to key on** (2026-09-10, the twelve
-  checkers of https://github.com/edtice-goog/pathout-shapes in one
+  checkers of the catalogue, now `shapes/` in this skill, in one
   `cov-analyze --disable-default` with twelve `--codexm`, then
   `pathout_filter.py --relevant auto` against the `--print-paths` log of
   the same idir; all captured with linux64-2026.6.0 and analyzed with

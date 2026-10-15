@@ -1,0 +1,84 @@
+// Path-INSENSITIVE shape behind CVE-2025-0282 (a bounded copy whose bound is
+// the SOURCE's length): strncpy/memcpy/memmove/strncat into a local array of
+// fixed size, where the length argument is strlen(...) itself or a variable
+// that receives strlen(...) somewhere in the function, and that variable is
+// never compared with a relational operator. `strncpy(dest, src, n)` with
+// `n = strlen(src)` is strcpy with extra steps: the bound protects nothing.
+// Stands in for STRING_OVERFLOW / OVERRUN, whose value tracking is what
+// pathed out. A `min(n, sizeof dest - 1)` or an `if (n > ...)` counts as a
+// comparison and drops the candidate.
+include `C/C++`;
+
+function varKey(r : astnode) : string? ->
+    if r matches variableReference as v then (v.mangledName ?? v.identifier) else null endif;
+
+function refsVar(e : expression, sym : string) : bool ->
+    stripCasts(e) matches variableReference as r && varKey(r) == sym;
+
+function isBoundedCopy(name : string) : bool ->
+    name == "strncpy" || name == "memcpy" || name == "memmove" || name == "strncat" || name == "wcsncpy" || name == "stpncpy";
+
+function isLengthCall(e : expression) : bool ->
+    stripCasts(e) matches functionCall as call
+    && call.calledFunction.identifier matches NonNull as nm
+    && (nm == "strlen" || nm == "wcslen" || nm == "strnlen");
+
+function root(n : astnode) : astnode ->
+    if n.parent matches NonNull as p then root(p) else n endif;
+
+// the destination: a plain reference, or the array-to-pointer decay (cast
+// over addressOf of the array or of its first element)
+function dstKey(e : expression) : string? ->
+    if stripCasts(e) matches variableReference as v then varKey(v)
+    elsif stripCasts(e) matches addressOf as ad then
+        (if ad.operandExpression matches variableReference as v2 then varKey(v2)
+         elsif ad.operandExpression matches subscriptReference as sr then varKey(stripCasts(sr.arrayExpression))
+         else null endif)
+    else null endif;
+
+function declaredAsArray(sym : string, fn : astnode) : bool ->
+    exists decl in allMatchingCodeIn(variableDeclaration, fn)
+        where (decl.variable.mangledName ?? decl.variable.identifier) == sym
+              && decl.variable.type matches arrayType;
+
+function isRelational(n : astnode) : bool ->
+    n matches binaryOperator as b
+    && (b.operator == `<` || b.operator == `<=` || b.operator == `>` || b.operator == `>=`);
+
+function everCompared(sym : string, fn : astnode) : bool ->
+    exists b in allMatchingCodeIn(binaryOperator, fn)
+        where isRelational(b) && (refsVar(b.lhsExpression, sym) || refsVar(b.rhsExpression, sym));
+
+// does sym receive strlen(..) anywhere in fn (assignment or declaration)
+// (each exists parenthesized: an unparenthesized `exists .. where P || exists ..`
+// nests the second inside the first's where, and an empty first collection
+// makes the whole disjunction false)
+function receivesLength(sym : string, fn : astnode) : bool ->
+       (exists a in allMatchingCodeIn(assignmentOperator, fn)
+            where refsVar(a.targetExpression, sym) && isLengthCall(a.sourceExpression))
+    || (exists d in allMatchingCodeIn(variableDeclaration, fn)
+            where (d.variable.mangledName ?? d.variable.identifier) == sym
+                  && d.initializer matches expressionInitializer as ini && isLengthCall(ini.expression));
+
+// why the length argument is source-derived, or null
+function sourceLength(n : expression, fn : astnode) : string? ->
+    if isLengthCall(n) then "the source's length"
+    elsif varKey(stripCasts(n)) matches NonNull as sym && receivesLength(sym, fn) && !everCompared(sym, fn)
+        then "a variable that receives the source's length and is never compared"
+    else null endif;
+
+checker {
+    name = "PATHOUT_CANDIDATE_SOURCE_LENGTH_INTO_FIXED_BUFFER";
+    reports = for c in globalset allFunctionCode
+        where c matches functionCall as call
+           && call.calledFunction.identifier matches NonNull as nm && isBoundedCopy(nm)
+           && call.argumentList[0] matches NonNull as a0
+           && call.argumentList[2] matches NonNull as a2
+           && dstKey(a0) matches NonNull as dst
+           && declaredAsArray(dst, root(c))
+           && sourceLength(a2, root(c)) matches NonNull as reason
+        : { events = [ { description = "Candidate: fixed-size array " + dst.formattedAsCode + " receives a "
+                                       + nm.formattedAsCode + " bounded by " + reason + "."
+                                       + " Path-insensitive; a bound taken from the source protects nothing.";
+                         location = c.location; } ]; };
+};

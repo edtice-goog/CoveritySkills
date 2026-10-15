@@ -33,7 +33,7 @@ RE_WUR_NAMED = re.compile(
     r"^wur: [a-z]+\d+ .*? (\d+) PATHOUT=(\d+) n: (.+?)(?: in TU (\d+))?(?: with extra_info)?$")
 
 # --relevant auto: which pathed-out components make a hit of each shape checker
-# in the pathout-shapes catalogue worth reading. A candidate only matters where
+# in the shapes/ catalogue worth reading. A candidate only matters where
 # the checker that would have caught it is the one that was cut off.
 SHAPE_RELEVANCE = {
     "PATHOUT_CANDIDATE_NULL_CHECK_THEN_DEREF": ("FORWARD_NULL", "NULL_RETURNS", "REVERSE_INULL"),
@@ -130,7 +130,7 @@ def main():
                                        "one of these pathed out (e.g. FORWARD_NULL,NULL_RETURNS,REVERSE_INULL for a "
                                        "null-dereference shape). A candidate only matters where the checker that "
                                        "would have caught it is the one that was cut off. 'auto' looks the prefixes "
-                                       "up per finding from its checker name, for the pathout-shapes catalogue "
+                                       "up per finding from its checker name, for the shapes/ catalogue "
                                        "(a whole-catalogue run with no escaped defect to key on).")
     a = ap.parse_args()
     auto = a.relevant == "auto"

@@ -200,8 +200,7 @@ hypothesis, so run the whole catalogue of tested shape checkers in one
 pass, then filter with each checker's own relevance list:
 
 ```bash
-git clone https://github.com/edtice-goog/pathout-shapes
-pathout-shapes/bin/run_all.sh $BIN <idir-copy> <outdir>          # one cov-analyze, thirteen --codexm, seconds
+shapes/bin/run_all.sh $BIN <idir-copy> <outdir>                  # one cov-analyze, thirteen --codexm, seconds
 python3 tools/pathout_filter.py --findings <outdir>/candidates.json \
     --log <print-paths idir>/output/analysis-log.txt --relevant auto --json survivors.json
 ```
@@ -211,7 +210,11 @@ zero test, double release, unbounded copy into a fixed buffer, copy bounded
 by the source's own length (CVE-2025-0282's shape), alloc never released,
 unchecked array index, unbounded arithmetic into a size, length or index
 (INTEGER_OVERFLOW's shape), a narrowing cast of such arithmetic, free of
-non-heap, non-literal format string, sizeof of a pointer. Measured with the current catalogue:
+non-heap, non-literal format string, sizeof of a pointer. The checkers,
+their fixtures and the runner ship with this skill in `shapes/`
+(`shapes/README.md` maps each to the components whose path-out makes its
+hits relevant; `shapes/bin/run_fixtures.sh $BIN` checks all thirteen
+against their fixtures). Measured with the current catalogue:
 nginx 155 hits over the idir, 2 in PATHOUT functions where the relevant
 checker pathed out; zstd 488 / 3; redis 814 / 0 (before the catalogue
 learned that `exit` and an expanded `assert` are exit guards, zstd had
@@ -459,12 +462,17 @@ coverity-pathout/
 ├── tools/
 │   ├── pathout_report.py                # log + metrics join, optional AST extraction
 │   └── pathout_filter.py                # keep candidates in PATHOUT functions (--relevant auto / <checkers>)
+├── shapes/                              # the shape catalogue: thirteen path-insensitive CodeXM checkers
+│   ├── README.md                        # checker -> shape -> relevant components
+│   ├── checkers/*.cxm
+│   ├── fixtures/*.c                     # HIT markers per checker
+│   └── bin/run_all.sh, run_fixtures.sh  # the whole catalogue in one cov-analyze; the fixture check
 └── evals/
     ├── fixture.sh                       # builds, analyzes and checks the fixture; runs the shape checker
     ├── evals.json
     ├── fixtures/
     │   └── ifs_known_vs_unknown.c       # same CFG, one explodes, one does not
     └── escape-hunt/
-        ├── null_check_then_deref.cxm    # the tested shape checker (also in the pathout-shapes catalogue)
+        ├── null_check_then_deref.cxm    # a copy of shapes/checkers/null_check_then_deref.cxm, the eval's checker
         └── shape.c                      # the shape and its three nearest non-shapes
 ```

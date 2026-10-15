@@ -1,0 +1,71 @@
+// Path-INSENSITIVE shape for RESOURCE_LEAK: a local pointer is assigned the
+// result of an allocator (at its declaration or later), and within the
+// function it is never passed to any call (which would release, store or
+// hand it on), never returned, and never assigned to anything that is not a
+// local. That is the strong, path-free form of "leaked on every path". The
+// path-sensitive checker reports leaks on SOME path; this one only sees the
+// ones that leak on all of them, so it is quieter than the others in this
+// set and misses the interesting error-path leaks. Kept because it is cheap
+// and its hits are usually real.
+include `C/C++`;
+
+function varKey(r : astnode) : string? ->
+    if r matches variableReference as v then (v.mangledName ?? v.identifier) else null endif;
+
+function isAllocator(name : string) : bool ->
+    name == "malloc" || name == "calloc" || name == "realloc" || name == "strdup" || name == "strndup"
+    || name == "fopen" || name == "opendir" || name == "fdopen" || name == "tmpfile";
+
+function allocCallName(e : expression) : string? ->
+    if stripCasts(e) matches functionCall as call
+       && call.calledFunction.identifier matches NonNull as nm && isAllocator(nm)
+    then nm else null endif;
+
+// (key of the local, allocator name) for `p = malloc(..)` or `T *p = malloc(..)`
+function allocTarget(s : astnode) : string? ->
+    switch (s) {
+      | assignmentOperator as asg ->
+            if asg.targetExpression matches variableReference as dst && dst.scope == `local`
+               && allocCallName(asg.sourceExpression) matches NonNull
+            then varKey(dst) else null endif
+      | variableDeclaration as decl ->
+            if decl.initializer matches expressionInitializer as ini
+               && allocCallName(ini.expression) matches NonNull
+            then (decl.variable.mangledName ?? decl.variable.identifier) else null endif
+      | default -> null
+    };
+
+function allocName(s : astnode) : string ->
+    switch (s) {
+      | assignmentOperator as asg -> allocCallName(asg.sourceExpression) ?? "?"
+      | variableDeclaration as decl ->
+            if decl.initializer matches expressionInitializer as ini then (allocCallName(ini.expression) ?? "?") else "?" endif
+      | default -> "?"
+    };
+
+function root(n : astnode) : astnode ->
+    if n.parent matches NonNull as p then root(p) else n endif;
+
+// does sym leave the function's hands anywhere: passed to a call, returned,
+// or stored somewhere that is not a plain local
+// (each exists parenthesized: an unparenthesized `exists .. where P || exists ..`
+// nests the second inside the first's where, and an empty first collection
+// makes the whole disjunction false)
+function escapesHands(sym : string, fn : astnode) : bool ->
+       (exists c in allMatchingCodeIn(functionCall, fn)
+            where exists a in c.argumentList where stripCasts(a) matches variableReference as r && varKey(r) == sym)
+    || (exists r in allMatchingCodeIn(returnStatement, fn)
+            where r.returnedExpression matches NonNull as e && stripCasts(e) matches variableReference as v && varKey(v) == sym)
+    || (exists s in allMatchingCodeIn(assignmentOperator, fn)
+            where stripCasts(s.sourceExpression) matches variableReference as v && varKey(v) == sym
+                  && !(s.targetExpression matches variableReference as t && t.scope == `local`));
+
+checker {
+    name = "PATHOUT_CANDIDATE_ALLOC_NEVER_RELEASED";
+    reports = for s in globalset allFunctionCode
+        where allocTarget(s) matches NonNull as sym
+           && !escapesHands(sym, root(s))
+        : { events = [ { description = "Candidate: " + sym.formattedAsCode + " receives " + allocName(s).formattedAsCode
+                                       + " here and is never passed on, returned, or stored in this function.";
+                         location = s.location; } ]; };
+};

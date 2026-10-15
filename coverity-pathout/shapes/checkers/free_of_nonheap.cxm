@@ -1,0 +1,39 @@
+// Path-INSENSITIVE shape for BAD_FREE: free() of something that cannot be a
+// heap block start -- the address of anything (&x), a local declared as an
+// array, a string literal, or a pointer plus an offset. No value tracking:
+// `free(p + 1)` where p was allocated one before is the classic, and is
+// reported as is.
+include `C/C++`;
+
+function varKey(r : astnode) : string? ->
+    if r matches variableReference as v then (v.mangledName ?? v.identifier) else null endif;
+
+function isRelease(name : string) : bool -> name == "free" || name == "cfree";
+
+function root(n : astnode) : astnode ->
+    if n.parent matches NonNull as p then root(p) else n endif;
+
+function declaredAsArray(sym : string, fn : astnode) : bool ->
+    exists decl in allMatchingCodeIn(variableDeclaration, fn)
+        where (decl.variable.mangledName ?? decl.variable.identifier) == sym
+              && decl.variable.type matches arrayType;
+
+function why(a : expression, fn : astnode) : string? ->
+    if stripCasts(a) matches addressOf then "the address of an object"
+    elsif stripCasts(a) matches stringLiteral then "a string literal"
+    elsif stripCasts(a) matches binaryOperator as b && (b.operator == `+` || b.operator == `-`) then "a pointer plus an offset"
+    elsif stripCasts(a) matches variableReference as v && varKey(v) matches NonNull as sym && declaredAsArray(sym, fn) then "a local array"
+    else null endif;
+
+checker {
+    name = "PATHOUT_CANDIDATE_FREE_OF_NONHEAP";
+    reports = for c in globalset allFunctionCode
+        where c matches functionCall as call
+           && call.calledFunction.identifier matches NonNull as nm && isRelease(nm)
+           && !call.argumentList.empty
+           && call.argumentList[0] matches NonNull as a0
+           && why(a0, root(c)) matches NonNull as reason
+        : { events = [ { description = "Candidate: " + nm.formattedAsCode + " of " + reason + "."
+                                       + " Path-insensitive; the pointer's provenance decides it.";
+                         location = c.location; } ]; };
+};

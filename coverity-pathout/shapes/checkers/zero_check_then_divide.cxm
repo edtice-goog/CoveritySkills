@@ -1,0 +1,102 @@
+// Path-INSENSITIVE shape for DIVIDE_BY_ZERO: an integer variable is tested
+// against zero somewhere in the function, and used as a divisor (/ or %) at a
+// place no test of it guards. No feasibility, no order, no value tracking.
+include `C/C++`;
+
+function varKey(r : astnode) : string? ->
+    if r matches variableReference as v then (v.mangledName ?? v.identifier) else null endif;
+
+// a reference to sym, or an assignment to it (`if ((n = f()) != 0)`)
+function refsVar(e : expression, sym : string) : bool ->
+       (stripCasts(e) matches variableReference as r && varKey(r) == sym)
+    || (stripCasts(e) matches assignmentOperator as a
+        && stripCasts(a.targetExpression) matches variableReference as t && varKey(t) == sym);
+
+function isZeroLiteral(e : expression) : bool ->
+    stripCasts(e) matches intLiteral { .value == 0 } || stripCasts(e) matches nullPointerLiteral;
+
+// 1: true side is the non-zero side; -1: true side is the zero side; 0: no test
+function zeroTest(c : astnode, sym : string) : int ->
+    switch (c) {
+      | binaryOperator { .operator == `&&` } as b ->
+            let l = zeroTest(b.lhsExpression, sym) in if l != 0 then l else zeroTest(b.rhsExpression, sym) endif
+      | binaryOperator { .operator == `||` } as b ->
+            let l = zeroTest(b.lhsExpression, sym) in if l != 0 then l else zeroTest(b.rhsExpression, sym) endif
+      | binaryOperator { .operator == `!=` } as b ->
+            if (refsVar(b.lhsExpression, sym) && isZeroLiteral(b.rhsExpression))
+               || (refsVar(b.rhsExpression, sym) && isZeroLiteral(b.lhsExpression)) then 1 else 0 endif
+      | binaryOperator { .operator == `==` } as b ->
+            if (refsVar(b.lhsExpression, sym) && isZeroLiteral(b.rhsExpression))
+               || (refsVar(b.rhsExpression, sym) && isZeroLiteral(b.lhsExpression)) then -1 else 0 endif
+      // x > 0, x >= 1, 0 < x: the true side excludes zero
+      | binaryOperator { .operator == `>` } as b ->
+            if refsVar(b.lhsExpression, sym) && isZeroLiteral(b.rhsExpression) then 1 else 0 endif
+      | binaryOperator { .operator == `<` } as b ->
+            if refsVar(b.rhsExpression, sym) && isZeroLiteral(b.lhsExpression) then 1 else 0 endif
+      | unaryOperator { .operator == `!` } as u ->
+            if refsVar(u.operandExpression, sym) then -1 else 0 - zeroTest(u.operandExpression, sym) endif
+      | expression as ce -> if refsVar(ce, sym) then 1 else 0 endif
+      | default -> 0
+    };
+
+function divisorKey(d : astnode) : string? ->
+    if d matches binaryOperator as b && (b.operator == `/` || b.operator == `%`)
+    then varKey(stripCasts(b.rhsExpression)) else null endif;
+
+function root(n : astnode) : astnode ->
+    if n.parent matches NonNull as p then root(p) else n endif;
+
+function inside(d : astnode, s : astnode) : bool ->
+    contains(function(x : astnode) -> x == d, s);
+
+// a call that never returns ends the path like a return (exit, abort, an
+// expanded assert's __assert_fail)
+function isNoReturn(name : string) : bool ->
+    name == "exit" || name == "_exit" || name == "_Exit" || name == "abort" || name == "quick_exit"
+    || name == "__assert_fail" || name == "__assert_rtn" || name == "__assert" || name == "_assert"
+    || name == "__builtin_trap" || name == "__builtin_unreachable" || name == "longjmp" || name == "siglongjmp"
+    || name == "err" || name == "errx" || name == "verr" || name == "verrx";
+
+function escapes(s : astnode) : bool ->
+    contains(function(x : astnode) -> x matches returnStatement || x matches gotoStatement
+                                      || x matches breakStatement || x matches continueStatement
+                                      || (x matches functionCall as c
+                                          && c.calledFunction.identifier matches NonNull as nm && isNoReturn(nm)), s);
+
+// (each exists parenthesized: an unparenthesized `exists .. where P || exists ..`
+// nests the second inside the first's where, and an empty first collection
+// makes the whole disjunction false)
+function guarded(d : astnode, sym : string, fn : astnode) : bool ->
+       (exists s in allMatchingCodeIn(ifStatement, fn) where zeroTest(s.conditionExpression, sym) != 0 && inside(d, s))
+    || (exists g in allMatchingCodeIn(ifStatement, fn)
+            where zeroTest(g.conditionExpression, sym) < 0 && escapes(g.trueStatement) && !inside(d, g))
+    // and `if (n != 0) ; else abort();`, which is what an expanded assert(n != 0) looks like
+    || (exists g2 in allMatchingCodeIn(ifStatement, fn)
+            where zeroTest(g2.conditionExpression, sym) > 0 && g2.falseStatement matches NonNull as fs
+                  && escapes(fs) && !inside(d, g2))
+    || (exists t in allMatchingCodeIn(conditionalOperator, fn) where zeroTest(t.conditionExpression, sym) != 0 && inside(d, t))
+    // assert(n != 0) is a ternary whose false arm never returns
+    || (exists x in allMatchingCodeIn(conditionalOperator, fn)
+            where ((zeroTest(x.conditionExpression, sym) > 0 && escapes(x.falseExpression))
+                   || (zeroTest(x.conditionExpression, sym) < 0 && escapes(x.trueExpression)))
+                  && !inside(d, x))
+    || (exists w in allMatchingCodeIn(whileLoop, fn) where zeroTest(w.conditionExpression, sym) != 0 && inside(d, w))
+    || (exists f in allMatchingCodeIn(forLoopSimple, fn)
+            where zeroTest(f.conditionExpression, sym) != 0 && inside(d, f))
+    || (exists a in allMatchingCodeIn(binaryOperator { .operator == `&&` }, fn)
+            where zeroTest(a.lhsExpression, sym) > 0 && inside(d, a.rhsExpression))
+    || (exists o in allMatchingCodeIn(binaryOperator { .operator == `||` }, fn)
+            where zeroTest(o.lhsExpression, sym) < 0 && inside(d, o.rhsExpression));
+
+checker {
+    name = "PATHOUT_CANDIDATE_ZERO_CHECK_THEN_DIVIDE";
+    reports = for d in globalset allFunctionCode
+        where divisorKey(d) matches NonNull as sym
+           && let fn = root(d) in
+              exists s in allMatchingCodeIn(ifStatement, fn) where zeroTest(s.conditionExpression, sym) != 0
+              && !guarded(d, sym, fn)
+        : { events = [ { description = "Candidate: " + sym.formattedAsCode
+                                       + " is tested against zero in this function and used as a divisor here, unguarded."
+                                       + " Path-insensitive; read it, then confirm or refute.";
+                         location = d.location; } ]; };
+};

@@ -1,0 +1,107 @@
+// Path-INSENSITIVE shape for INTEGER_OVERFLOW (and OVERFLOW_BEFORE_WIDEN,
+// TAINTED_SCALAR): an arithmetic result (+ - * <<, or a += *= <<= on a
+// variable) with a variable operand that is never compared with a relational
+// operator anywhere in the function reaches a sink -- an allocation size, a
+// memory routine's length, or an array index -- either directly or through
+// a variable that is itself never compared. The path-sensitive checker
+// tracks whether the value is tainted and whether the arithmetic can wrap;
+// this one has no values and no paths, so every unbounded operand is a
+// candidate. Reported once, at the sink. Return statements are a default
+// INTEGER_OVERFLOW sink too, but returning arithmetic is so common that they
+// are left out here on purpose.
+//
+// Supersedes overflow_before_alloc (which covered only * and << directly in
+// an allocation size).
+include `C/C++`;
+
+function varKey(r : astnode) : string? ->
+    if r matches variableReference as v then (v.mangledName ?? v.identifier) else null endif;
+
+function refsVar(e : expression, sym : string) : bool ->
+    stripCasts(e) matches variableReference as r && varKey(r) == sym;
+
+function root(n : astnode) : astnode ->
+    if n.parent matches NonNull as p then root(p) else n endif;
+
+function isRelational(n : astnode) : bool ->
+    n matches binaryOperator as b
+    && (b.operator == `<` || b.operator == `<=` || b.operator == `>` || b.operator == `>=`);
+
+function everCompared(sym : string, fn : astnode) : bool ->
+    exists b in allMatchingCodeIn(binaryOperator, fn)
+        where isRelational(b) && (refsVar(b.lhsExpression, sym) || refsVar(b.rhsExpression, sym));
+
+function isArith(n : astnode) : bool ->
+    n matches binaryOperator as b
+    && (b.operator == `+` || b.operator == `-` || b.operator == `*` || b.operator == `<<`);
+
+// a variable operand of n (after casts) that is never compared in fn
+function unboundedOperand(n : astnode, fn : astnode) : string? ->
+    if n matches binaryOperator as b then
+        (if varKey(stripCasts(b.lhsExpression)) matches NonNull as l && !everCompared(l, fn) then l
+         elsif varKey(stripCasts(b.rhsExpression)) matches NonNull as r && !everCompared(r, fn) then r
+         else null endif)
+    else null endif;
+
+// does expression e contain + - * << with an unbounded variable operand
+function unboundedArith(e : expression, fn : astnode) : string? ->
+    if exists m in allMatchingCodeIn(binaryOperator, e)
+           where isArith(m) && unboundedOperand(m, fn) matches NonNull
+    then "arith" else null endif;
+
+// does sym receive such arithmetic anywhere in fn: `v = a * b`, `T v = a + b`,
+// or `v += n` / `v *= n` / `v <<= n` with n never compared
+function receivesUnbounded(sym : string, fn : astnode) : bool ->
+       (exists a in allMatchingCodeIn(assignmentOperatorSimple, fn)
+            where refsVar(a.targetExpression, sym) && unboundedArith(a.sourceExpression, fn) matches NonNull)
+    || (exists d in allMatchingCodeIn(variableDeclaration, fn)
+            where (d.variable.mangledName ?? d.variable.identifier) == sym
+                  && d.initializer matches expressionInitializer as ini && unboundedArith(ini.expression, fn) matches NonNull)
+    || (exists c in allMatchingCodeIn(assignmentOperatorCompound, fn)
+            where refsVar(c.targetExpression, sym)
+                  && (c.operator == `+` || c.operator == `-` || c.operator == `*` || c.operator == `<<`)
+                  && varKey(stripCasts(c.sourceExpression)) matches NonNull as r && !everCompared(r, fn));
+
+// why the sink value is unbounded arithmetic, or null
+function why(e : expression, fn : astnode) : string? ->
+    if unboundedArith(e, fn) matches NonNull then "arithmetic on a variable never compared in this function"
+    elsif varKey(stripCasts(e)) matches NonNull as v && !everCompared(v, fn) && receivesUnbounded(v, fn)
+        then "a variable that receives arithmetic on a never-compared operand and is never compared itself"
+    else null endif;
+
+// the argument of a call that is a size or a length
+function sizeArg(c : astnode) : expression? ->
+    if c matches functionCall as call then
+        (let nm = call.calledFunction.identifier ?? "" in
+         if nm == "malloc" || nm == "alloca" || nm == "xmalloc" || nm == "valloc" then call.argumentList[0]
+         elsif nm == "realloc" || nm == "xrealloc" || nm == "reallocarray" then call.argumentList[1]
+         elsif nm == "calloc" then call.argumentList[1]
+         elsif nm == "memcpy" || nm == "memmove" || nm == "memset" || nm == "memcmp" || nm == "strncpy" || nm == "strncat"
+               || nm == "read" || nm == "write" || nm == "recv" || nm == "send" || nm == "fread" || nm == "fwrite"
+               || nm == "snprintf" then call.argumentList[2]
+         elsif nm == "bzero" then call.argumentList[1]
+         else null endif)
+    else null endif;
+
+// `p[i]` on a POINTER is spelled as a dereference of `p + i`; only a true
+// array keeps subscriptReference. The index is the non-pointer operand.
+function sinkValue(c : astnode) : expression? ->
+    if sizeArg(c) matches NonNull as a then a
+    elsif c matches subscriptReference as s then s.indexExpression
+    elsif c matches pointerDereference as p
+          && stripCasts(p.pointerExpression) matches binaryOperator as b && (b.operator == `+` || b.operator == `-`)
+        then (if b.lhsExpression.type matches pointerType then b.rhsExpression else b.lhsExpression endif)
+    else null endif;
+
+function sinkName(c : astnode) : string ->
+    if c matches functionCall then "a call's size or length argument" else "an array index" endif;
+
+checker {
+    name = "PATHOUT_CANDIDATE_UNBOUNDED_ARITHMETIC_INTO_SINK";
+    reports = for c in globalset allFunctionCode
+        where sinkValue(c) matches NonNull as v
+           && why(v, root(c)) matches NonNull as reason
+        : { events = [ { description = "Candidate: " + sinkName(c) + " receives " + reason + "."
+                                       + " Path-insensitive; whether it can wrap decides it.";
+                         location = c.location; } ]; };
+};

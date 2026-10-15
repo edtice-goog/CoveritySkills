@@ -44,9 +44,9 @@ CodeXM checker for the shape of what the path-sensitive one looks for runs
 over the whole idir in seconds, and its hits are kept only inside the
 PATHOUT functions where that checker reached the bound; everywhere else the
 path-sensitive checker finished and its silence is a verdict. Thirteen
-tested shapes live in
-[pathout-shapes](https://github.com/edtice-goog/pathout-shapes) and run in
-one pass; the filter is `tools/pathout_filter.py --relevant auto`. On
+tested shapes ship with the skill in `shapes/` and run in one pass
+(`shapes/bin/run_all.sh`); the filter is `tools/pathout_filter.py
+--relevant auto`. On
 nginx: 159 hits, 4 in PATHOUT functions, 2 where the relevant checker
 pathed out. On subversion, keyed on a null dereference a later stage found: 503, 115,
 0 (27 with the reverse shape counted; all 27 refuted by reading). The
@@ -74,6 +74,7 @@ into a helper, measured on the slice.
 | `references/candidate-checkers.md` | writing a path-insensitive CodeXM checker: the skeleton, the tree shapes, the grammar traps |
 | `tools/pathout_report.py` | one command: log + `FUNCTION.metrics` join, batch detection, optional AST extraction of every affected function |
 | `tools/pathout_filter.py` | keep the shape checkers' hits that sit in PATHOUT functions where a relevant checker pathed out (`--relevant auto` for the catalogue) |
+| `shapes/` | the catalogue: thirteen path-insensitive CodeXM checkers, their fixtures, `bin/run_all.sh` (the whole catalogue in one `cov-analyze`) and `bin/run_fixtures.sh`; `shapes/README.md` maps each checker to the components whose path-out makes its hits relevant |
 | `evals/` | the paths-x-state fixture, the tested shape checker with its fixture, and a script that runs them on your installation |
 | `CALIBRATION.md` | what was measured, on what, and what was not |
 
@@ -89,7 +90,6 @@ calls both; install the three together.
   intermediate directory** (`emit/version`, line 1). Developed and measured
   against 2025.9.0, 2026.3.0 and 2026.6.0 on Windows.
 - Python 3 for the tools (standard library only).
-- `git` to fetch the shape catalogue.
 
 ## Install
 

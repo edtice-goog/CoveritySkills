@@ -1,0 +1,58 @@
+// Path-INSENSITIVE shape for SIZEOF_MISMATCH / BAD_SIZEOF: sizeof applied to
+// a pointer variable and used as the size of the block that same pointer
+// addresses -- memset(p, 0, sizeof p), memcpy(p, q, sizeof p), and any
+// malloc(sizeof p). `memcpy(&x, &p, sizeof p)` copies the pointer value
+// itself and is not this shape (redis does that on purpose); so the memory
+// routines only count when the pointer whose size is taken is passed
+// directly as the destination or the source.
+include `C/C++`;
+
+function varKey(r : astnode) : string? ->
+    if r matches variableReference as v then (v.mangledName ?? v.identifier) else null endif;
+
+function sizeIndex(name : string) : int ->
+    if name == "malloc" || name == "alloca" then 0
+    elsif name == "realloc" || name == "bzero" then 1
+    elsif name == "memset" || name == "memcpy" || name == "memmove" || name == "memcmp"
+          || name == "strncpy" || name == "strncat" || name == "snprintf" || name == "fread" || name == "fwrite" then 2
+    else -1 endif;
+
+function isAllocator(name : string) : bool -> name == "malloc" || name == "alloca" || name == "realloc";
+
+// the key of a pointer variable p in some `sizeof p` inside e, or null.
+// sizeofOperator exposes only .children (empty for sizeof(type)); the
+// expression form has its operand as the child.
+function sizeofPointerKey(e : expression) : string? ->
+    if exists z in allMatchingCodeIn(sizeofOperator, e)
+           where exists ch in z.children
+                 where ch matches expression as op && stripCasts(op) matches variableReference as v
+                       && v.type matches pointerType
+    then "found" else null endif;
+
+function directArg(c : astnode, i : int) : string? ->
+    if c matches functionCall as call && call.argumentList[i] matches NonNull as a
+    then varKey(stripCasts(a)) else null endif;
+
+function sizeofOf(e : expression, sym : string) : bool ->
+    exists z in allMatchingCodeIn(sizeofOperator, e)
+        where exists ch in z.children
+              where ch matches expression as op && stripCasts(op) matches variableReference as v
+                    && v.type matches pointerType && varKey(v) == sym;
+
+checker {
+    name = "PATHOUT_CANDIDATE_SIZEOF_POINTER_AS_SIZE";
+    reports = for c in globalset allFunctionCode
+        where c matches functionCall as call
+           && call.calledFunction.identifier matches NonNull as nm
+           && let si = sizeIndex(nm) in
+              si >= 0
+              && call.argumentList[si] matches NonNull as sz
+              && sizeofPointerKey(sz) matches NonNull
+              && (isAllocator(nm)
+                  || (directArg(c, 0) matches NonNull as d0 && sizeofOf(sz, d0))
+                  || (directArg(c, 1) matches NonNull as d1 && sizeofOf(sz, d1)))
+        : { events = [ { description = "Candidate: " + nm.formattedAsCode
+                                       + " is given sizeof of a pointer variable as the size of the block that pointer addresses."
+                                       + " Path-insensitive; almost always the defect itself.";
+                         location = c.location; } ]; };
+};

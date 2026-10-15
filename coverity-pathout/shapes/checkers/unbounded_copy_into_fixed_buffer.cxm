@@ -1,0 +1,50 @@
+// Path-INSENSITIVE shape for STRING_OVERFLOW / OVERRUN: a local array of
+// fixed size receives an unbounded copy (strcpy, strcat, sprintf, gets,
+// vsprintf, wcscpy). No value tracking: whether the source fits is exactly
+// what the path-sensitive checker could not finish deciding.
+//
+// Array-ness is read off the variable's DECLARATION: at the call site the
+// argument has already decayed to a pointer, and the reference's symbol
+// type does not match arrayType there either (measured).
+include `C/C++`;
+
+function varKey(r : astnode) : string? ->
+    if r matches variableReference as v then (v.mangledName ?? v.identifier) else null endif;
+
+function isUnboundedCopy(name : string) : bool ->
+    name == "strcpy" || name == "strcat" || name == "sprintf" || name == "vsprintf"
+    || name == "gets" || name == "wcscpy" || name == "wcscat" || name == "stpcpy";
+
+function root(n : astnode) : astnode ->
+    if n.parent matches NonNull as p then root(p) else n endif;
+
+// The destination variable: a plain reference (pointer variables), or the
+// array-to-pointer decay, which the tree spells as a cast over addressOf of
+// the array (or of its first element).
+function dstKey(e : expression) : string? ->
+    if stripCasts(e) matches variableReference as v then varKey(v)
+    elsif stripCasts(e) matches addressOf as ad then
+        (if ad.operandExpression matches variableReference as v2 then varKey(v2)
+         elsif ad.operandExpression matches subscriptReference as sr then varKey(stripCasts(sr.arrayExpression))
+         else null endif)
+    else null endif;
+
+function declaredAsArray(sym : string, fn : astnode) : bool ->
+    exists decl in allMatchingCodeIn(variableDeclaration, fn)
+        where (decl.variable.mangledName ?? decl.variable.identifier) == sym
+              && decl.variable.type matches arrayType;
+
+checker {
+    name = "PATHOUT_CANDIDATE_UNBOUNDED_COPY_INTO_FIXED_BUFFER";
+    reports = for c in globalset allFunctionCode
+        where c matches functionCall as call
+           && call.calledFunction.identifier matches NonNull as nm && isUnboundedCopy(nm)
+           && !call.argumentList.empty
+           && call.argumentList[0] matches NonNull as a0
+           && dstKey(a0) matches NonNull as sym
+           && declaredAsArray(sym, root(c))
+        : { events = [ { description = "Candidate: fixed-size array " + sym.formattedAsCode
+                                       + " receives an unbounded " + nm.formattedAsCode + "."
+                                       + " Path-insensitive; the bound is what the analyzer could not finish checking.";
+                         location = c.location; } ]; };
+};

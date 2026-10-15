@@ -1,0 +1,29 @@
+// Path-INSENSITIVE shape for PRINTF_ARGS / FORMAT_STRING_INJECTION: a
+// printf-family call whose format argument is not a string literal AND
+// which passes nothing after it: printf(buf), fprintf(f, msg),
+// snprintf(b, n, s). The v* variants are wrappers by construction and are
+// left out. Where the format comes from is what the path-sensitive checker
+// tracks; here every such call is a candidate.
+include `C/C++`;
+
+function formatIndex(name : string) : int ->
+    if name == "printf" then 0
+    elsif name == "fprintf" || name == "dprintf" || name == "sprintf" || name == "syslog" || name == "asprintf" then 1
+    elsif name == "snprintf" then 2
+    else -1 endif;
+
+checker {
+    name = "PATHOUT_CANDIDATE_NONLITERAL_FORMAT_STRING";
+    reports = for c in globalset allFunctionCode
+        where c matches functionCall as call
+           && call.calledFunction.identifier matches NonNull as nm
+           && let fi = formatIndex(nm) in
+              fi >= 0
+              && call.argumentList[fi] matches NonNull as fmt
+              && !(stripCasts(fmt) matches stringLiteral)
+              && !(call.argumentList[fi + 1] matches NonNull)
+        : { events = [ { description = "Candidate: " + nm.formattedAsCode
+                                       + " is called with a non-literal format and no further arguments."
+                                       + " Path-insensitive; where the format comes from decides it.";
+                         location = c.location; } ]; };
+};

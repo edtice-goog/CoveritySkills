@@ -1,0 +1,41 @@
+// Path-INSENSITIVE shape for OVERRUN / NEGATIVE_RETURNS: a local array of
+// fixed size is indexed by a variable that is never compared with a
+// relational operator anywhere in the function. Loop counters are compared
+// in their loop condition and so drop out; what remains is an index computed
+// from a length, a return value or an argument and used as is.
+include `C/C++`;
+
+function varKey(r : astnode) : string? ->
+    if r matches variableReference as v then (v.mangledName ?? v.identifier) else null endif;
+
+function refsVar(e : expression, sym : string) : bool ->
+    stripCasts(e) matches variableReference as r && varKey(r) == sym;
+
+function root(n : astnode) : astnode ->
+    if n.parent matches NonNull as p then root(p) else n endif;
+
+function declaredAsArray(sym : string, fn : astnode) : bool ->
+    exists decl in allMatchingCodeIn(variableDeclaration, fn)
+        where (decl.variable.mangledName ?? decl.variable.identifier) == sym
+              && decl.variable.type matches arrayType;
+
+function isRelational(n : astnode) : bool ->
+    n matches binaryOperator as b
+    && (b.operator == `<` || b.operator == `<=` || b.operator == `>` || b.operator == `>=`);
+
+function everCompared(sym : string, fn : astnode) : bool ->
+    exists b in allMatchingCodeIn(binaryOperator, fn)
+        where isRelational(b) && (refsVar(b.lhsExpression, sym) || refsVar(b.rhsExpression, sym));
+
+checker {
+    name = "PATHOUT_CANDIDATE_UNCHECKED_ARRAY_INDEX";
+    reports = for s in globalset allFunctionCode
+        where s matches subscriptReference as sr
+           && varKey(stripCasts(sr.arrayExpression)) matches NonNull as arr
+           && varKey(stripCasts(sr.indexExpression)) matches NonNull as idx
+           && let fn = root(s) in declaredAsArray(arr, fn) && !everCompared(idx, fn)
+        : { events = [ { description = "Candidate: fixed-size array " + arr.formattedAsCode + " is indexed by "
+                                       + idx.formattedAsCode + ", which is never compared in this function."
+                                       + " Path-insensitive; the index's range decides it.";
+                         location = s.location; } ]; };
+};

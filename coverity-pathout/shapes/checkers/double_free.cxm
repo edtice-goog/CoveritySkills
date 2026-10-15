@@ -1,0 +1,38 @@
+// Path-INSENSITIVE shape for USE_AFTER_FREE / double free: the same variable
+// is passed to a releasing function at two or more call sites in one
+// function, and never reassigned in between as far as this checker can tell
+// (it cannot tell: no order). Reported once per releasing call. Loops that
+// free-then-reallocate, and error ladders that free on several exclusive
+// paths, will be here; that is what reading and fuzzing are for.
+include `C/C++`;
+
+function varKey(r : astnode) : string? ->
+    if r matches variableReference as v then (v.mangledName ?? v.identifier) else null endif;
+
+function isRelease(name : string) : bool ->
+    name == "free" || name == "cfree" || name == "realloc"
+    || name == "fclose" || name == "closedir" || name == "close"
+    || name == "apr_pool_destroy" || name == "sqlite3_free" || name == "g_free" || name == "xfree";
+
+function releasedKey(c : astnode) : string? ->
+    if c matches functionCall as call
+       && call.calledFunction.identifier matches NonNull as nm && isRelease(nm)
+       && !call.argumentList.empty
+       && call.argumentList[0] matches NonNull as a0
+    then varKey(stripCasts(a0)) else null endif;
+
+function root(n : astnode) : astnode ->
+    if n.parent matches NonNull as p then root(p) else n endif;
+
+checker {
+    name = "PATHOUT_CANDIDATE_DOUBLE_RELEASE";
+    reports = for c in globalset allFunctionCode
+        where releasedKey(c) matches NonNull as sym
+           && let fn = root(c) in
+              exists other in allMatchingCodeIn(functionCall, fn)
+                  where other != c && releasedKey(other) == sym
+        : { events = [ { description = "Candidate: " + sym.formattedAsCode
+                                       + " is released here and at another call site in the same function."
+                                       + " Path-insensitive; a loop or an exclusive error path is the usual explanation.";
+                         location = c.location; } ]; };
+};
