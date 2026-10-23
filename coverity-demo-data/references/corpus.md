@@ -153,3 +153,40 @@ of them found four false positives. That is the expected result, not a bad run.
   candidates available, and they cost nothing extra to find.
 - **Do not judge a corpus by its tip.** A project can look barren at HEAD and be
   rich three releases back.
+
+## Capture only what ships
+
+Coverity analyzes what the build compiles, so **the build defines the scope of
+the dataset**. A stock `./configure && make` often builds test programs and
+fuzz harnesses alongside the product, and those findings then sit in the
+dataset looking exactly like product findings.
+
+Measured on a published OpenSSL dataset built with stock `./config && make`:
+**190 of 923 merge keys -- 21% -- had their main event in `test/` (180) or
+`fuzz/` (10).** The findings are real; they are simply not in shipped code.
+
+This matters because what reaches triage is a scope decision made *before*
+triage. Code in the build counts as shipped, so test code being analyzed is a
+process problem, not something for a triager to sort out one defect at a time.
+A demo dataset that is one-fifth test harness also misrepresents the product's
+defect density, which is often the thing a demo is meant to show.
+
+So configure the build to omit test programs. The mechanism is per-project --
+OpenSSL has a `no-tests` configure option, autotools projects often have
+`--disable-tests`, and otherwise build the install targets rather than `all`.
+Confirm it worked; do not assume the option covered everything.
+
+**Do not filter by path or filename.** It looks easy and it is wrong. alsa-utils
+ships `speaker-test/speaker-test.c` as an installed program -- a filename
+filter drops a shipped component. Scope comes from **build targets**, which the
+project defines, not from patterns that happen to match. For the same reason
+this skill reports capture scope and never edits it: `publish_dataset.py`
+prints translation units by top-level directory and records them in
+`MANIFEST.json` under `capture`, so the shape is visible before publishing and
+visible to anyone browsing the archive afterwards. Deciding what belongs is the
+builder's call.
+
+If a dataset does include test code deliberately -- to demonstrate exactly this
+process problem, for instance -- say so in `--description`. An honest dataset
+with a stated scope is useful; an unstated one invites someone to quote its
+density as if it were the product's.

@@ -176,6 +176,14 @@ Record the compilation-unit count per version and compare across versions. A
 step change that does not correspond to real code change is a capture problem,
 not a finding.
 
+**Capture only what ships.** The build defines the dataset's scope, and a stock
+`./configure && make` often compiles test programs and fuzz harnesses too --
+measured at 21% of the merge keys in one stock OpenSSL capture. Configure the
+build to omit them (`no-tests`, `--disable-tests`, or build the install targets
+rather than `all`), and never filter by filename afterwards: alsa-utils ships
+`speaker-test/speaker-test.c` as a real program. See `references/corpus.md`;
+publish reports the scope it found rather than editing it.
+
 Analysis may run alongside capture -- they are separate processes and often
 separate machines -- but gate it on the **capture step's own completion
 signal**, never on the idir directory existing. `cov-build` creates the

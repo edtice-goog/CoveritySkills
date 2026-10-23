@@ -358,6 +358,19 @@ def assemble(dataset, rows, facts, args, ws, idirs_root, version):
         url, shas = source_shas(args.source_repo, rows)
 
     roots = sorted({facts[r["tag"]]["build_root"] for r in rows})
+
+    # Capture scope, reported rather than judged. What a build compiles is in
+    # scope by the SSDLC's own logic, so test code in the capture is a decision
+    # made at build-configure time -- not something to filter out afterwards,
+    # and not something a filename pattern can settle (alsa-utils ships
+    # speaker-test/speaker-test.c as an installed program). Record the shape so
+    # the builder sees it before publishing and a consumer sees it in the
+    # manifest without re-deriving it.
+    tip = rows[-1]["tag"]
+    tip_dirs = collections.Counter(s.split("/")[0]
+                                  for s in facts[tip]["stripped"] if "/" in s)
+    all_dirs = sorted({s.split("/")[0]
+                       for r in rows for s in facts[r["tag"]]["stripped"] if "/" in s})
     manifest = {
         "schema": SCHEMA,
         "project": args.project,
@@ -382,6 +395,11 @@ def assemble(dataset, rows, facts, args, ws, idirs_root, version):
             "cids_at_tip": facts[rows[-1]["tag"]]["cids"],
         },
         "audit": {"present": (dataset / "audit").is_dir()},
+        "capture": {
+            "tu_by_top_dir_at_tip": dict(sorted(tip_dirs.items(),
+                                                key=lambda kv: -kv[1])),
+            "top_dirs_any_version": all_dirs,
+        },
     }
     (dataset / "MANIFEST.json").write_text(
         json.dumps(manifest, indent=2, sort_keys=False) + "\n", encoding="utf-8")
@@ -410,6 +428,15 @@ def assemble(dataset, rows, facts, args, ws, idirs_root, version):
     (dataset / "README.md").write_text("\n".join(readme) + "\n", encoding="utf-8")
 
     n = write_sums(dataset)
+    print()
+    print("capture scope at " + tip + " (translation units by top directory):")
+    for d, c in sorted(tip_dirs.items(), key=lambda kv: -kv[1]):
+        print("  " + d.ljust(20) + " " + str(c))
+    print("Review this. Whatever the build compiled is in the dataset, and a")
+    print("demo dataset should normally cover only what ships: test and fuzz")
+    print("harnesses pulled in by a stock build are a scope decision to make")
+    print("at configure time, not a filter to apply afterwards.")
+    print()
     print(f"published {dataset}")
     print(f"  {len(rows)} versions, {n} files checksummed")
 
