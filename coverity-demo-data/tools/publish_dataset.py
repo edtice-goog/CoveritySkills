@@ -35,7 +35,13 @@ import subprocess
 import sys
 import datetime
 
-SCHEMA = 1
+# Manifest contract version. Bump it whenever a consumer reading an older
+# manifest would be wrong, so the mistake is detectable rather than a
+# silently missing key.
+#   2: audit.present (a directory existed) replaced by audit.triaged
+#      (coverity-triage records exist). The old field read as "checked"
+#      for datasets that had not been.
+SCHEMA = 2
 
 
 def fail(msg):

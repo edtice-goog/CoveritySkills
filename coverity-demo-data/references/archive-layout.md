@@ -73,7 +73,17 @@ what cannot be guessed from the outside:
 | `streams[]` | `{tag, date, stream}` -- both the commit order and the branch mapping |
 | `source` | repo URL and per-tag commit SHA, so the corpus is reproducible |
 | `capture` | build host OS, compiler, cov-configure template; capture is toolchain-dependent |
-| `counts`, `audit` | lets someone judge fit before committing anything anywhere |
+| `counts` | lets someone judge fit before committing anything anywhere |
+| `audit` | `triaged`, and the `coverity-triage` records if any. Untriaged is a normal state and says so, rather than being inferred from a directory existing |
+
+**`schema` is the contract version.** It is bumped whenever a consumer reading
+an older manifest would be wrong, so the mistake is detectable instead of a
+silently missing key. Read it before trusting a field's name.
+
+- **2** -- `audit.present` replaced by `audit.triaged`. The old field reported
+  whether an `audit/` directory existed, which read as "this was checked" for
+  datasets that had not been.
+- **1** -- initial.
 
 **Single source of truth.** Do not write the stream map into a second file
 beside the manifest. `commit.sh` derives whatever input format it needs at run
@@ -134,7 +144,7 @@ it.
 
 ```json
 {
-  "schema": 1,
+  "schema": 2,
   "project": "proftpd",
   "dataset": "2026-10-13-releases24-defaults",
   "description": "24 releases across five branch streams, 2015-2025 ...",
@@ -153,7 +163,7 @@ it.
     "shas": { "v1.3.5a": "379bdb0d413f9489768c29c3a36e7bc854c85395" }
   },
   "counts": { "versions": 24, "streams": ["proftpd-1.3.5"], "cids_at_tip": 112 },
-  "audit": { "present": true, "triage_records": ["audit/v1.3.9/triage.json"] }
+  "audit": { "triaged": true, "triage_records": ["audit/v1.3.9/triage.json"] }
 }
 ```
 
