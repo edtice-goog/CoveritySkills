@@ -12,7 +12,7 @@ idir/
   build-timings.txt        per-step timing
   tu-timings.txt           per-translation-unit timing
   security-da-log.txt      dynamic analyzer log
-  scan-transparency/       process-tree observations (Method B)
+  scan-transparency/       compiler-detection readout (Method B)
     unconfigured-compilers
   emit/<HOST>/             the emit database itself
     config/<md5>/          the compiler configs actually used, per argument set
