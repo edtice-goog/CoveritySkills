@@ -45,7 +45,7 @@ later consumer pays for it and none of them can diagnose it.
       commit.sh                     parameterized entry point
       tools/commit_sweep.py         bundled, so the dataset stands alone
       idirs/<tag>/                  analyzed intermediate directories
-      audit/                        false-positive verdicts
+      audit/                        triage bundles and records (coverity-triage), if triage was chosen
       logs/                         configure, build and analyze logs; cu-counts
       provenance/                   analysis-settings.json, source SHAs, toolchain
 ```
@@ -108,7 +108,9 @@ single-stream corpus. Pass `--tags` if the file lives elsewhere or is named
 differently.
 
 Carried through if present, ignored if not: `audit/`, `logs/`, and a top-level
-triage report.
+triage report. `MANIFEST.json` lists every `coverity-triage` records file under
+`audit/` (`audit.triage_records`); an empty list means the dataset is
+untriaged.
 
 Nothing else is asked for, because everything else is **derived** from the
 idirs -- the strip path from `build-cwd.txt`, the analyzer version from
@@ -151,7 +153,7 @@ it.
     "shas": { "v1.3.5a": "379bdb0d413f9489768c29c3a36e7bc854c85395" }
   },
   "counts": { "versions": 24, "streams": ["proftpd-1.3.5"], "cids_at_tip": 112 },
-  "audit": { "present": true }
+  "audit": { "present": true, "triage_records": ["audit/v1.3.9/triage.json"] }
 }
 ```
 

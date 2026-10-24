@@ -71,7 +71,10 @@ Filter story-surfaced defects on:
   reasoning about a global invariant the audience cannot see, drop it
 
 A defect that fails legibility can still live in the dataset -- it just should
-not be the one on screen.
+not be the one on screen. The same goes for a finding correctly dismissed as a
+global invariant: the dataset is fine, but an audience asked to follow an
+argument for why a defect is not a defect is being asked to take the tool on
+faith.
 
 ## Branches become streams, not rows in one stream
 
@@ -106,5 +109,5 @@ Confirm all of:
 - Merge-key overlap between adjacent versions is high (the tool aborts at zero)
 - Compilation-unit counts are stable except where real code change explains it
 - The chosen story is visible in the population table
-- Story-surfaced defects are identified by merge key, ready for the Phase 4
-  audit
+- Story-surfaced defects are identified by merge key, ready for Step 4 if the
+  user chooses triage

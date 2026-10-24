@@ -60,7 +60,8 @@ recoverable only by restoring the database.
 ```
 coverity-demo-data/
 ├── SKILL.md                          # reset point → capture → select →
-│                                     #   commit oldest-first → audit → publish
+│                                     #   commit oldest-first → triage, if the
+│                                     #   user chooses it → publish
 ├── references/
 │   ├── backdating.md                 # measured --backdate semantics + the
 │   │                                 #   verification SQL to run after each commit
@@ -69,22 +70,22 @@ coverity-demo-data/
 │   ├── corpus.md                     # choosing a corpus, target-poor projects,
 │   │                                 #   cross-platform capture
 │   ├── selection.md                  # story shapes and the legibility rule
-│   ├── triage-verdicts.md            # global invariants, heuristic misfires,
-│   │                                 #   and how to make a dismissal falsifiable
 │   ├── worked-example-proftpd.md     # the calibration session, with the numbers
 │   └── worked-example-fp-audit.md    # a real triage pass: 4 of 9 sampled
 │                                     #   defects were false positives
 └── tools/
     ├── capture.sh                    # serial capture, build failure verified
     ├── phase2.py                     # merge-key set algebra + stability guard
-    ├── audit_bundle.py               # FP-audit bundles: trace + real source,
-    │                                 #   read from git at the tag
     ├── commit_sweep.py               # oldest-first backdated commits, halting
     │                                 #   the moment earlier dates shift
     ├── publish_dataset.py            # validate exhaustively, then assemble a
     │                                 #   self-contained dataset in the archive
     └── commit_template.sh            # the commit.sh each dataset carries
 ```
+
+Triage is not done here. Step 4 asks the user which findings to triage, if
+any, and hands them to [coverity-triage](../coverity-triage/README.md), which
+owns the bundles, the lanes, the verdict vocabulary and the records.
 
 Status: validated end-to-end on proftpd -- 24 releases across five branch
 streams, 2015-2025, 222 CIDs, committed to a live Connect with the backdated

@@ -10,7 +10,8 @@ description: >
   static-analysis tool and carrying the history across; when a defect history
   with aging outstanding issues or a fix-rate trend is wanted; when asked how
   to make snapshots appear on past dates; or when preparing a demo, POC, or
-  training environment.
+  training environment. Triage is optional and never automatic: the skill
+  asks which findings to triage, if any, and hands them to coverity-triage.
   Requires a local Coverity Analysis installation and a Coverity Connect
   instance the user is willing to have written to; this skill runs real builds
   and real commits.
@@ -45,9 +46,10 @@ what this skill exists for -- is getting twenty-odd versions found, mapped onto
 sensible projects and streams, built, analyzed, committed with the right dates,
 and audited, repeatably. Do not drift into writing the customer narrative.
 
-The deliverable is a populated Connect instance, the population table that
-describes what is in it, and an audit verdict for the defects sampled -- enough
-for someone else to judge whether it fits their story.
+The deliverable is a populated Connect instance and the population table that
+describes what is in it -- enough for someone else to judge whether it fits
+their story -- plus, when the user chooses triage, the triage records for the
+findings they chose (Step 4).
 
 **This skill assumes the `coverity` skill and its `RULES.md`.** Read the rules
 before running any Coverity command; the numbers cited here are stable. Rules
@@ -66,7 +68,7 @@ important structural decision in the skill:
 | 1. Capture + analyze every candidate version | Yes, freely | Re-run it |
 | 2. Map streams, select versions, offline | Yes, freely | Re-run it |
 | 3. Commit oldest-first with `--backdate` | **No** | Restore DB, redo |
-| 4. False-positive audit | Yes | Re-run it |
+| 4. Triage, if the user chooses it (`coverity-triage`) | Yes | Re-run it |
 
 Do all thinking in Phases 1-2, where set algebra over merge keys predicts
 exactly what Connect will show. Enter Phase 3 only with a decided list. Phase 2
@@ -365,69 +367,67 @@ Always `--dry-run` first: it prints the resolved order and dates, and commits
 nothing. Verification queries for doing this by hand are in
 `references/backdating.md`.
 
-## Step 4: Audit for false positives before the demo is presented
+## Step 4: Triage -- only what the user chooses
 
-Never point at a defect on stage without having checked it. Two passes:
+Never point at a defect on stage without having checked it. But triage spends
+model time on every finding it reads, and a dataset is often published to be
+triaged later, by someone else, for a story not yet chosen. So **this skill
+never triages on its own, and never on a default.** Ask the user, once, which
+of these to do:
 
-**Per-checker sample (dataset confidence).** This is rule 26 applied to a
-multi-version dataset. For each checker that fires in the final dataset, audit
-a few defects of that type. Confidence in a checker's output generalizes across
-its instances far better than across checkers, so
-this buys most of the assurance at a fraction of the cost of auditing
-everything. `phase2.py` prints the checker roster for exactly this purpose.
+- **Package without triage.** Publish the dataset untriaged (Step 5). The
+  hand-off says so plainly: nothing in it has been checked, and anything
+  featured on stage must be triaged before the demo. The published dataset
+  carries its idirs and its source revisions, so triage can run later without
+  rebuilding anything.
+- **The story-surfaced findings only** -- the merge keys the chosen story
+  points at. Cheap, since a story surfaces few defects, and it is where the
+  risk lives: the single new defect at the tip is the most likely to be
+  featured and the least likely to be caught by a sample of a checker that
+  fired fifty times.
+- **A per-checker sample, plus the story-surfaced findings** -- rule 26
+  applied to a multi-version dataset, for confidence in the dataset as a whole.
+  Confidence in a checker's output generalizes across its instances far better
+  than across checkers, so a few per checker buys most of the assurance at a
+  fraction of the cost of reading everything. `phase2.py` prints the checker
+  roster.
 
-**Unconditional audit of story-surfaced defects.** Anything the narrative
-points at gets audited regardless of whether the sample covered it. This is
-cheap -- a story surfaces few defects -- and it is where the risk actually
-lives: the single new defect at the tip is simultaneously the most likely to be
-featured and the least likely to be caught by a per-checker sample of a checker
-that fired fifty times.
-
-`tools/audit_bundle.py` builds both selections into self-contained markdown --
-checker, full event trace, and the real source around every event, with event
-lines marked -- so a reviewer reaches a verdict without access to the build
-machine:
+And, for whatever is triaged, the method for each lane and its model, or a
+lane left out (`coverity-triage`, Step 3). Put the counts in the question;
+they cost nothing to compute:
 
 ```
-audit_bundle.py --issues <version>.json --git-repo <repo> --tag <tag>     --strip-prefix <build-root> --per-checker 2     --merge-key <story-surfaced key> --out audit/<tag>
+python3 ../coverity-triage/tools/bundle.py --issues <tip>.json --git-repo <repo> \
+    --tag <tip tag> --strip-prefix <build-root> --per-checker 2 \
+    --merge-key <story-surfaced key> --plan
 ```
 
-**Source is read from git at the tag, never from the working tree.** The corpus
-is built by checking many tags out of one fixed directory, so the working tree
-holds whatever version was built last -- the wrong source for every defect but
-one, and wrong in a way that reads as entirely plausible.
-
-Each bundle carries a **legibility line** (event count, files touched,
-interprocedural, whether the evidence is statistical) because those are the
-signals that decide whether a true positive belongs on screen.
-
-Audit against the real source and the full event trace, not the defect title.
-Report a verdict per defect using the vocabulary in
-`references/triage-verdicts.md`, which exists so that dismissals are precise
-and falsifiable rather than hand-waved.
-
-The category that matters most is the **global invariant**: the analyzer is
-right about the code it can see, and a fact outside that view makes the path
-impossible -- a guard elsewhere in the function, or a property of the machine
-the program runs on. It is where a reasoning model reliably beats the analysis,
-and it is also the easiest way to wave away a real defect, so every such
-dismissal must **name the invariant, locate where it is enforced, and say what
-would break it**. No location, no dismissal: report it unresolved instead.
-
-Verdict is separate from demo-worthiness. A finding can be perfectly real and
-still fail the legibility rule; a correctly-dismissed global invariant leaves
-the dataset fine but is not something to put on screen, because explaining why
-a defect is not a defect is not a story anyone wants told. Keep both in the
-dataset, keep both off the slide.
-
-**Run this phase with the strongest model available.** Measured on the proftpd
-corpus, a stratified sample of nine defects contained three false positives --
-and every one was *checker-correct*. Catching them required reading a guarding
+Say in the question that the model matters. Measured on the proftpd corpus, a
+stratified sample of nine defects contained three false positives, and every
+one was *checker-correct*: catching them required reading a guarding
 `strncasecmp` that made a null-return path infeasible, recognising a deliberate
 two-check cycle idiom that a copy-paste heuristic misread, and knowing that a
-`time_t` duration is not an epoch timestamp. None of that is visible in the
-defect title, the checker name, or the event trace alone. The audit is cheap
-and the failure mode is public, so this is the wrong place to economise.
+`time_t` duration is not an epoch timestamp
+(`references/worked-example-fp-audit.md`). The user weighs that against the
+cost; this skill does not decide it for them.
+
+Then hand the choice to **`coverity-triage`**, with `--out audit/<tag>` so that
+publishing carries the results into the dataset. That skill bundles the
+selected findings (source read from git at the tag, never from the working
+tree, which holds whichever version was built last), assigns each a lane, runs
+the lane methods the user chose, and writes `triage.json` and
+`TRIAGE-REPORT.md`. The verdicts, their vocabulary and their discipline are
+that skill's; this one keeps none of its own.
+
+**What stays here is demo-worthiness.** A verdict says whether a finding is
+right, not whether it belongs on screen. A finding can be perfectly real and
+still fail the legibility rule (`references/selection.md`); a correctly
+dismissed global invariant leaves the dataset fine but is not something to put
+on screen, because explaining why a defect is not a defect is not a story
+anyone wants told. Read each story-surfaced finding's bundle, and its *Shape*
+line (event count, files touched, interprocedural, statistical evidence),
+against the legibility rule. Keep both in the dataset; keep both off the
+slide.
 
 ## Step 5: Publish the dataset to the archive
 
@@ -471,7 +471,9 @@ path:
 Hand off the dataset's location, plus:
 
 - The Phase 2 population table, since it is the evidence for what the data shows
-- Audit verdicts -- the per-checker sample and anything a story surfaced
+- The triage records (`audit/<tag>/triage.json` and its report) when the user
+  chose triage, naming who produced the verdicts and how; otherwise the plain
+  statement that the dataset is untriaged
 - The reminder that the consumer takes **their own** database backup before
   committing, because first detected is write-once on their instance
 

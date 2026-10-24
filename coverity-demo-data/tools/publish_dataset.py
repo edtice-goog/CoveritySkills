@@ -394,7 +394,11 @@ def assemble(dataset, rows, facts, args, ws, idirs_root, version):
             "streams": sorted({r["stream"] for r in rows}),
             "cids_at_tip": facts[rows[-1]["tag"]]["cids"],
         },
-        "audit": {"present": (dataset / "audit").is_dir()},
+        "audit": {"present": (dataset / "audit").is_dir(),
+                  # coverity-triage records, so a consumer finds the verdicts
+                  # without guessing; empty when the dataset is untriaged
+                  "triage_records": sorted(p.relative_to(dataset).as_posix()
+                                           for p in (dataset / "audit").glob("**/triage.json"))},
         "capture": {
             "tu_by_top_dir_at_tip": dict(sorted(tip_dirs.items(),
                                                 key=lambda kv: -kv[1])),
