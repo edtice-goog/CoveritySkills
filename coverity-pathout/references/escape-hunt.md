@@ -34,11 +34,11 @@ believed.
 | 1 | a CodeXM checker for the shape, over the whole idir | 11 s, 503 hits (2,088 before the checker learned what "guarded" means) |
 | 2 | keep only hits in PATHOUT functions | 115 hits (of 178 PATHOUT functions) |
 | 3 | keep only where the relevant checker pathed out | **0** for `FORWARD_NULL`/`NULL_RETURNS`; 27 in 7 (function, variable) pairs when `REVERSE_INULL` is counted too |
-| 4 | read them; then fuzz what reading cannot settle | the 27 took about an hour to read; all refuted |
+| 4 | hand them to `coverity-triage`, expecting value or path with `coverity-verify` | per candidate: a lane check, then a slice, stubs and a fuzz run |
 
 The whole-idir run is cheap because the checker is structural. The
 filtering is the mechanism. Slicing is not needed for detection at all; it
-comes back at stage 4 as the fuzz target.
+comes back at stage 4 as the fuzz target, inside `coverity-verify`.
 
 ## Stage 1: the shape, as a path-insensitive checker
 
@@ -93,7 +93,7 @@ python3 tools/pathout_filter.py --findings candidates.json --log <print-paths id
 `FORWARD_NULL_pass1` and `FORWARD_NULL_pass2` alike. That is deliberate:
 the two passes are one checker, and if either reached the bound the
 checker did not finish the function. Do not decide relevance from one
-pass's count; a blind run got a real defect backwards that way.
+pass's count; a real defect was once got backwards that way.
 
 `--relevant` is the step that matters most. A candidate for a null
 dereference in a function where only `BUFFER_SIZE` pathed out is not a
@@ -119,10 +119,26 @@ caller, an issue at https://github.com/edtice-goog/CoveritySkills/issues
 with the counts and component names (nothing from the codebase) is the
 signal to build the callers tier.
 
-## Stage 4: confirm or refute
+## Stage 4: confirm or refute -- in `coverity-triage`
 
-**Read first.** Every subversion candidate was settled by reading, and the
-reasons are the catalogue of what a path-insensitive checker cannot know:
+The survivors leave this skill here. `tools/pathout_filter.py --json
+survivors.json --run-json run.json` writes them in cov-format-errors v10
+shape and a plan whose `expected` block says what they were built for:
+lane *value or path*, method `Execution: coverity-verify`. `coverity-triage`
+bundles them, assigns a lane to each (cheap, and the one check that the
+claim is what the shape assumed), and its `records.py check-lanes` lists
+every candidate that landed elsewhere, with lane and reason, before any
+method runs. The user then chooses per candidate: verify anyway where
+that is realistic, run that lane's reader, or leave it untriaged; the
+choice is an override in `run.json` with its reason, and each record
+names the method that produced its verdict. For the value-or-path
+candidates `coverity-verify` runs: the slice, stubs from the derived
+models, a sanitizer as the oracle, a verdict with its tier.
+
+**What reading finds, and why it is not this skill's method.** When the
+27 subversion survivors were examined by reading, every one was refuted,
+and the reasons are the catalogue of what a path-insensitive checker
+cannot know:
 
 | refuted by | example |
 |---|---|
@@ -133,16 +149,22 @@ reasons are the catalogue of what a path-insensitive checker cannot know:
 | a loop-condition guard | `for (i = 0; moved_nodes && i < moved_nodes->nelts; i++)`: at the time the checker knew `if`, `?:`, `&&` and `\|\|` as guards, not loop conditions (it does now: `whileLoop` and `forLoopSimple` conditions guard their bodies) |
 | two variables with one name | `t_entry` in `delta_dirs`, `work` in `write_entry`: an inner declaration shadows the tested one; the front end had no mangled name for the locals, so the identifier fallback conflated them |
 
-The last one is a checker gap, recorded in `candidate-checkers.md`; the loop-condition gap was closed the same day. The
-first four are what reading is for. Do it before building anything: it
-took about an hour for 27 candidates, and left nothing to fuzz.
+The last one is a checker gap, recorded in `candidate-checkers.md`; the
+loop-condition gap and the exit-guard gap (an expanded `assert`, an
+`exit`) were closed by teaching the checkers. That is what this list is
+for: each row is a thing the catalogue can learn to drop structurally. It
+is not a step in the procedure. Reading is inference, and the candidates
+exist because inference, the analyzer's and a reader's alike, could not
+finish the function; so their verdict comes from execution, through
+`coverity-triage`, and a reading verdict appears only where the user chose
+that lane's reader for a candidate the lane check moved.
 
-**Then fuzz what reading cannot settle.** The slice makes the function
-executable on its own, the derived models make its callees behave exactly
-as the analyzer believes they do, and a sanitizer is the oracle. A crash at
-the candidate's dereference, reached through a stub taking its
-`returnsnull` branch, is the confirmation; the analyzer would have accepted
-that path as feasible had it reached it. `coverity-verify/references/fuzz-confirmation.md`
+**What execution does.** The slice makes the function executable on its
+own, the derived models make its callees behave exactly as the analyzer
+believes they do, and a sanitizer is the oracle. A crash at the
+candidate's dereference, reached through a stub taking its `returnsnull`
+branch, is the confirmation; the analyzer would have accepted that path
+as feasible had it reached it. `coverity-verify/references/fuzz-confirmation.md`
 has the recipe, the verdict tiers, and the fixture where the whole chain
 runs in about a minute: candidate flagged, sliced, stubbed from the model,
 built with clang-cl and ASan, crashing at the right line on a four-byte
@@ -150,12 +172,14 @@ input.
 
 ## What to hand back
 
-- The shape, as a checker file, because the next escape of the same class
+- The shape, as a checker file, because the next defect of the same class
   reuses it.
 - The survivor list with, per candidate: function, line, the checker that
-  pathed out there, and the verdict with its tier (`refuted by reading`,
-  `confirmed by crash under model stubs`, `unconfirmed after N seconds`,
-  `reachable only if a caller passes NULL`).
+  pathed out there, the lane it was assigned, the method that judged it
+  (`Execution: coverity-verify`, a named reader by the user's choice, or
+  `None`), and the verdict with its tier (`confirmed by crash under model
+  stubs`, `unconfirmed after N seconds`, `reachable only if a caller
+  passes NULL`, `model says impossible`).
 - For confirmed ones, the crashing input and the stub choices it made:
   that is the reproduction, and the callee behaviours it relied on are the
   thing to check against the real callees.
@@ -163,8 +187,9 @@ input.
 ## Limits
 
 - The shape checker is order-blind (CodeXM's `sourceloc` exposes nothing)
-  and reassignment-blind. Both are by design; both are why reading comes
-  before fuzzing.
+  and reassignment-blind. Both are by design; both are why the survivors
+  are candidates, not findings, and why their verdict comes from running
+  them.
 - A stub is the analyzer's belief about a callee. A crash that needs a
   behaviour the model does not have is a model gap, not a confirmed
   defect, and belongs to the enrichment loop.

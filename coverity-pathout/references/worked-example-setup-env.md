@@ -1,6 +1,6 @@
 # Worked example: `setup_env` in proftpd
 
-A real session against a real intermediate directory, kept as the template
+A real run against a real intermediate directory, kept as the template
 for the procedure. proftpd 1.3.9, captured with `cov-build` (gcc, WSL) and
 analyzed with **Coverity 2025.9.0** on Windows at defaults; 149 files, 2102
 functions, 32 seconds. Every number below is from the run.
@@ -143,7 +143,7 @@ findings. That is the measured answer; it is not a general one.
 > and hoisting `c ? c->subset : main_server->conf` into one local removes
 > seven redundant re-tests of `c`. The other three functions
 > (`listfile`, `tpl_map_va`, `facts_mlinfo_fmt`) were not diagnosed in this
-> session.
+> run.
 
 Say what you did not check. The other three got the same first two steps
 and not the third.

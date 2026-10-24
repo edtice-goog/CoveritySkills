@@ -49,9 +49,10 @@ tested shapes ship with the skill in `shapes/` and run in one pass
 --relevant auto`. On
 nginx: 159 hits, 4 in PATHOUT functions, 2 where the relevant checker
 pathed out. On subversion, keyed on a null dereference a later stage found: 503, 115,
-0 (27 with the reverse shape counted; all 27 refuted by reading). The
-survivors are read, and what reading cannot settle goes to
-`coverity-verify` to be run.
+0 (27 with the reverse shape counted). The survivors are not judged here:
+they go to `coverity-triage` with their expected lane (value or path) and
+method (execution through `coverity-verify`), and any that the lane check
+puts elsewhere are put to the user before a method runs.
 
 **The cost of the notice is measured, on the whole project.** `--paths N
 --print-paths` on a copy says how many paths each function needed, and a
@@ -79,10 +80,12 @@ into a helper, measured on the slice.
 | `CALIBRATION.md` | what was measured, on what, and what was not |
 
 The function body, the standalone slice and the obfuscated twin are
-[`coverity-function-slice`](../coverity-function-slice/README.md); running a
-candidate to confirm or refute it is
-[`coverity-verify`](../coverity-verify/README.md). This skill
-calls both; install the three together.
+[`coverity-function-slice`](../coverity-function-slice/README.md); the
+verdicts on its candidates are
+[`coverity-triage`](../coverity-triage/README.md)'s, which runs
+[`coverity-verify`](../coverity-verify/README.md) for the execution
+method. This skill calls them; install them together. The workflow as a
+whole is in [`USE-CASES.md`](../USE-CASES.md).
 
 ## Requirements
 
@@ -94,7 +97,7 @@ calls both; install the three together.
 ## Install
 
 ```bash
-cp -r coverity-pathout coverity-function-slice coverity-verify ~/.claude/skills/
+cp -r coverity coverity-pathout coverity-function-slice coverity-triage coverity-verify ~/.claude/skills/
 ```
 
 Then: "the analysis log says 189 functions exceeded the path limit -- which
@@ -109,7 +112,7 @@ written to falsify the obvious hypothesis (that branch count predicts
 PATHOUT) and did; the subversion runs were repeated under two
 configurations to establish that the notice count is a property of the
 checker set; the worked example includes the measured defect difference at
-a raised limit, which for that function was zero. A blind run of the skill
-by another model on nginx (2026-09-10) did Steps 0-2 and 4-6 well and
-skipped the catalogue because no later stage had reported anything; Step 3 is worded the way
-it is because of that.
+a raised limit, which for that function was zero. An early run of the
+skill on nginx did Steps 0-2 and 4-6 well and skipped the catalogue
+because no later stage had reported anything; Step 3 is worded the way it
+is because of that.

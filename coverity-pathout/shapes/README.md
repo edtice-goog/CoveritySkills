@@ -7,8 +7,9 @@ is run over a whole intermediate directory in seconds, and its hits are kept
 only inside the functions where the corresponding path-sensitive checker
 reached the bound, because everywhere else that checker finished and its
 verdict stands. The procedure (`../SKILL.md`, Step 3), the filter
-(`../tools/pathout_filter.py --relevant auto`) and the execution-based
-confirmation step (`coverity-verify`) are the skill around this directory;
+(`../tools/pathout_filter.py --relevant auto`) and the hand-off of the
+survivors to `coverity-triage`, expecting execution through
+`coverity-verify`, are the skill around this directory;
 this directory is the checkers, their fixtures and the two scripts that
 run them. The same files are mirrored as a standalone repository at
 https://github.com/edtice-goog/pathout-shapes; the copy here is the one
@@ -88,7 +89,7 @@ their order-blind approximations were too noisy to be worth a filter.
 
 Every checker was developed against a fixture (`fixtures/shapes.c`,
 `fixtures/shapes2.c`, `fixtures/null_check_then_deref.c`), and the first
-five were run over the subversion 1.14 + sqlite idir in tool-interop; the
+five were run over a subversion 1.14 + sqlite amalgamation idir; the
 whole catalogue was run over lua, zstd, nginx and redis idirs (counts in
 `../CALIBRATION.md`). `source_length_into_fixed_buffer` is the
 shape of CVE-2025-0282 (a bounded copy whose bound is the source's own

@@ -18,9 +18,11 @@ description: >
   filtered to the PATHOUT functions where that checker stopped -- a
   catalogue of thirteen tested shapes is run whenever there is a PATHOUT,
   whether or not a later stage has found anything. Uses coverity-function-slice
-  for the function body and coverity-verify to confirm candidates by
-  execution. Requires a local Coverity Analysis installation of the
-  version that wrote the intermediate directory.
+  for the function body and hands its candidates to coverity-triage,
+  expecting the value-or-path lane with execution through coverity-verify;
+  a candidate that lands elsewhere is put to the user before any method
+  runs. Requires a local Coverity Analysis installation of the version that
+  wrote the intermediate directory.
 ---
 
 # Coverity PATHOUT
@@ -51,19 +53,21 @@ early-stage cost, not a late-stage tool pulled forward.
 Read `coverity/RULES.md` first (rules 3, 8, 21-23 bear directly). The rule
 this skill adds is 36; rule 35 belongs to `coverity-function-slice`.
 
-**This skill is one of a bundle of three**, and it calls the other two by
-relative path: `coverity-function-slice` (the function body, the
-standalone slice) and `coverity-verify` (an execution verdict on a
-candidate). If you have only this file -- fetched from a URL, or copied
-alone -- clone the repository and work from the clone before starting:
+**This skill is part of a bundle**, and it calls its siblings by relative
+path: `coverity-function-slice` (the function body, the standalone slice)
+and `coverity-triage` (the verdicts on its candidates, which runs
+`coverity-verify` for the execution method). If you have only this file --
+fetched from a URL, or copied alone -- clone the repository and work from
+the clone before starting:
 
 ```bash
 git clone https://github.com/edtice-goog/CoveritySkills
 ```
 
-The three sit side by side under `CoveritySkills/`, with `coverity/RULES.md`
-above them. Do not substitute your own extraction, slicing or fuzzing for
-the sibling skills; they carry the measured procedure and the tools.
+They sit side by side under `CoveritySkills/`, with `coverity/RULES.md`
+above them. Do not substitute your own extraction, slicing, reading or
+fuzzing for the sibling skills; they carry the measured procedure and the
+tools. `USE-CASES.md` at the repository root shows the whole workflow.
 
 ## What "paths" means
 
@@ -171,8 +175,8 @@ that did not, and the reverse. Read the component name up to the `_pass`
 suffix when deciding which checker was cut short, and never conclude
 "FORWARD_NULL finished" from one pass's count. The relevance filter
 matches on that prefix for exactly this reason. This was got backwards on
-a real defect by a blind run of the skill: the pass that reached the bound
-was dismissed because the other pass had finished.
+a real defect once: the pass that reached the bound was dismissed because
+the other pass had finished.
 
 **Whole project, not `--tu`, when the number matters.** `--tu <N>` scopes
 the run to one translation unit and is fast (15 s against 32 s on
@@ -233,17 +237,46 @@ shape.cxm`, `cov-format-errors --json-output-v10`), and filter with
 functions, **0** where `FORWARD_NULL` pathed out, 27 where `REVERSE_INULL`
 did. Exclude the known instance.
 
-**Then read each survivor**, and hand the ones reading cannot settle to
-`coverity-verify`. All 27 subversion survivors were refuted by
-reading (preconditions, allocate-if-null macros, invariants between
-variables, reassignment; `references/escape-hunt.md` has the catalogue).
-Reading is inference, and it is what the skill exists to replace where
-inference cannot reach a verdict; so when the user asks for execution
-verdicts, or says the run is a test of the pipeline, send **every**
-survivor to `coverity-verify` and report the reading verdict beside
-the execution verdict rather than instead of it.
-A survivor list with a verdict and tier per entry is part of every PATHOUT
-report; "the catalogue was not run" is a gap to state (rule 22). The
+**Then hand the survivors to `coverity-triage`.** This skill does not
+judge its candidates, by reading or otherwise. They were built to be run:
+their lane is value or path and their method is execution through
+`coverity-verify`, and that is what the hand-off says. Write the two files
+the triage skill reads, then follow its steps:
+
+```bash
+python3 tools/pathout_filter.py --findings <outdir>/candidates.json \
+    --log <print-paths idir>/output/analysis-log.txt --relevant auto \
+    --dir <idir> --bin $BIN --json <triage>/survivors.json --run-json <triage>/run.json
+# then, in coverity-triage:
+python3 ../coverity-triage/tools/bundle.py --issues <triage>/survivors.json --all --out <triage> ...
+#   assign lanes (its Step 2), then, before any method runs:
+python3 ../coverity-triage/tools/records.py check-lanes --bundles <triage> --lanes <triage>/lanes.json --run <triage>/run.json
+```
+
+`survivors.json` is in cov-format-errors v10 shape, merge keys intact;
+`run.json` carries `"expected": {"by": "coverity-pathout", "lane": "Value
+or path", "method": "Execution: coverity-verify"}`. Lane assignment is
+cheap and runs first; it is the one check that each candidate's claim is
+what the shape assumed. `check-lanes` lists every candidate that landed
+elsewhere, with its lane and reason, **before any method runs**, and the
+user chooses for each: run `coverity-verify` anyway where that is
+realistic, run that lane's reader, or leave it untriaged. Any of those is
+fine; what must not happen is a candidate taking a different method, or
+none, by surprise. The choice goes into `run.json` as an override with its
+reason, and the triage records name the method that produced each
+verdict. Triage costs per candidate, so the choice of how many to send is
+the user's (see *Budget*).
+
+Why no reading here: reading is inference, and it is what this skill
+exists to replace where inference cannot reach a verdict. On subversion
+all 27 survivors were refuted by reading (preconditions, allocate-if-null
+macros, invariants between variables, reassignment;
+`references/escape-hunt.md` has the catalogue), which is useful as a list
+of what a path-insensitive checker cannot know, and is why the shape
+checkers have since learned exit guards and loop conditions; it is not a
+method this skill applies. A survivor list with lane, method and verdict
+per entry is part of every PATHOUT report; "the catalogue was not run" or
+"the survivors were not triaged" is a gap to state (rule 22). The
 procedure with all the measurements: `references/escape-hunt.md`.
 
 **One accepted limit, and what to do if it bites.** When a *model
@@ -267,10 +300,11 @@ run, one catalogue run, one filter. Everything from here on is per
 function and paid in tokens and minutes: extracting a body and reading it
 (a 900-line function is about 20 KB, roughly 5,000 tokens, read at least
 once), slicing and re-analyzing it (20 s of tool time, few tokens), the
-verdicts on its survivors (the body again, per survivor), a fuzz harness
-(minutes of build and run), restructure experiments (many re-reads of
-the body; the most expensive thing in this skill). On a log with 4,000
-PATHOUT functions that is a bill the user did not ask for.
+triage of its survivors (a slice, a harness and a fuzz run per candidate
+in `coverity-verify`: minutes of build and run each), restructure
+experiments (many re-reads of the body; the most expensive thing in this
+skill). On a log with 4,000 PATHOUT functions that is a bill the user did
+not ask for.
 
 So, whenever the PATHOUT count is more than a couple of dozen:
 
@@ -280,7 +314,7 @@ So, whenever the PATHOUT count is more than a couple of dozen:
    user asks. Within the survivors, the function with the most, or with
    the highest path count, is the pilot.
 2. **Run the whole per-function procedure on that one function** (Step 4
-   through the verdicts on its survivors, Step 6 only if the user wants
+   through the triage of its survivors, Step 6 only if the user wants
    the cost of the limit) and write down what it cost: wall time, and
    tokens estimated from what was read -- the body's size (the report
    tool prints lines per extracted definition; about 12 tokens per line)
@@ -389,8 +423,10 @@ measurement justifies and say what it cost in time.
 ## Reporting
 
 Verdict first (rule 21): the functions, the checker that pathed out in
-each, what the shape catalogue found behind them (survivors, with verdict
-and tier), the structural cause, what the bound cost in defects (measured
+each, what the shape catalogue found behind them (survivors, each with
+the lane it was assigned, the method that judged it and the verdict with
+its tier, or "not triaged" and why), the structural cause, what the bound
+cost in defects (measured
 or "not measured"), and the recommendation with its price. Then the
 evidence: the log lines, the `Pathed out` lines, the filter's counts, the
 counts from the body, the defect diff. Mark measured vs reasoned (rule 23).
@@ -407,11 +443,17 @@ user chose to spend (rule 22).
   functions, after seeing what one costs.
 - Skipping the shape catalogue because no later stage has reported
   anything. The catalogue is how the residue behind the bound gets
-  examined before a later stage has to find it. A blind run of this
+  examined before a later stage has to find it. An early run of this
   skill on nginx did exactly that, and the two survivors it would have
   found (an array indexed by an uncompared variable in
-  `ngx_http_ssi_body_filter`, where `OVERRUN_SYMBOLIC` pathed out) went
-  unread.
+  `ngx_http_ssi_body_filter`, where `OVERRUN_SYMBOLIC` pathed out) were
+  never triaged.
+- Judging a survivor yourself -- reading it to a verdict, or sending it
+  straight to `coverity-verify` -- instead of handing it to
+  `coverity-triage` with the expected lane. The lane check is what tells
+  the user, before anything runs, that a candidate is not what the shape
+  assumed; skipping it is how a candidate gets the wrong method, or none,
+  by surprise.
 - Using `--tu` scoping for the PATHOUT set or the cost measurement. It
   drops cross-TU models and lost 7 of 18 on nginx.
 - Reading a two-pass checker's `_pass1` and `_pass2` lines as if they were
@@ -438,13 +480,14 @@ user chose to spend (rule 22).
 | Question | Skill |
 |---|---|
 | The function's body, a file that compiles alone, an obfuscated twin | `coverity-function-slice` |
-| A survivor reading cannot settle: run it | `coverity-verify` |
+| A verdict on a survivor | `coverity-triage`, with `run.json` expecting value or path and `Execution: coverity-verify`; it runs `coverity-verify` for that lane and reports anything that lands elsewhere before a method runs |
+| A survivor the lane check puts outside value or path | the user: verify it anyway where realistic, run that lane's reader, or leave it; recorded as an override in `run.json` |
 | "Was the function even captured?" / the file is not in the emit | `coverity` (capture fidelity, rule 34) |
 | "Would checker X have found the bug the cut-off hid?" | `coverity-defect-detectability` |
 | The idir is from a version you do not have installed | stop and ask. This skill is for current development, where the version that wrote the idir (`emit/version`, line 1) is installable; say which version is needed and let the user install it or re-run the capture. `coverity-recreate-from-emit` rebuilds an analyzable idir without the toolchain and is expensive; it is a last resort the user must ask for, not a step to take on your own |
 
-The three skills are meant to sit side by side under the same skills
-directory; the relative paths above assume that.
+The skills are meant to sit side by side under the same skills directory;
+the relative paths above assume that.
 
 ## Layout
 
@@ -461,7 +504,7 @@ coverity-pathout/
 │   └── candidate-checkers.md            # writing a path-insensitive CodeXM checker; the traps
 ├── tools/
 │   ├── pathout_report.py                # log + metrics join, optional AST extraction
-│   └── pathout_filter.py                # keep candidates in PATHOUT functions (--relevant auto / <checkers>)
+│   └── pathout_filter.py                # keep candidates in PATHOUT functions; writes survivors.json + run.json for coverity-triage
 ├── shapes/                              # the shape catalogue: thirteen path-insensitive CodeXM checkers
 │   ├── README.md                        # checker -> shape -> relevant components
 │   ├── checkers/*.cxm

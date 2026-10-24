@@ -4,13 +4,13 @@ This project's standard is that factual claims in a skill were established by
 real runs. This file records what was run for `coverity-pathout`, on what,
 and what is reasoned rather than measured.
 
-Environment: Windows 11, installations under `C:\Coverity\`. Three analyzer
-versions were used, each against an idir it wrote:
+Environment: Windows 11, several analyzer versions installed side by side.
+Three were used, each against an idir it wrote:
 
 | idir | written by | size | analyzed with |
 |---|---|---|---|
-| proftpd 1.3.9 (`coverity-demo-data-workspace/idirs/v1.3.9`), 149 C files, 2102 functions | 2025.9.0 (cov-build, gcc, WSL) | 2 GB | 2025.9.0 win64, scratch copy |
-| subversion + sqlite amalgamation (`C:\Data\tool-interop\coverity\idirs\svn-augmented-post-enrichment`), 9533 functions | 2026.3.0 | 185 MB | 2026.3.0 win64, scratch copy |
+| proftpd 1.3.9, 149 C files, 2102 functions | 2025.9.0 (cov-build, gcc, WSL) | 2 GB | 2025.9.0 win64, scratch copy |
+| subversion 1.14 + sqlite amalgamation, 9533 functions | 2026.3.0 (MSVC) | 185 MB | 2026.3.0 win64, scratch copy |
 | fixtures (`evals/fixtures/*`), emitted with bare `cov-emit --c` / `--c++` | 2026.6.0 | -- | 2026.6.0 win64 |
 
 All dates 2026-09-09.
@@ -209,7 +209,7 @@ All dates 2026-09-09.
   spellings, `__builtin_trap`/`__builtin_unreachable`, `longjmp`/
   `siglongjmp`, `err`/`errx`/`verr`/`verrx`; a project's own noreturn
   wrappers are not known and still produce candidates.
-- **Same-named functions (found by the redis blind run, 2026-09-11; fixed
+- **Same-named functions (found on redis, 2026-09-11; fixed
   2026-09-15).** Both tools joined by function name alone. redis has five
   `main`s: `pathout_report.py` attributed the PATHOUT one (TU 272,
   redis-benchmark.c:1733) to server.c's metrics; it now keeps every
@@ -219,11 +219,11 @@ All dates 2026-09-09.
   findings from same-named functions in other files (`main` in
   redis-cli.c, `parseOptions` in redis-benchmark.c); with `--dir --bin` it
   resolves the name through the emit and drops them (76 -> 70 on redis,
-  the number the blind run reached by hand), and without them it keeps
-  them marked `ambiguous` and says so.
+  the number a by-hand check of the files reached), and without them it
+  keeps them marked `ambiguous` and says so.
 
-- **Two INTEGER_OVERFLOW shapes (2026-09-23, after a customer run showed an
-  INTEGER_OVERFLOW path-out)**. `overflow_before_alloc` covered only `*`
+- **Two INTEGER_OVERFLOW shapes (2026-09-23, after an INTEGER_OVERFLOW
+  path-out was met on a real codebase)**. `overflow_before_alloc` covered only `*`
   and `<<` written directly in an allocation size; it is replaced by
   `unbounded_arithmetic_into_sink` (`+ - * <<` and `+= -= *= <<=` on a
   never-compared variable, reaching an allocation size, a memory routine's
@@ -234,7 +234,7 @@ All dates 2026-09-09.
   (such arithmetic cast, explicitly or implicitly, to an `intType` with
   fewer `sizeInBits`; same width with different signedness is not
   reported). Both pass their fixtures on 2026.6.0; the whole catalogue of
-  thirteen still runs in one pass. Over the campaign idirs (all thirteen,
+  thirteen still runs in one pass. Over the nginx, zstd and redis idirs (all thirteen,
   `--relevant auto`): nginx 365 hits, 2 kept; zstd 821 hits, 3 kept; redis
   1,195 hits, 0 kept -- the two new checkers contribute 210, 344 and 382
   raw hits and no survivors, because no INTEGER_OVERFLOW pathed out in

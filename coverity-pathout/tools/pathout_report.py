@@ -157,7 +157,7 @@ def metrics_for(mets, name, tu, bin_dir, idir):
     """The metrics entry for the definition of `name` in TU `tu`: the only
     one when there is one; the one whose file the emit names when there are
     several and --bin was given; else a marked ambiguity, never a silent
-    guess (the first blind run on redis attributed the PATHOUT `main` to
+    guess (on redis a name-only join attributed the PATHOUT `main` to
     server.c's; it was redis-benchmark.c's)."""
     entries = mets.get(name, [])
     if len(entries) == 1:

@@ -2,7 +2,8 @@
 """Keep only the findings that sit in PATHOUT functions.
 
     pathout_filter.py --findings <cov-format-errors --json-output-v10 file> \
-                      --log <analysis-log.txt of a --print-paths run> [--callers] [--json out]
+                      --log <analysis-log.txt of a --print-paths run> [--relevant auto|A,B] \
+                      [--dir <idir> --bin <install>/bin] [--json survivors.json] [--run-json run.json]
 
 The intended input is the output of a path-insensitive candidate checker run
 over the whole intermediate directory. The log of a `--print-paths` run of
@@ -10,8 +11,14 @@ the SAME idir (any checker set; it only has to name the functions) supplies
 the PATHOUT set and, per function, the checkers that pathed out in it.
 Findings outside PATHOUT functions are the noise a path-sensitive checker was
 right to reject; they are dropped, with a count. Findings inside are the
-candidates, annotated with which components pathed out there, for the
-confirmation stage (fuzzing) and for triage.
+candidates, annotated with which components pathed out there.
+
+The survivors go to coverity-triage, not to a reader here: --json writes
+them in cov-format-errors v10 shape (an "issues" list, merge keys intact)
+for coverity-triage's bundle.py, and --run-json writes the plan skeleton
+with the expected lane (Value or path) and method (Execution:
+coverity-verify), so a candidate that lands in another lane is reported
+before any method runs.
 
 --callers also keeps findings in direct callers of functions whose model
 derivation pathed out (`*_DERIVERS`), since a truncated model weakens the
@@ -23,6 +30,7 @@ Pure standard library.
 
 import argparse
 import json
+from datetime import date
 import os
 import re
 import sys
@@ -120,7 +128,10 @@ def main():
     ap.add_argument("--log", help="analysis-log.txt of a --print-paths run of the same idir")
     ap.add_argument("--pathout-map", help="instead of --log: the --json output of an earlier run of this "
                                           "tool, whose pathout_functions map is reused")
-    ap.add_argument("--json", help="write the kept findings here")
+    ap.add_argument("--json", help="write the survivors here, in cov-format-errors v10 shape (an 'issues' "
+                                   "list) so coverity-triage's bundle.py reads it directly")
+    ap.add_argument("--run-json", help="also write a coverity-triage run.json skeleton here, with the expected "
+                                       "lane (Value or path) and method (Execution: coverity-verify) filled in")
     ap.add_argument("--dir", help="the idir the findings came from; with --bin, a PATHOUT function name that "
                                   "several files define is resolved to the file the log's TU names, so a "
                                   "same-named function elsewhere (redis has five main()s) is not kept by mistake")
@@ -238,12 +249,40 @@ def main():
                                            it.get("checkerName", "").replace("PATHOUT_CANDIDATE_", "").lower(),
                                            (it.get("events") or [{}])[0].get("eventDescription", "")[:80]))
     if a.json:
+        # The survivors file keeps the cov-format-errors v10 shape ("issues")
+        # so that coverity-triage's bundle.py reads it as it is; the filter's
+        # own metadata sits beside it.
         with open(a.json, "w", encoding="utf-8", newline="\n") as f:
-            json.dump({"source": a.findings, "log": a.log, "kept": kept,
-                       "dropped": dropped, "pathout_functions": {k: {"components": v["components"],
-                                                                     "signatures": sorted(v["signatures"])}
-                                                                 for k, v in po.items()}}, f, indent=1)
-        print("written: %s" % a.json)
+            json.dump({"type": "pathout-survivors", "source": a.findings, "log": a.log,
+                       "issues": kept, "kept": len(kept), "dropped": dropped,
+                       "pathout_functions": {k: {"components": v["components"],
+                                                 "signatures": sorted(v["signatures"]),
+                                                 "tus": sorted(v["tus"])}
+                                             for k, v in po.items()}}, f, indent=1)
+        print("written: %s  (%d survivors, cov-format-errors v10 shape: hand it to coverity-triage)"
+              % (a.json, len(kept)))
+    if a.run_json:
+        # The plan skeleton coverity-triage reads: these candidates were built
+        # to be run, so the expected lane is value-or-path with execution;
+        # the triage step fills the rest and records the user's overrides
+        # for anything that lands elsewhere.
+        plan = {
+            "date": date.today().isoformat(),
+            "selection": "coverity-pathout survivors: %d candidate(s) in %d PATHOUT function(s) "
+                         "where a relevant checker reached the path bound" % (len(kept), len(by_fn)),
+            "assigner": "",
+            "lanes": {"Construction": "None", "Contract": "None",
+                      "Value or path": "Execution: coverity-verify"},
+            "who": "",
+            "connect_ai_triage": False,
+            "expected": {"by": "coverity-pathout", "lane": "Value or path",
+                         "method": "Execution: coverity-verify"},
+            "overrides": [],
+        }
+        with open(a.run_json, "w", encoding="utf-8", newline="\n") as f:
+            json.dump(plan, f, indent=1)
+        print("written: %s  (run.json skeleton: expected lane Value or path, method Execution: coverity-verify; "
+              "fill assigner and who, then coverity-triage)" % a.run_json)
 
 
 if __name__ == "__main__":
