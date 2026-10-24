@@ -452,6 +452,14 @@ carriage return and reports **every** entry as non-existent -- including the
 real one. The failure is silent and points the wrong way, dismissing a genuine
 hole as an artifact.
 
+**The existence check needs the right filesystem.** "Exists on disk" means
+exists in the namespace the capture ran in. When capture ran in a container,
+only paths that were bind-mounted at the same path are comparable from the
+host: a container-internal path reads as phantom merely because the host never
+had it, and a host path that happens to exist is a *different* file from the
+container's. Check a bind-mounted path, or check from inside the same
+namespace; outside that, the result is uninformative in both directions.
+
 Reading Method B as decisive on its own would have failed a perfect capture
 here. This is exactly the disagreement the adjudication step exists to
 resolve, and it is the strongest practical argument for running all three.

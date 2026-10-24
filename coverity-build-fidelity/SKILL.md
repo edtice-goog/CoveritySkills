@@ -384,5 +384,4 @@ source at the cost of wall time.
   vendor release**. curl 8.21.0_7 reproduced byte-identically from the
   official reproducible build, giving `D(O,N)` empty and therefore `K =
   D(O,C)` with no noise floor at all. Both `K` and the reproduction came out
-  empty. Documents the unity-build, container-hostname, and
-  network/TLS-interception traps.
+  empty. Documents the unity-build and container-hostname traps.

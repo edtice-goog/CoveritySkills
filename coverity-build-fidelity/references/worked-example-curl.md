@@ -108,7 +108,7 @@ design* (`check_c_source_compiles` and friends; 600 unique probe files were
 seen, 300 probe TUs emitted). A `< 100% -> fail` gate rejects this build for no
 reason.
 
-## Three traps this run exposed
+## Two traps this run exposed
 
 **Unity builds destroy naive TU reconciliation.** curl-for-win sets
 `CMAKE_UNITY_BUILD=ON` with `CMAKE_UNITY_BUILD_BATCH_SIZE=30`. curl's entire
@@ -124,22 +124,26 @@ No emit DB found for this host ("analysis-host") ... but one was found for host 
 Please run cov-manage-emit --dir <intermediate-directory> reset-host-name
 ```
 
-**Vendor build scripts are not built for slow or inspected networks.**
-curl-for-win downloads with `--max-time 80` and no resume; the 82 MB toolchain
-could not finish in 80s and every retry restarted from zero. And corporate TLS
-inspection is *selective* -- Zscaler intercepted `ftp.openbsd.org` and
-`pgpkeys.eu` while passing GitHub through untouched, which made the failure
-look random rather than systematic. Neither risks integrity here: every
-download is SHA256- and GPG-verified by the build itself.
+## Settled: the libpsl entry was a phantom
 
-## Open item
+`unconfigured-compilers` named a `clang` under libpsl's build directory, which
+looks exactly like an unconfigured wrapper driving every libpsl compile. It was
+not one.
 
-libpsl's build directory contains a local `clang` wrapper that went
-unconfigured. libpsl emitted exactly its two real library sources (`psl.c`,
-`lookup_string_in_fixed_set.c`), so the capture looks complete -- but that is
-inference, not proof, and the wrapper is exactly the shape of thing that
-silently swallows compilations. Worth settling before this example is cited as
-a clean 100%.
+Method B's phantom partition classifies it as a phantom, and the direct check
+agrees: **the libpsl build directories survived the run while no `clang`
+existed inside either of them.** A directory that persists with no such file in
+it is positive evidence the wrapper was never there -- which is stronger than
+"the path does not exist now", since a path can vanish with a cleaned build
+tree. The on-disk check is trustworthy here because the build tree was
+bind-mounted into the container at the same path, so the host and the
+container agree about it. The shape matches the documented phantom class, a
+bare command name resolved against the build directory instead of `PATH`, and
+the same artifact appeared independently on another project under a different
+compiler name.
+
+What this example should be cited for: that a named entry is a *candidate*
+hole, to be confirmed against Method A rather than reported as a finding.
 
 ## Reproducing
 
@@ -147,7 +151,10 @@ a clean 100%.
 # in WSL/Linux with podman
 git clone https://github.com/curl/curl-for-win.git && cd curl-for-win
 git checkout c791028a
-# pre-seed llvm-mingw (verify against LLVM_MINGW_LINUX_X86_64_HASH in _versions.sh)
+# Pre-seed the toolchain: the build fetches llvm-mingw with a short timeout and
+# no resume, and skips its own download when llvm-mingw/ already exists. Fetch
+# the tarball, check it against LLVM_MINGW_LINUX_X86_64_HASH in _versions.sh,
+# and unpack it to llvm-mingw/ with the leading directory stripped.
 export CW_CONFIG='main-werror-win' CW_LLVM_MINGW_DL=1 CW_LLVM_MINGW_ONLY=1
 podman run --rm -v "$PWD:$PWD" -w "$PWD" <pinned-image> sh -c ./_ci-linux-debian.sh
 ```
