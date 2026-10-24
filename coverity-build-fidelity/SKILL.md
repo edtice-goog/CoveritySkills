@@ -260,9 +260,9 @@ section -- are hard failures, not deltas.
 
 **Run the `coverity` skill's capture-fidelity check** -- three independent
 methods (`coverity list` / `cov-manage-emit` inventory, the
-`scan-transparency/` process-tree readout, and an independent expectation
-inferred from the source tree before the idir is opened), adjudicated
-together. See that skill's `references/capture-fidelity.md`, and
+`scan-transparency/` compiler-detection readout, and an independent
+expectation inferred from the source tree before the idir is opened),
+adjudicated together. See that skill's `references/capture-fidelity.md`, and
 `tools/capture_fidelity.py` to collect the evidence.
 
 This is the second arm without which Step 5 is meaningless: an empty capture

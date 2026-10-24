@@ -96,7 +96,8 @@ authentication* at the end of this file, which ran on 2026.9.0 and says so.
   `--text-output-style` and invents a plausible flag that does not exist.
 - **`cov-format-errors --json-output-v10` produces JSON, confirmed by
   execution** -- not merely by `--help`. Run against an idir holding one real
-  UNINIT report (`cov-emit --c` of `evals/fixtures/uninit-main.c`, then
+  UNINIT report (`cov-emit --c` of
+  `coverity-defect-detectability/evals/fixtures/uninit-main.c`, then
   `cov-analyze --all --aggressiveness-level high`; the defect does not appear
   at defaults). It printed `Detected 1 defect occurrence that passes the
   filter criteria` and wrote a 3.9 KB file:
