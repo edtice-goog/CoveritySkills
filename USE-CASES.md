@@ -1,0 +1,266 @@
+# Use cases and workflows
+
+What you can do with these skills, organized by what you are trying to do
+rather than by skill. Each use case names the skills involved, in order, and
+where one hands to the next. Every skill does one job; when a question
+belongs to another skill, it hands over explicitly instead of doing half of
+that skill's work.
+
+## How the skills fit together
+
+```mermaid
+flowchart TB
+    subgraph setup["Set up and capture"]
+        CC["coverity-compiler-configuration"]
+        CV["coverity<br/>rules, capture fidelity, Connect auth"]
+        BF["coverity-build-fidelity"]
+    end
+    subgraph analyzer["Questions about the analyzer"]
+        DD["coverity-defect-detectability"]
+        PO["coverity-pathout"]
+        FS["coverity-function-slice"]
+    end
+    subgraph verdicts["Verdicts on findings"]
+        TR["coverity-triage"]
+        VE["coverity-verify"]
+    end
+    subgraph history["History and upgrades"]
+        DM["coverity-demo-data"]
+        IT["coverity-issue-transition-inference"]
+        RE["coverity-recreate-from-emit"]
+    end
+    CVSS["coverity-cvss-report"]
+
+    CC -->|"configuration"| CV
+    CV -->|"verified capture"| BF
+    PO -->|"body"| FS
+    PO -->|"candidates"| TR
+    DM -->|"findings, if chosen"| TR
+    TR -->|"execution method"| VE
+    VE -->|"target"| FS
+    BF -->|"build held constant"| IT
+    RE -->|"old code, new analyzer"| IT
+```
+
+`coverity` sits under all of them: its rules apply to any Coverity work,
+it owns capture verification and Connect authentication, and it routes a
+question it does not own to the skill that does.
+
+## Get a scan you can trust
+
+**You want:** a capture that models your real toolchain, and evidence that
+the analysis covered the code before anyone acts on its results.
+
+```mermaid
+flowchart LR
+    A["coverity-compiler-configuration<br/>template configuration, cross-compilers, wrappers"] --> B["build under cov-build"]
+    B --> C["coverity<br/>verify capture: counts, diagnostics,<br/>three methods, independently"]
+    C --> D["cov-analyze"]
+    D --> E["coverity-triage<br/>a stratified sample, in lanes"]
+    C -.->|"release gating"| F["coverity-build-fidelity<br/>did cov-build change the product?"]
+```
+
+- `coverity-compiler-configuration` sets up `cov-configure` with templates, so
+  the compiler is probed per invocation, the way the build actually runs it.
+- `coverity` verifies the capture: what reached the analyzer, measured three
+  ways, and reported as counts rather than a bare percentage.
+- `coverity-triage` checks a sample of the results (rule 26) before the
+  report leaves your hands.
+- For a release gate, `coverity-build-fidelity` shows that wrapping the build
+  in `cov-build` left the product unchanged, paired with capture coverage so
+  the result means something in both directions.
+
+## Triage findings by the kind of claim they make
+
+**You want:** each finding sorted into a lane by what it claims, judged by a
+method suited to that lane, with the verdict in Coverity Connect's own triage
+fields and a record of which lane and method produced it.
+
+```mermaid
+flowchart LR
+    IN["Findings<br/>a sample, a story's findings,<br/>or another skill's batch"] --> P{"Plan chosen?<br/>which findings,<br/>which method per lane"}
+    P -->|"no: show the counts, ask"| P
+    P -->|"yes"| A{"Assign a lane"}
+    A -->|"construction"| L1["Construction lane<br/>is the construct there?"]
+    A -->|"contract"| L2["Contract lane<br/>what does the callee promise?"]
+    A -->|"value or path"| L3["Value-or-path lane<br/>is the path feasible, the value handled?"]
+    A -->|"other"| O["Other<br/>no verdict"]
+    L3 -.->|"when the plan says execution"| VE["coverity-verify"]
+    L1 & L2 & L3 & VE --> R[("Records<br/>Classification, Action, Severity, Comment<br/>+ Triage lane, Triage method")]
+    O --> R
+```
+
+- `coverity-triage` does this. Each lane's method is chosen separately: a
+  reading by a model you name, execution through `coverity-verify` for the
+  value-or-path lane, or a person. Different lanes can use different models.
+- Nothing runs until you have chosen which findings and which methods, because
+  every method costs time per finding.
+- A skill that hands its findings over can say which lane it expects. A
+  finding that lands elsewhere is reported to you before any method runs.
+- The output is a records file in Connect's attribute names. Applying it to
+  Connect, with or without the two custom attributes, is up to whoever owns the
+  instance.
+
+## Settle one finding by running it
+
+**You want:** a definitive answer on one finding (a CID, an entry in a
+findings file) instead of a debate about it; or, for a finding that
+disappeared between two versions, whether the change fixed the defect or
+only silenced the analyzer.
+
+```mermaid
+flowchart LR
+    F["A finding<br/>CID or findings-file entry"] --> D{"A claim a sanitizer or<br/>an assertion can judge?"}
+    D -->|"no: injection, resource,<br/>concurrency"| X["suggest external verification"]
+    D -->|"yes"| S["coverity-function-slice<br/>the function, standalone"]
+    S --> M["stubs from Coverity's own<br/>models of the callees"]
+    M --> Z["fuzz: focused, then free"]
+    Z --> V["verdict with its tier<br/>and the evidence"]
+    FX["a fix in hand"] -.-> K["the fix check:<br/>fixed, or silenced?"]
+    V -.-> K
+```
+
+- `coverity-verify` does this, using `coverity-function-slice` for the target.
+- Run on a batch, verification is one lane method of `coverity-triage`.
+
+## Look where the analyzer reached its path bound
+
+**You want:** to know which functions reached the per-function path limit,
+which checker it cut short, what the analyzer did not examine there, and what
+raising the bound would cost.
+
+```mermaid
+flowchart LR
+    L["analysis log<br/>PATHOUT notices"] --> W["coverity-pathout<br/>which functions, which checker<br/>(--print-paths)"]
+    W --> FS["coverity-function-slice<br/>the body, re-analyzed alone"]
+    W --> M["measure: cost of a higher --paths,<br/>or restructure the function"]
+    W --> SC["path-insensitive shape catalogue<br/>over the idir, kept to those functions"]
+    SC --> C["candidates"]
+    C --> A{"coverity-triage<br/>assign a lane<br/>(expected: value or path)"}
+    A -->|"value or path"| VE["coverity-verify<br/>run it"]
+    A -->|"anything else"| Q{"Told before anything runs;<br/>you choose"}
+    Q -->|"verify anyway,<br/>where realistic"| VE
+    Q -->|"that lane's reader"| RD["reading"]
+    Q -->|"leave it"| SK["untriaged"]
+```
+
+- `coverity-pathout` finds the functions and the checker, runs the shape
+  catalogue there, and measures what a higher bound costs.
+- Its candidates are built to be run: `coverity-verify` is their triage
+  method. They still pass through `coverity-triage`'s lane assignment, which is
+  cheap and checks that each candidate's claim is what the shape assumed.
+- A candidate that lands outside value or path is reported before any method
+  runs, and you choose: verify it anyway where that is realistic, run that
+  lane's reader, or leave it untriaged. Any choice is fine; none happens by
+  surprise, and the record says which one you made.
+
+## Answer "can Coverity find this?"
+
+**You want:** an empirical verdict on whether Coverity reports a specific
+defect, the minimal configuration that does, and a command to reproduce it.
+Typical cases are comparing against another tool, answering an RFP, or
+investigating a miss.
+
+- `coverity-defect-detectability`: capture, run the defaults, escalate only
+  while the answer is still "not found", then narrow to the minimal setting.
+  It checks that the verdict carries over to the real code.
+
+## Adopt Coverity on a codebase that already has history
+
+**You want:** findings dated to the release they arrived in, rather than to
+the day the tool was installed. The same applies when migrating from another
+tool, or preparing a demo, POC or training instance.
+
+```mermaid
+flowchart LR
+    C["capture and analyze<br/>every release"] --> P["select versions and streams<br/>offline (merge-key arithmetic)"]
+    P --> K["commit oldest-first<br/>--backdate"]
+    K --> Q{"Triage?<br/>(asked, never assumed)"}
+    Q -->|"no"| PUB["publish the dataset, untriaged"]
+    Q -->|"which findings, which methods"| TR["coverity-triage"]
+    TR --> PUB
+```
+
+- `coverity-demo-data` builds the history: one stream per branch, commits in
+  global date order, the commit phase guarded because first-detected dates can
+  be written only once.
+- Triage is optional and never automatic. The skill asks which findings, if
+  any, go to `coverity-triage`.
+
+## Upgrade Coverity without confusing tool changes with code changes
+
+**You want:** for each finding that appeared or disappeared across an
+analyzer upgrade, whether the code changed or the analyzer did.
+
+```mermaid
+flowchart LR
+    A["old code, old analyzer<br/>(the result you have)"] --> X["coverity-issue-transition-inference"]
+    B["old code, new analyzer<br/>(the control)"] --> X
+    C["new code, new analyzer"] --> X
+    B1["coverity-build-fidelity<br/>build held constant"] -.-> B
+    B2["coverity-recreate-from-emit<br/>when the old build cannot run"] -.-> B
+    X --> L["per finding: code change<br/>or analyzer change"]
+```
+
+- `coverity-issue-transition-inference` adds the missing control run, the old
+  code under the new analyzer, which splits one confounded delta into two.
+- When the old build can still be run, `coverity-build-fidelity` keeps it
+  constant. When it cannot, `coverity-recreate-from-emit` rebuilds an
+  analyzable intermediate directory from the old one.
+
+## Reuse or recover an intermediate directory
+
+**You want:** to analyze an old capture with a newer analyzer when the build
+is gone; or to avoid a slow capture by bringing an existing idir up to date
+with your tree.
+
+- `coverity-recreate-from-emit` covers three situations:
+  - **Recreate:** the build cannot run.
+  - **Fast-forward:** catch a CI idir up to `HEAD`.
+  - **Local update:** include uncommitted work.
+- Fast-forward and Local update reuse an idir on purpose, against the usual
+  rule. The skill runs the gates that decide when that is safe, and says no
+  when it is not.
+
+## Get one function as the analyzer saw it
+
+**You want:** a single function out of an intermediate directory, as a file
+that compiles and analyzes on its own. Typical uses are a minimal reproducer,
+iterating without a rebuild, or a support ticket, with an obfuscated twin
+that is proven to analyze identically.
+
+- `coverity-function-slice` does this.
+
+## Put CVSS scores on findings, and know which scores were judged
+
+**You want:** the CVSS report, and to know which of its zeros were deliberate
+and which came from a CWE with no mapping.
+
+- `coverity-cvss-report` runs the report the documented way. It audits every
+  score into decided-zero, scored, or unmapped, and records that in a triage
+  attribute.
+
+## Connect to Coverity Connect
+
+**You want:** an authentication key that works, kept where it belongs.
+
+- `coverity` creates the key, checks it over REST, and revokes it. The key
+  never lives in a repository, and the connection URL is taken from you, never
+  from the key file.
+
+## What each skill does, and does not
+
+| Skill | Does | Does not | Hands off to |
+|---|---|---|---|
+| `coverity` | standing rules; pinning one installation; reading an idir; verifying capture three ways; Connect authentication; routing | a specialist's job; explaining a noisy sample beyond re-checking capture | the specialist skill the question belongs to |
+| `coverity-compiler-configuration` | template configurations; cross-compilers, embedded toolchains and wrappers; diagnosing and regenerating a tainted configuration | verifying the capture; judging the build | `coverity` (capture verification) |
+| `coverity-build-fidelity` | native vs `cov-build` comparison of the product; capture coverage; a release-gate verdict and a profile draft | guessing at unexplained differences (it escalates to a person); work where the build cannot run | `coverity-recreate-from-emit` when the build cannot run |
+| `coverity-defect-detectability` | an empirical detectability verdict; the minimal configuration; a repro command | triaging real findings; reasoning about what a checker "should" do | `coverity-triage` for verdicts on findings |
+| `coverity-demo-data` | a multi-version history with real release dates; streams per branch; guarded oldest-first commits; a self-contained published dataset | triaging on its own or by default; the customer narrative; backdating triage history | `coverity-triage`, when the user chooses |
+| `coverity-pathout` | which functions reached the path bound and which checker; the shape catalogue there; the cost of raising the bound; restructuring | judging its candidates; analyzing an idir from a version that is not installed (it stops and asks) | `coverity-function-slice` for bodies; `coverity-triage` for candidates, expecting value or path with `coverity-verify`; anything else goes to the user |
+| `coverity-function-slice` | one function from the AST; a standalone file that compiles and analyzes; an obfuscated twin with proof | deciding whether a finding is real | `coverity-pathout`, `coverity-verify` (its callers) |
+| `coverity-verify` | an execution verdict on one finding (fuzzing under model stubs) with its tier and evidence; the fix check | injection, resource and concurrency claims (it suggests external verification); triaging a batch by reading | `coverity-function-slice` for the target |
+| `coverity-triage` | a lane per finding; a method and model per lane; records in Connect's fields plus Triage lane and Triage method | choosing the findings; writing to Connect; severity beyond "low"; exploitability; Connect's AI-Assisted Triage; demo-worthiness | `coverity-verify` for the execution method |
+| `coverity-issue-transition-inference` | the control run; per-finding code-vs-analyzer attribution; annotation, after asking how | comparing raw merge keys (Connect lines findings up); vendor-level cause as the headline | `coverity-build-fidelity`, `coverity-recreate-from-emit` for the control |
+| `coverity-recreate-from-emit` | an analyzable idir without the original build; fast-forward and local-update reuse, behind gates | reuse when a gate fails; the default path when the build can run | `coverity-issue-transition-inference` (its consumer) |
+| `coverity-cvss-report` | the report per the documentation; an audit of which scores were judged; the CVSS_Audited attribute | writing a security profile; judging exploitability | `coverity-verify` for whether a finding is real and reachable |

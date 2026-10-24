@@ -62,6 +62,9 @@ verified by running it or reasoned from mechanism.
 
 ## The skills
 
+For how they fit together, organized by what you want to do, with a diagram
+for each workflow, see [USE-CASES.md](USE-CASES.md).
+
 | Skill | Use it when | What it gets you |
 |---|---|---|
 | [coverity](coverity/README.md) | Any Coverity question — start here | The rules, the capture-fidelity check every other skill depends on, and Connect authentication: creating an auth key and checking it actually works |
