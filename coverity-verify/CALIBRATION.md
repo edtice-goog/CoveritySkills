@@ -149,6 +149,15 @@ the 12 chosen not taken (`tpl_map_va`, `tpl_peek`: variadic targets).
 
 ## Reasoned, not measured
 
+- That the slice set, every function carrying a primary event compiled as
+  code with stubs only outside it, is the right target. The rule follows
+  from what a stub is (the analyzer's belief about a callee): a stub for a
+  function on the finding's own path lets a model edge produce the claimed
+  state by construction. The proftpd batch was run under the
+  single-function assumption; which of its ten findings had a path that
+  crossed functions, and whether any verdict changes with the set, is not
+  yet re-checked.
+
 - The automatic detection of a vacuous claim in a fix check (B with the
   blamed callee pinned to the behaviour that made the claim false on A):
   stated from mechanism; the OpenSSL case was recognised by reading.

@@ -2,10 +2,12 @@
 
 A candidate from the shape checker is a claim about structure. The
 analyzer could not say whether any path reaches it; a fuzzer can, by
-reaching it. The pieces: the slice (the function as one file), stubs for
-its callees generated from Coverity's own derived models, a harness that
-lets the fuzz input choose both the function's arguments and every
-behaviour the stubs may take, and a sanitizer as the oracle.
+reaching it. The pieces: the slice (the slice set -- every function that
+carries a primary event of the finding -- as one file of real code),
+stubs for the callees outside that set generated from Coverity's own
+derived models, a harness that lets the fuzz input choose both the home
+function's arguments and every behaviour the stubs may take, and a
+sanitizer as the oracle.
 
 ## Why the derived model is the stub
 
@@ -42,7 +44,12 @@ Both ends of a call chain need their models. On subversion,
 `fetch_conflict_details` passes `svn_dirent_skip_ancestor(...)`, which may
 return NULL, into `relpath_depth`, which dereferences it; with only the
 first stubbed the finding stayed absent, with both it came back with the
-original event chain. Stub every callee on the candidate's path.
+original event chain. Stub every callee on the candidate's path **that
+carries no primary event of its own**; neither of these two did. A callee
+that does carry one is part of the slice set and is compiled as code: its
+model is the analyzer's belief about it, and a model edge can make a stub
+do exactly what the finding claims, so a confirmation through it would be
+the analyzer agreeing with itself.
 
 ## The harness
 
@@ -109,7 +116,7 @@ is the chain, which does not depend on the analyzer finishing.
 | **model gap** | the crash relied on the model's silence: a global the callee writes and the generic model does not record (`session.d`, `delay_tab.dt_data`). Refuted for the finding; the gap is the analyzer's false positive too, and a user model fixes both |
 | **parameter-, global-, hook-sourced** | the harness supplied the NULL (a parameter, `main_server`, a `fatal` hook that returns). A question about callers and configuration, not this function |
 | **unconfirmed after N seconds** | the line was reached but not often, or not at all; say which. Not a refutation |
-| **bycatch** | a crash elsewhere in the function under a model-permitted behaviour (an unchecked `returnsnull`; an overflow in another branch). Report it separately; on proftpd one of them was real |
+| **bycatch** | a crash elsewhere in the slice set under a model-permitted behaviour (an unchecked `returnsnull`; an overflow in another branch). Report it separately; on proftpd one of them was real |
 
 Keep the harness-sourced tiers separate. A harness can hand NULL to any
 parameter or global and make any hook return, which would confirm every

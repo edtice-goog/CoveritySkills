@@ -3,8 +3,9 @@ name: coverity-verify
 description: >
   Verify a Coverity finding by execution: confirm or refute it by running
   it, instead of by reading it. Verification is the general capability;
-  the one method here is fuzzing the function under stubs from Coverity's
-  own derived models, which is deterministic and uses the analyzer's own
+  the one method here is fuzzing the slice set -- every function that
+  carries a primary event of the finding, as real code -- under stubs from
+  Coverity's own derived models for the callees outside it, which is deterministic and uses the analyzer's own
   data. The skill first decides whether a finding is a candidate for that
   method -- claims a sanitizer or an assertion can judge inside one
   function -- and reports the rest (injection classes, anything a clang
@@ -18,7 +19,8 @@ description: >
   "confirm the candidates", "can this null actually arrive", "fuzz this
   function", "verify the report before I file it", "give me execution
   verdicts", and for the question behind them all: whether an analyzer
-  claim about one function is reachable in execution. It also answers
+  claim about a function, or a short chain of them, is reachable in
+  execution. It also answers
   "was this fixed or just silenced?", "check this fix", "the finding is
   gone in the new version -- did the change fix it?", "is this PR a fix
   or a suppression?": the fix check (Step 5) verifies the finding on the
@@ -26,8 +28,9 @@ description: >
   re-armed past the change, and says whether the change fixed the defect,
   silenced the analyzer on a real one, or quieted a false positive without
   changing behaviour. The method, fuzz
-  under model stubs: the function as a standalone file (coverity-function-slice), a stub for
-  every callee generated from Coverity's OWN derived model of it
+  under model stubs: the slice set as one standalone file
+  (coverity-function-slice), a stub for every callee outside the set,
+  generated from Coverity's OWN derived model of it
   (cov-find-function --save, so the callees behave exactly as the analyzer
   believed they do), a libFuzzer harness whose one input chooses both the
   arguments and every stub behaviour, the finding's own claim checked and
@@ -98,8 +101,9 @@ git clone https://github.com/edtice-goog/CoveritySkills
 
 One method is built: **fuzz under model stubs** (Steps 1-4). It is a
 sensible Coverity skill because it is deterministic and runs on the
-analyzer's own data: the function as the emit holds it, the callees as
-the derived models describe them, the claim as the checker stated it.
+analyzer's own data: the slice set as the emit holds it, the callees
+outside it as the derived models describe them, the claim as the checker
+stated it.
 Before Step 1, decide whether the finding is a candidate for it:
 
 | the finding's claim | decision |
@@ -124,6 +128,18 @@ Four things, and each one is the answer to a way this could lie:
   the analyzer already granted the callee, so a crash through the stub is
   a path the analyzer would have accepted as feasible. A hand-written stub
   that returns NULL where the real callee never can confirms nothing.
+- **A function on the finding's own path is code, never a stub.** The
+  target is a *slice set*: every function that carries a primary event
+  in the finding's event chain, sliced as real code into one file. Only
+  functions outside that set are stubbed. A stub for a function on the
+  path reproduces the analyzer's belief about it, not its code, and a
+  model edge can make the stub do exactly what the finding claims; a
+  confirmation through it is circular, and a refutation through it is
+  the analyzer re-reading its own summary. One function is the common
+  case; a caller-and-callee pair where both carry events is the case
+  the rule exists for. (A callee that carries no primary event stays a
+  stub: the subversion case below, where two stubbed callees on the
+  chain brought a NULL_RETURNS back, is unchanged.)
 - **One input chooses everything, and every choice is traced.** The fuzz
   input feeds the target's arguments *and* every stub's branch choice, and
   the run prints the choices behind a crash. Those are the callee
@@ -178,25 +194,31 @@ before building anything:
 
 | from | you need |
 |---|---|
-| the finding (a CID via `cid_lookup.py`, a `cov-format-errors --json-output-v10` entry, or the shape checker's candidate) | the function, the TU, and the **claim as a C expression that must hold** at the finding's line: `ptr != NULL` before `*ptr = 0`; `delay_tab.dt_data != NULL` before the `memcpy`; for an OVERRUN, `1` (a reach counter; ASan is the oracle) |
-| the events | the callee the finding **blames** (the one whose return or effect makes the claim false) and the branches the analyzer took; a seed input that follows them |
+| the finding (a CID via `cid_lookup.py`, a `cov-format-errors --json-output-v10` entry, or the shape checker's candidate) | the **slice set**, the TU of each member, and the **claim as a C expression that must hold** at the finding's line (a line in one member, the finding's home function): `ptr != NULL` before `*ptr = 0`; `delay_tab.dt_data != NULL` before the `memcpy`; for an OVERRUN, `1` (a reach counter; ASan is the oracle) |
+| the events | the **primary-event functions**: each event in a v10 entry (and in `cid_lookup.py select`'s listing) has a file and a line but no function name, and `functionDisplayName` names only the finding's home, so resolve each event's `file:line` to the function whose definition contains it -- `cov-manage-emit --dir <idir> --tu <N> find '^<name>$' --kind f --print-definitions` prints `declared at: file:line` for a candidate, and `--tu <N> print-source` gives the captured file to read the definitions from; the owner is the last definition in that file declared at or before the event's line. The distinct owners are the slice set. Then the callee the finding **blames** (the one whose return or effect makes the claim false), the branches the analyzer took, and a seed input that follows them |
 | the checker | the oracle: ASan for dereferences, overruns and use-after-free; the claim check for anything that does not crash (`REVERSE_INULL`: the analyzer's claim is "never NULL at the check", so `arg != NULL` before the check) |
 
-Read the function once, so the claim and the blamed callee are right.
+Read the slice set once, so the claim and the blamed callee are right.
 Then build. "Run the verify skill" asks for an execution verdict, and a
 refutation by reading goes beside it as a note, not in its place; the
 only findings that skip the build are the ones routed out in *Methods*
 and the *model says impossible* tier, where no model edge can produce the
 bad value.
 
-## Step 1: The target as a file
+## Step 1: The slice set as a file
 
 ```bash
 python3 ../coverity-function-slice/tools/slice_function.py --dir <idir> --bin $BIN --tu <N> --name <fn> --out <work>/<fn> --emit
 ```
 
 `<fn>.slice.c` is the function with every typedef, struct, global and
-callee prototype it needs, printed from the emit. `cov-emit: emitted` is
+callee prototype it needs, printed from the emit. When the slice set has
+more than one member, every member is sliced and the file carries all of
+them as definitions, each seeing the others; a member must never appear
+in the `/* callees */` block as a prototype to be stubbed (the slicer's
+support for several `--name`s in one file is in progress; until it lands,
+slice each member and merge the definitions by hand, keeping one copy of
+the shared declarations). `cov-emit: emitted` is
 the check; `NOT EMITTED` means a pretty-printer form to hand-edit first
 (`coverity-function-slice`, Step 2: dropped cast parentheses, a VLA
 printed as `char a[]` with its dimension in a comment).
@@ -207,8 +229,10 @@ printed as `char a[]` with its dimension in a comment).
 $BIN/cov-find-function --dir <idir> --save -of <work>/models --module generic <callee>   # per callee, ~3 s
 ```
 
-Do it for every project callee the slice's `/* callees */` block lists,
-and keep an `index.txt` of `name <key>.generic defs=N` lines (the
+Do it for every project callee the slice's `/* callees */` block lists
+that is **outside the slice set** -- never for a member: a member's model
+must not be in the index, and if one is, the build log must say it was
+ignored -- and keep an `index.txt` of `name <key>.generic defs=N` lines (the
 assembler reads it; a callee with several definitions lists one model per
 definition, pick by source file). libc names are left to the real
 library. `--save` writes `<key>.generic.dot`, an automaton whose edges are
@@ -221,7 +245,11 @@ proftpd findings: **it never says a copy equals its source** (`pstrdup`'s
 model is "allocates, may return null"), and **it records no writes to
 globals** (`delay_table_load` mmaps into `delay_tab.dt_data`; the model
 has no edge for it). The first is answered by `--semantic`; the second is
-the *model gap* verdict below.
+the *model gap* verdict below. A third gap is not the model's but the
+run's: a model used for a function that carries a primary event. That is
+not a gap in what the analyzer knew, it is the analyzer's belief standing
+in for code on the very path under test, and no verdict survives it; the
+function goes into the slice set and the run is repeated.
 
 ## Step 3: Assemble, build, run -- focused first, then free
 
@@ -257,8 +285,9 @@ choice trace, the pins, the per-input arena and the claim counter.
   (a `"syslog:"` prefix took the finding's line from once in 7,617 inputs
   to hundreds of thousands of times).
 
-The harness is per target; `evals/harness.c` and the proftpd ones in the
-calibration are the pattern: `FZ_BEGIN(data, size); FZ_PINS_DEFAULT();`,
+The harness is per target and its entry point is the finding's home
+function (the member whose line carries the claim); `evals/harness.c` and
+the proftpd ones in the calibration are the pattern: `FZ_BEGIN(data, size); FZ_PINS_DEFAULT();`,
 then define every global the slice declares `extern`, then build the
 arguments -- scalars from `fz_take()`, strings from `fz_string()`, pointer
 parameters from `__stub_object(64)` (memory filled with pointers to
@@ -276,17 +305,20 @@ itself.
 | **refuted by execution** | focused run: the finding's line reached N times, the claim never false, with real libc semantics or `--semantic` copies where the claim depended on them. Evidence, not proof: say N and the budget |
 | **refuted by execution, a path the analyzer missed** | the claim was false at the line in a way that refutes the *finding* (REVERSE_INULL on `dolist`: the check is reachable with `arg == NULL`, so it is not redundant) |
 | **model says impossible** | no callee model on the path has an edge that produces the bad value; needs no build |
-| **confirmed by crash under model stubs** | the claim was false at the line; **list the stub choices**, then check each against the real callee. Only when every behaviour relied on is one the real callee has is this a defect |
+| **confirmed by crash under model stubs** | the claim was false at the line; **list the stub choices**, then check each against the real callee. Only when every behaviour relied on is one the real callee has is this a defect. A stub list that names a member of the slice set makes the record malformed: say so and re-run with that function as code |
 | **model over-approximates the callee** | the crash relied on a stub behaviour the real callee cannot have (a copy without its source's slash). Refuted; `--semantic` or a user model closes it |
 | **model gap** | the crash relied on the model's silence: a global the callee writes and the model does not record (`session.d`, `delay_tab.dt_data`). Refuted for the finding; the gap is the analyzer's false positive too, and a user model fixes both |
 | **parameter-, global-, hook-sourced** | the harness supplied the NULL (a parameter, `main_server`, `tpl_hook.fatal` returning). A question about callers and configuration, not this function |
 | **unconfirmed after N seconds** | the line was reached but not often, or not at all; say which. Not a refutation |
-| **bycatch** | a crash elsewhere in the function under a model-permitted behaviour (an unchecked `returnsnull`, an overflow in another branch). Report it separately; it may be real |
+| **bycatch** | a crash elsewhere in the slice set under a model-permitted behaviour (an unchecked `returnsnull`, an overflow in another branch). Report it separately; it may be real |
 
 For a confirmed finding the reproduction is the crashing input plus the
 stub choices, and the thing to check against the real callees is the list
 of behaviours those choices selected. For a refuted one the reason and
-the reach count are the deliverable.
+the reach count are the deliverable. Every verdict record names the
+**slice set** (the functions run as code) and, separately, the **stubbed
+callees** with the branch choices taken; the two lists never share a
+name, and a record in which they do is malformed.
 
 ## Step 5: The fix check -- fixed, or silenced?
 
@@ -314,7 +346,7 @@ versions where the question is which changes deserve a second look.
 
 **Inputs.** Two idirs and a merge key present in A's findings and absent
 from B's; or one idir and a patch or PR; or one idir and the commit that
-removed the finding. Each reduces to **two copies of the function that
+removed the finding. Each reduces to **two copies of the slice set that
 differ only in the change**: slice both, or slice one and apply (or
 reverse) the hunk. Diff the bodies and the blamed callee's body first, and
 say so if they differ in more than the change.
@@ -331,7 +363,7 @@ silence, quiet, appease, warning, false positive, or names the analyzer.
 Report "fix not checked: the change alters what the code does" for a
 change that adds real handling, changes a size or a contract, or removes
 the use, unless the user asked for every one; and "not checkable this
-way" when the function is gone from B.
+way" when the home function is gone from B.
 
 **Procedure.**
 
@@ -376,7 +408,8 @@ owners' call, and the report gives them the evidence for it.
 
 ## Reporting
 
-Per finding: the claim, the verdict with its tier, and the evidence line
+Per finding: the claim, the slice set, the stubbed callees with their
+choices, the verdict with its tier, and the evidence line
 (reach count and inputs; the crash frame and input with the stub choices;
 the model edge that is missing; the source line that refutes it). Then
 the totals: how many confirmed, refuted by execution, refuted by reading,
@@ -400,6 +433,9 @@ not this change, not checked with the reason.
   it is "suggest external verification", and that is the whole output.
 - Hand-writing stubs that return NULL or garbage. A stub is the analyzer's
   belief about the callee, printed from its model, or it proves nothing.
+- Stubbing a function that carries one of the finding's primary events.
+  Its model can make the stub do exactly what the finding claims, so the
+  confirmation is the analyzer agreeing with itself. It is slice-set code.
 - Guarding a stub's dereference (`if (a0) *a0`). It makes the callee look
   null-safe to the analyzer and hides the finding's consequence from the
   fuzzer; measured to make a real finding vanish.

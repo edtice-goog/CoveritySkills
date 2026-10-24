@@ -35,8 +35,8 @@ second look.
 | one idir (A) and a patch or a pull request ("is this change a fix or a silencer?") | slice the function from A; apply the hunk to the slice to make B's copy |
 | one idir (B) and the commit that removed the finding | slice from B; reverse the hunk on the slice to make A's copy |
 
-Every case ends with **two copies of the function that differ only in the
-change**. Check that first: diff the bodies, and diff the blamed callee's
+Every case ends with **two copies of the slice set that differ only in the
+change** (one function in the common case). Check that first: diff the bodies, and diff the blamed callee's
 body too. On OpenSSL the 3.0.7 function equalled the 3.2.0 function minus
 one initializer, token for token, and `DES_cfb_encrypt` was unchanged, so
 every conclusion about the toggle copy was a conclusion about 3.0.7. When

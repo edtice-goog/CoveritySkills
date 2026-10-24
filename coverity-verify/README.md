@@ -9,7 +9,9 @@ less than a debate between them. "Run the verify skill" on an open
 finding is a complete instruction; the skill exists to accomplish the
 task, and asks only for what it cannot decide or find.
 Verification is the general capability; the one method here fuzzes the
-function under stubs from Coverity's own derived models, which is
+slice set -- every function that carries a primary event of the finding,
+as real code -- under stubs from Coverity's own derived models for the
+callees outside it, which is
 deterministic and uses the analyzer's own data. The skill decides first
 whether a finding is a candidate for that method and reports the rest
 (injection classes, anything a clang harness cannot instrument) as "not a
@@ -19,9 +21,11 @@ plan. Formerly `coverity-fuzz-triage`, which remains as an alias
 directory. The finding can be a Connect CID,
 an entry in a `cov-format-errors` findings file, or a candidate from
 `coverity-pathout`'s shape catalogue; Step 0 turns each into the same
-thing, a claim at a line. The function becomes a standalone file
-(`coverity-function-slice`), every callee becomes a stub printed from
-Coverity's own derived model of it, a libFuzzer harness lets one input
+thing, a claim at a line. The slice set becomes a standalone file
+(`coverity-function-slice`), every callee outside it becomes a stub
+printed from Coverity's own derived model of it (a function on the
+finding's own path is never stubbed: its model is the analyzer's belief,
+not its code, and a confirmation through it would be circular), a libFuzzer harness lets one input
 choose the arguments and every stub behaviour, and a sanitizer (or an
 assertion derived from the finding) is the oracle. A crash at the finding's
 line is a confirmation the analyzer would have accepted, because every
