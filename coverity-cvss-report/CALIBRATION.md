@@ -59,19 +59,18 @@ audit is therefore always of *an install*, never of "Coverity".
   `System.getProperty` on both and dereferences the result without a null
   check. The values do not affect the `ChildOf` edges.
 
-**The arithmetic, cross-checked against real customer output.** A
-DISA-STIG severity report supplied by the user showed CWE-190 as
-`CVSS:3.0/AV:N/AC:L/PR:L/UI:N/S:C/C:N/I:N/A:L`, score **4.91**. An
-independent implementation of the v3.1 equations
-(`cvss_profile_audit.py score`) gives **4.9096** unrounded, **4.91** at
-two decimals half-up, **5.0** under the specified roundup. The
-reimplementation reproduces the generator exactly, which is what licenses
-the rest of the offline analysis.
+**The arithmetic, cross-checked against the generator's own output.** The
+run recorded below scores CWE-190 as
+`CVSS:3.0/AV:N/AC:L/PR:L/UI:N/S:C/C:N/I:N/A:L`, **4.91**. An independent
+implementation of the v3.1 equations (`cvss_profile_audit.py score`) gives
+**4.9096** unrounded, **4.91** at two decimals half-up, and **5.0** under
+the specified roundup. The reimplementation reproduces the generator
+exactly, which is what licenses the rest of the offline analysis.
 
-Also verified from the same output: the blank-CWE row carrying a full
-vector is the no-`optCweId` path, and `PW.EXPR_HAS_NO_EFFECT` is an issue
-type with no CWE in the taxonomy — one such defect appears in the
-fixtures.
+Confirmed in the same run: the blank-CWE row carrying a full vector is the
+no-`optCweId` path — the generator names the defect on stdout as it writes
+it — and `PW.EXPR_HAS_NO_EFFECT` is an issue type with no CWE in the
+taxonomy, one of which appears in the fixtures.
 
 **Severity-band impact of the rounding, measured rather than assumed.**
 Because `AV`/`AC`/`PR`/`UI` are fixed per profile, only **12 distinct

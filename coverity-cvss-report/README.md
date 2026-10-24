@@ -113,6 +113,11 @@ the master mapping on every future run, including for CWEs the vendor later
 fixes, and makes whoever shipped it answerable for every score in it. Step 4
 fills gaps per defect instead, where they are visible and reversible.
 
+It does not judge exploitability either. A score here is an upper bound
+derived from a CWE, not a finding about the code — whether a particular
+defect is real and reachable belongs to `coverity-verify`, which answers
+with evidence rather than a number.
+
 ## Layout
 
 | Path | What it is |
