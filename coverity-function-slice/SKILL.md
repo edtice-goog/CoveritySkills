@@ -147,6 +147,53 @@ stops and the preprocessed-TU route takes over (`cov-manage-emit --tu N
 preprocess`, then `cov-emit` the `.i` with the same flags). Both are in
 `references/standalone-reproducer.md`.
 
+### A set of functions in one file
+
+When the question spans more than one function -- a finding whose event
+path runs from a caller into a callee, a pair that recurse into each
+other -- a prototype standing in for the other function is the wrong
+container: whatever analyzes or executes the slice then sees a model of
+that function, not its code. Repeat `--name` and every named function is
+sliced **as real code into the same file**:
+
+```bash
+python3 tools/slice_function.py --dir <idir> --bin $BIN --tu <N> \
+    --name <caller> --name <callee> [--name <other>@<M>] --emit --analyze
+```
+
+- **Which functions.** Every function that carries a primary event in the
+  finding's chain. Callees outside that set stay prototypes, as before.
+- **Another translation unit.** `--tu` is the TU for every `--name`; a
+  member elsewhere is written `name@tu` (`--name ngx_foo@79`). The slice
+  is re-emitted with the first member's recorded flags. If the TUs declare
+  the same typedef or struct differently the slicer prints `conflict:` for
+  each, `analysis: COULD NOT VERIFY`, and exits 2 rather than pick one;
+  split the set by TU.
+- **What the file looks like.** Line 1 is `/* slice-set: a, b, c */`, the
+  members in `--name` order, so a consumer can tell the slice's own
+  definitions from its prototypes without parsing C; then the shared
+  declarations; then a prototype for **every** member (definition order and
+  mutual recursion never matter); then the definitions. A member that was
+  `static` in the original keeps its definition and loses only the keyword,
+  the treatment callee prototypes have always had, so a sliced caller can
+  reach a sliced file-local callee. The output says which: `members : 2
+  defined as code; static in the original, now reachable across the set:
+  set_callee`. The file is `<first>.set.slice.c` under `slice-<first>-set/`.
+- **What the output says.** `set     :` lists the members (one name for a
+  single `--name`). `--analyze` reports one `wur:` line per member,
+  prefixed with its name, and `COULD NOT VERIFY` names the member that was
+  dropped; exit 2 if any was. `--obfuscate` renames the members `fn_0`,
+  `fn_1`, ... in `--name` order, puts the new names on line 1 of the twin
+  (`obf-set :` on the console), lists them under `set` in the map, and
+  verifies per member. Members that call each other are one strongly
+  connected component, and which one the analyzer walks first decides how
+  the paths split between them; when per-member counts differ but the
+  set's counts match as a whole, `verify` says `preserved up to analysis
+  order within the set` and names both numbers.
+
+One `--name` behaves exactly as before: same filenames, same lines, same
+exit codes, same map, plus the line-1 comment.
+
 **This is where most requests end.** Report the slice path, the line
 counts, the `cov-emit: emitted` line, and the `wur:` line if `--analyze`
 was run. Step 3 is only for the uncommon case where the file has to be
@@ -270,6 +317,8 @@ coverity-function-slice/
     └── fixtures/
         ├── local_enum_forever.c         # for(;;) and function-local unnamed types (the nginx forms)
         ├── pretty_forms.c               # bare subscript bases, folded sizeof, and the zstd/redis forms
+        ├── slice_set.c                  # a set: caller + static callee, mutual recursion, a non-member callee
+        ├── slice_set_tu2.c              # a second TU that defines the same struct differently (the conflict case)
         ├── overloads.cpp                # C++: mangled names, picking one overload
         └── nested_members.cpp           # C++ free function: static member, nested enum, __func__
 ```

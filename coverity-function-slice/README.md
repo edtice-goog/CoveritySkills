@@ -45,7 +45,12 @@ cov-emit: emitted
 analysis: wur: gen1 ... 5001 PATHOUT=1 n: setup_env in TU 1
 ```
 
-Fifteen seconds. Edit the slice, run again. Forty randomly chosen proftpd
+Fifteen seconds. Edit the slice, run again. Repeat `--name` and several
+functions go into one file as real code, each declared before any is
+defined, a `static` member reachable across the set, line 1 naming the set
+(`/* slice-set: a, b, c */`); a finding whose path crosses from a caller
+into a callee is sliced whole, with only the callees outside the set left as
+prototypes. Forty randomly chosen proftpd
 functions re-emitted 40 for 40; all eighteen of nginx's PATHOUT functions
 slice and analyze. A function cov-emit dropped is
 reported as `COULD NOT VERIFY`, never as a clean result. C++ free functions
@@ -76,7 +81,7 @@ skill: this is the piece that belongs in the product.
 | `references/function-extraction.md` | `cov-manage-emit find` for C and C++, duplicates, reading the pretty-print, the metrics join, the other `find` outputs |
 | `references/standalone-reproducer.md` | how the slice is built from the tree, the five rewrites, what differs from the original and why that is fine, the obfuscation mechanism, the C++ boundary and the preprocessed-TU route |
 | `tools/slice_function.py` | one function as a standalone `.c`/`.cpp` file; `--emit`, `--analyze`, `--obfuscate`; exit 2 when there is no result |
-| `evals/` | four fixtures (a C function with `for(;;)` and function-local unnamed types; the pretty-printer forms that need repair, bare subscript bases and folded `sizeof` among them; C++ overloads; a C++ free function calling a static member) and a script that emits, extracts, slices and verifies them on your installation |
+| `evals/` | six fixtures (a C function with `for(;;)` and function-local unnamed types; the pretty-printer forms that need repair, bare subscript bases and folded `sizeof` among them; a slice set with a static callee, mutual recursion and a non-member callee, plus a second TU that conflicts with it; C++ overloads; a C++ free function calling a static member) and a script that emits, extracts, slices and verifies them on your installation |
 | `CALIBRATION.md` | what was measured, on what, and what was not |
 
 ## Requirements
