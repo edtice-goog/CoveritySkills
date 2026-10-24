@@ -120,7 +120,7 @@ capture gap where none exists. Check for unity builds before counting.
 Reading the intermediate directory from the host fails with:
 
 ```
-No emit DB found for this host ("BD-46312") ... but one was found for host "8b1f70642fbf".
+No emit DB found for this host ("analysis-host") ... but one was found for host "9f2c1a7b4e03".
 Please run cov-manage-emit --dir <intermediate-directory> reset-host-name
 ```
 

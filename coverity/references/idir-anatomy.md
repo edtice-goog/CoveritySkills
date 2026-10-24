@@ -232,12 +232,12 @@ cov-manage-emit --dir <idir> add-other-hosts
 **The consequence for ordinary single-host use.** The tools look under *this*
 machine's hostname. An idir captured elsewhere has its data filed under the
 *capturing* agent's name, so the local tool looks for a directory that is not
-there. Measured 2026-08-27, a kernel idir captured on `sig-os003039191` and
-opened on `BD-46312`:
+there. Measured 2026-08-27, a kernel idir captured on `capture-host` and
+opened on `analysis-host`:
 
 | | before | after `reset-host-name` |
 |---|---|---|
-| `emit/<HOST>/` | `sig-os003039191` | `BD-46312` |
+| `emit/<HOST>/` | `capture-host` | `analysis-host` |
 | `cov-manage-emit list-json` | **0 TUs** | **3779 TUs** |
 | `cov-analyze` | **rc 2** | runs |
 
