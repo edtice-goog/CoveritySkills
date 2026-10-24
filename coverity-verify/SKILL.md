@@ -163,14 +163,9 @@ the same verdict from the same evidence.
   invalid-input return. An in-contract input that fails is **Fix**,
   whatever today's callers pass: a null check in one place is evidence the
   variable can be null, and a caller reading the function would conclude
-  it is null-safe. "Whatever the callers pass" includes no callers at all:
-  an uncalled function that breaks its own contract (a declared return
-  type is one) is *Fix*, and the fix may be deleting it. A check on state
-  reached through a parameter (`if (di < 0) return -EINVAL` on a field of
-  the argument) is a contract about the input. Only with no stated or
-  implied contract do the callers decide, and they are **fuzzed** up to an
-  input boundary, never read. Every report states the contract with
-  `file:line`, or "none".
+  it is null-safe. Only with no stated or implied contract do the callers
+  decide, and they are **fuzzed** up to an input boundary, never read.
+  Every report states the contract with `file:line`, or "none".
 - **Only the finding's own claim counts.** The finding is *Fix* when
   execution confirms the analyzer's claim, or a rule above applied to that
   claim's subject makes it a defect. Any other defect execution turns up,
@@ -181,8 +176,7 @@ the same verdict from the same evidence.
   the flagged function's own code knows the value can be negative (a
   branch on it, a guard elsewhere) and still passes it: *Fix*, which is
   contract first again; the sink's stated or implied contract rejects a
-  negative (an index, a size, a count; a file descriptor, where `EBADF` is
-  the defined failure, not acceptance): *Fix*; otherwise *No fix*, and any
+  negative (an index, a size, a count): *Fix*; otherwise *No fix*, and any
   misbehaviour inside the sink is bycatch.
 - **A redundant defensive guard is not a defect.** A guard that can never
   fire, in code that is otherwise consistent, is *No fix*; otherwise every
@@ -203,14 +197,7 @@ the same verdict from the same evidence.
 - **A documented callee failure** counts only if use covered by a contract
   can reach it. A trigger that only an unstated scenario reaches (a
   callback that calls `exit` while the library holds a lock) is *No fix*,
-  unless the next rule applies. Across a separately versioned interface (a
-  shared library the caller does not pin) the documented contract decides,
-  not the implementation that happens to be linked: a documented failure
-  is in-contract there, and is tested with a stub that fails as
-  documented. The reachability test applies within one component.
-- **A leak at process exit** is *No fix*: a resource leaked in `main`, or
-  on any path that reaches exit with no further work, matches the
-  analyzer's own default (`RESOURCE_LEAK:allow_main` off).
+  unless the next rule applies.
 - **Amplification.** For a trigger outside every stated or implied
   contract: *Fix* only if execution shows the code turning the
   misbehaviour into something worse than the misbehaving input could
