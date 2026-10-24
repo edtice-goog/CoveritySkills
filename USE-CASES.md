@@ -80,19 +80,42 @@ fields and a record of which lane and method produced it.
 flowchart LR
     IN["Findings<br/>a sample, a story's findings,<br/>or another skill's batch"] --> P{"Plan chosen?<br/>which findings,<br/>which method per lane"}
     P -->|"no: show the counts, ask"| P
-    P -->|"yes"| A{"Assign a lane"}
+    P -->|"yes"| A{"Assign a lane<br/>checker table first,<br/>inference where it varies"}
     A -->|"construction"| L1["Construction lane<br/>is the construct there?"]
+    A -->|"intent"| LI["Intent lane<br/>did the author mean this?"]
     A -->|"contract"| L2["Contract lane<br/>what does the callee promise?"]
     A -->|"value or path"| L3["Value-or-path lane<br/>is the path feasible, the value handled?"]
+    A -->|"policy"| PO["Policy<br/>a rule-set match: lane only"]
     A -->|"other"| O["Other<br/>no verdict"]
     L3 -.->|"when the plan says execution"| VE["coverity-verify"]
-    L1 & L2 & L3 & VE --> R[("Records<br/>Classification, Action, Severity, Comment<br/>+ Triage lane, Triage method")]
-    O --> R
+    L1 & LI & L2 & L3 & VE --> R[("Records<br/>Classification, Action, Severity, Comment<br/>+ Triage lane, Triage method")]
+    PO & O --> R
 ```
 
-- `coverity-triage` does this. Each lane's method is chosen separately: a
-  reading by a model you name, execution through `coverity-verify` for the
-  value-or-path lane, or a person. Different lanes can use different models.
+- `coverity-triage` does this, in six lanes:
+  - **Construction:** the code is built in a way the organization has chosen
+    to disallow, whatever data reaches it.
+  - **Intent:** the code is well-defined, but a pattern suggests it may not do
+    what its author meant, which the checker cannot know (a copy-paste slip, a
+    missing `break`, a `sizeof` of the wrong thing, dead code).
+  - **Contract:** a call ignores a failure its callee can report, or uses a
+    result that can be invalid.
+  - **Value or path:** a value or state reaches a point, along a path, that
+    does not handle it.
+  - **Policy:** a match against a rule set, a list of calls not to make or a
+    threshold, with no claim that the code misbehaves. The record carries the
+    lane and nothing else.
+  - **Other:** none of the above fits, or the finding is not a claim about
+    the code at all (a parse error is a capture problem, for the `coverity`
+    skill); no verdict.
+- Most checkers make one kind of claim, so a checker table assigns the lane;
+  the findings of the few checkers whose claims vary are assigned by reading
+  the events.
+- Each lane's method is chosen separately: a reading by a model you name,
+  execution through `coverity-verify` for the value-or-path lane, or a person.
+  Different lanes can use different models. Intent findings are well-defined
+  code with nothing to crash, so they are read, not executed. Policy and Other
+  take no method.
 - Nothing runs until you have chosen which findings and which methods, because
   every method costs time per finding.
 - A skill that hands its findings over can say which lane it expects. A
@@ -265,7 +288,7 @@ and which came from a CWE with no mapping.
 | `coverity-pathout` | which functions reached the path bound and which checker; the shape catalogue there; the cost of raising the bound; restructuring; a priced pilot before a large run | judging its candidates; analyzing an idir from a version that is not installed (it stops and asks) | `coverity-function-slice` for bodies; `coverity-triage` for candidates, expecting value or path with `coverity-verify`; anything else goes to the user |
 | `coverity-function-slice` | one function from the AST; a standalone file that compiles and analyzes; an obfuscated twin with proof | deciding whether a finding is real | `coverity-pathout`, `coverity-verify` (its callers) |
 | `coverity-verify` | an execution verdict on one finding (fuzzing under model stubs) with its tier and evidence; the fix check | injection, resource and concurrency claims (it suggests external verification); triaging a batch by reading | `coverity-function-slice` for the target |
-| `coverity-triage` | a lane per finding; a method and model per lane; records in Connect's fields plus Triage lane and Triage method | choosing the findings; writing to Connect; severity beyond "low"; exploitability; Connect's AI-Assisted Triage; demo-worthiness | `coverity-verify` for the execution method |
+| `coverity-triage` | a lane per finding (construction, intent, contract, value or path, policy, other), from a checker table where the checker decides it; a method and model per lane; records in Connect's fields plus Triage lane and Triage method; policy findings recorded, not triaged | choosing the findings; writing to Connect; severity beyond "low"; exploitability; Connect's AI-Assisted Triage; demo-worthiness | `coverity-verify` for the execution method |
 | `coverity-issue-transition-inference` | the control run; per-finding code-vs-analyzer attribution; annotation, after asking how | comparing raw merge keys (Connect lines findings up); vendor-level cause as the headline | `coverity-build-fidelity`, `coverity-recreate-from-emit` for the control |
 | `coverity-recreate-from-emit` | an analyzable idir without the original build; fast-forward and local-update reuse, behind gates | reuse when a gate fails; the default path when the build can run | `coverity-issue-transition-inference` (its consumer) |
 | `coverity-cvss-report` | the report per the documentation; an audit of which scores were judged; the CVSS_Audited attribute | writing a security profile; judging exploitability | `coverity-verify` for whether a finding is real and reachable |
