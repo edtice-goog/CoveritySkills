@@ -19,7 +19,7 @@ Both are *wrong* paths. The equal-length one produces a legible diff anyway,
 and what survives is exactly the path text plus a derived checksum:
 
 ```
-0x00001558 +41  .debug$S   a: Data\repo-monitoring-workspace\stage3\src
+0x00001558 +41  .debug$S   a: work\zlib-fidelity\checkout\stage\sources
                            b: a\1\padpadpadpadpadpadpadpadpadpadpadpadp
 0x00006115 +8   .chks64    a: 77639e153e3dbea1   b: 3672ed8dcfa37192
 ```

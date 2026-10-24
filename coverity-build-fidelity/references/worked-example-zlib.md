@@ -4,9 +4,10 @@ The session that established this skill's baseline. Every number here came
 from a real run; three of the design decisions in SKILL.md exist because a run
 contradicted the plan.
 
-Target: zlib from `C:\Data\repo-monitoring-workspace\stage3\src\zlib`,
-MSVC 2022 (14.44.35207), CMake + Ninja, `Release`, built into a dedicated
-`build-fid` directory so existing trees were never touched.
+Target: a zlib checkout built with MSVC 2022 (14.44.35207), CMake + Ninja,
+`Release`, into a dedicated `build-fid` directory so an existing build tree
+is never touched. Build paths below are shown generically -- what matters
+about them is their length, not their content.
 Coverity 2026.3.0.
 
 ## 1. Three native builds -- does the premise hold?
@@ -124,7 +125,7 @@ Then rebuilt at a *wrong but equal-length* path
 Survivors in the equal-length case:
 
 ```
-0x00001558 +41  .debug$S   a: Data\repo-monitoring-workspace\stage3\src
+0x00001558 +41  .debug$S   a: work\zlib-fidelity\checkout\stage\sources
                            b: a\1\padpadpadpadpadpadpadpadpadpadpadpadp
 0x00006115 +8   .chks64    a: 77639e153e3dbea1   b: 3672ed8dcfa37192
 ```

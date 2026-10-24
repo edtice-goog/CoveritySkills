@@ -88,8 +88,8 @@ failures 153   successes 1620   recoverable-errors 0
 `scan-transparency/unconfigured-compilers` named only:
 
 ```
-/root/cfw/libpsl/_a64-win-ucrt-bld/clang
-/root/cfw/libpsl/_x64-win-ucrt-bld/clang
+<build-root>/libpsl/_a64-win-ucrt-bld/clang
+<build-root>/libpsl/_x64-win-ucrt-bld/clang
 /usr/bin/apt-get
 /usr/lib/apt/apt-extracttemplates
 ```
