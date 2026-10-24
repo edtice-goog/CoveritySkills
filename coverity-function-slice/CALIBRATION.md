@@ -9,7 +9,7 @@ versions were used, each against an idir it wrote:
 
 | idir | written by | size | analyzed with |
 |---|---|---|---|
-| proftpd 1.3.9 (`coverity-demo-data-workspace/idirs/v1.3.9`), 149 C files, 2102 functions | 2025.9.0 (cov-build, gcc, WSL) | 2 GB | 2025.9.0 win64, scratch copy |
+| proftpd 1.3.9 (a cov-build capture under WSL), 149 C files, 2102 functions | 2025.9.0 (cov-build, gcc, WSL) | 2 GB | 2025.9.0 win64, scratch copy |
 | subversion 1.14 + sqlite amalgamation, 9533 functions (an MSVC capture) | 2026.3.0 | 185 MB | 2026.3.0 win64, scratch copy |
 | fixtures (`evals/fixtures/*`), emitted with bare `cov-emit --c` / `--c++` | 2026.6.0 | -- | 2026.6.0 win64 |
 
