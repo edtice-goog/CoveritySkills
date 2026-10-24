@@ -408,8 +408,18 @@ failure list.*
   may be gone or upgraded; `--pre_preinclude` points inside the old idir, so
   keep the idir rather than extracting only the JSON.
 - **Compiler wrappers.** `ccache`, `distcc`, and bespoke shell scripts appear
-  in the recorded translate argv as what the build actually invoked, and must
-  be configured or bypassed on the replay side (rule 5).
+  in the recorded translate argv as what the build actually invoked, so the
+  replaying `cov-translate` has to see through them. **Configure the wrapper**:
+  `cov-configure --template --compiler ccache --comptype prefix` (rule 32).
+
+  Stripping the wrapper out of the recorded argv instead is defensible *here*
+  in a way it is not during a capture, because rule 32's two objections both
+  lapse: nothing is built, so there is no build to change, and nothing is
+  compiled, so there is no cache to lose. It is still the worse option, because
+  it makes the replayed invocation differ from the recorded one -- the one
+  thing this whole procedure exists to avoid. If you do it, it is part of the
+  transformation delta and gets reported like any other change. **Rule 5
+  governs capture and is not the authority for a replay decision.**
 - **`-include` of build-time files**, and response files, which may have been
   temporary.
 - **A sysroot that upgraded underneath you.** Same `--sys_include` path, newer

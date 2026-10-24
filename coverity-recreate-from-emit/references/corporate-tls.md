@@ -2,8 +2,7 @@
 
 Applies whenever this skill talks to Coverity Connect -- fetching a reference
 idir, running the cost estimator, running `cov-commit-defects
---preview-report-v3` -- from a machine behind a TLS-inspecting proxy (Zscaler,
-Netskope, Blue Coat, corporate MITM of any brand). It is not specific to idir
+--preview-report-v3` -- from a machine behind a TLS-inspecting proxy of any brand. It is not specific to idir
 reuse, but it blocks the skill before step 1 and diagnoses badly, so it is
 documented here.
 

@@ -239,7 +239,7 @@ re-analysis speedup itself**, which the skill asserts in two places
 ## TLS interception: measured, 2026-08-25, during the Chromium setup
 
 Found by hitting it, not by anticipating it. Every claim below is from a run on
-this box, which sits behind a **Zscaler** inspecting proxy.
+this box, which sits behind a TLS-inspecting proxy.
 
 - **Interception is selective.** Same machine, same minute, default trust store:
   `github.com` returned **200** while `chromium.googlesource.com` failed. So
@@ -259,7 +259,7 @@ this box, which sits behind a **Zscaler** inspecting proxy.
 - **Coverity ships its own JDKs, and they are a separate store.**
   `cov-analysis-linux64-2025.12.2` carries **three** (`jre/`, `jdk21/`,
   `jdk25/`), each `lib/security/cacerts` holding **109 trusted certs and zero**
-  Zscaler entries. The system `cacerts` had zero as well.
+  entries for the proxy's CA. The system `cacerts` had zero as well.
 - **A Coverity JVM therefore fails an intercepted host**, measured directly with
   `HttpsURLConnection` under `jdk21/bin/java`:
   `SSLHandshakeException: (certificate_unknown) PKIX path building failed`
