@@ -1,0 +1,76 @@
+{
+  "skill_name": "coverity-triage",
+  "evals": [
+    {
+      "id": 0,
+      "eval_name": "asks-before-spending",
+      "prompt": "Triage the findings in v1.3.9.json (proftpd, built from tag v1.3.9 in ~/demo/proftpd, build root /home/me/demo/proftpd).",
+      "expected_output": "Runs tools/bundle.py --plan to count what selections would hold (112 merge keys, 13 checkers; a per-checker sample of 2 is 24), then asks once which findings (all, a per-checker sample, named keys) and which method and model per lane, including leaving a lane out. Starts no lane method before the answer.",
+      "assertions": [
+        "Runs bundle.py with --plan before any bundles are read by a model",
+        "Puts the finding counts in the question",
+        "Asks for the method (and model) per lane rather than assuming one",
+        "Does not start lane assignment or any lane method before the user answers"
+      ]
+    },
+    {
+      "id": 1,
+      "eval_name": "plan-given-run-it",
+      "prompt": "Triage a per-checker sample of 2 from v1.3.9.json (proftpd tag v1.3.9, ~/demo/proftpd, build root /home/me/demo/proftpd). Assign lanes with Sonnet; read every lane with Sonnet. Records only.",
+      "expected_output": "Does not ask: the selection and the plan are fixed. Writes run.json, bundles 24 findings from git at the tag, assigns lanes into lanes.json, runs one reader batch per lane (value or path split into batches of about ten), assembles triage.json with records.py, and reports counts per lane and verdict naming the triager (local subagents on Sonnet 5.5, nothing written to Connect).",
+      "assertions": [
+        "Writes run.json before any lane method runs",
+        "Each reader is given one lane's bundles and that lane's questions only",
+        "triage.json passes records.py validate",
+        "The report names who produced the verdicts and says nothing was written to Connect",
+        "The report states the sample size and does not quote a false-positive rate"
+      ]
+    },
+    {
+      "id": 2,
+      "eval_name": "other-gets-no-verdict",
+      "prompt": "Here is a finding whose claim is that two adjacent lines look copy-pasted (COPY_PASTE_ERROR, no call, no value flow). Triage it in lanes with Sonnet throughout.",
+      "expected_output": "The assigner may answer Other when none of construction, contract or value-or-path fits; if it does, the record carries Triage lane Other and Triage method None, no classification, action or comment, and no reader is run for it.",
+      "assertions": [
+        "Treats Other as a legitimate lane, not an error",
+        "Runs no lane method for a finding in Other",
+        "The record sets only the two custom attributes"
+      ]
+    },
+    {
+      "id": 3,
+      "eval_name": "dismissal-needs-location",
+      "prompt": "A reader returned 'false positive - global invariant' for a FORWARD_NULL with the reason 'callers never pass NULL' and no enforced_at. Assemble the records.",
+      "expected_output": "records.py assemble refuses (rule 30: no location, no dismissal) and writes nothing. The fix is the reader's: locate where the invariant is enforced (a caller audit is not a location unless the callers are all read and named), or return unresolved.",
+      "assertions": [
+        "Does not invent an enforced_at to make the tool pass",
+        "Sends the finding back to the reader or records unresolved",
+        "Nothing is written on the refused run"
+      ]
+    },
+    {
+      "id": 4,
+      "eval_name": "execution-lane-mapping",
+      "prompt": "Plan: construction and contract read by Opus, value-or-path executed with coverity-verify. Verify returned 'refuted by execution: line reached 412,118 times in 60 s, claim never false' for one FORWARD_NULL and 'not a fuzz-triage candidate' for a RESOURCE_LEAK across a socket. Turn those into verdict files.",
+      "expected_output": "The FORWARD_NULL becomes 'false positive - global invariant' with the claim that held as the invariant, the line and reach count under the budget as enforced_at, and a breaks_if; executed true. The RESOURCE_LEAK becomes 'unresolved' with verify's tier as the reason. The method on both is 'Execution: coverity-verify'; nothing falls back to reading.",
+      "assertions": [
+        "Uses the mapping table in references/records.md",
+        "Marks executed true only for the execution method",
+        "Does not re-read the RESOURCE_LEAK to give it a verdict under the execution method"
+      ]
+    },
+    {
+      "id": 5,
+      "eval_name": "off-lane-is-never-a-surprise",
+      "prompt": "coverity-pathout handed over 12 shape-catalogue candidates for triage; it expects them in the value-or-path lane, run through coverity-verify. Lane assignment by Sonnet; verify for value or path.",
+      "expected_output": "Assigns lanes first. Before any verify run, reports the candidates that landed outside value or path (with their lanes and reasons, e.g. a CHECKED_RETURN-shaped candidate in Contract) and asks the user, per finding or per group: verify anyway where realistic, that lane's own method, or leave it untriaged. Records the answers as overrides with reasons in run.json, then runs verify on the value-or-path candidates and on any the user sent there.",
+      "assertions": [
+        "Runs records.py check-lanes (or equivalent) before any method",
+        "Lists every off-lane candidate with its lane and reason",
+        "Offers all three choices and treats each as acceptable",
+        "Runs no method on an off-lane candidate before the user chooses",
+        "Each off-lane record carries method_reason"
+      ]
+    }
+  ]
+}

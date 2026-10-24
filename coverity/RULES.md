@@ -858,6 +858,10 @@ State the sample size, which checkers it covered, and what you found —
 "triaged 12 of 340 defects across 5 checkers; 1 false positive, 1
 uncertain" — per rule 22.
 
+`coverity-triage` runs this sample (`tools/bundle.py --per-checker N`) and
+gives each kind of finding its own questions; it asks before it spends
+anything.
+
 Source: practice, not measurement. Standard triage discipline; nothing here
 claims a measured relationship between any cause and a false-positive rate.
 
@@ -908,8 +912,9 @@ honest verdict is **intentional**, not false positive.
 Source: verified — `coverity-demo-data`. Measured on a stratified sample of
 nine proftpd findings: three were wrong, and every one was checker-correct.
 Full worked triage in
-`coverity-demo-data/references/worked-example-fp-audit.md`; vocabulary in
-`coverity-demo-data/references/triage-verdicts.md`.
+`coverity-demo-data/references/worked-example-fp-audit.md`; vocabulary, and
+the reading method that applies it lane by lane, in
+`coverity-triage/references/reading.md`.
 
 ### 35. Extract a function from the emit, never from preprocessed text
 
