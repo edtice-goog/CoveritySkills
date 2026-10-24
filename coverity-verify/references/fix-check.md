@@ -142,10 +142,9 @@ unmodelled helper (`r = keep(r)`) did **not** silence the analyzer: the
 finding keys on the explicit null test, not on where the pointer came
 from. What counts as a silencer is measured, not assumed.
 
-**OpenSSL** (`CoveritySkillsTesting/covdemo-openssl/ws/verify/fix320`,
-2026-10-05..07, Coverity 2026.9.0 under WSL, clang 18 and gcc 13.3; the
-run that produced this page, done in the testing workspace, outputs kept
-there): `cipher_hw_des_cfb1_cipher`, `UNINIT` on `d[0]`, merge key
+**OpenSSL** (2026-10-05..07, Coverity 2026.9.0 under WSL, clang 18 and
+gcc 13.3; the run that produced this page, its outputs kept outside the
+repository): `cipher_hw_des_cfb1_cipher`, `UNINIT` on `d[0]`, merge key
 `e93ca9ad...`, A = 3.0.7, B = 3.2.0 (`unsigned char d[1] = {0};`).
 F on A: refuted by execution with the real callee, 151 M reaches over
 2.3 M inputs; re-poisoned per call, 124 M over 1.9 M, never false (the

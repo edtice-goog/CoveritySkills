@@ -14,7 +14,7 @@ description: >
   may be a Connect CID ("verify CID 12345"), an entry in a
   cov-format-errors findings file, or a candidate from a path-insensitive
   shape checker. Use this skill for "verify this finding", "verification",
-  "run the verify skill", "is this defect real", "triage these findings",
+  "run the verify skill", "is this defect real",
   "confirm the candidates", "can this null actually arrive", "fuzz this
   function", "verify the report before I file it", "give me execution
   verdicts", and for the question behind them all: whether an analyzer
@@ -56,8 +56,10 @@ a user hands over, a batch from a findings file, or the candidates
 all the same input once Step 0 has named the claim. One method is built,
 fuzzing under model stubs, and the first thing the skill does is decide
 whether the finding is a candidate for it (*Methods*); the rest are
-reported, not attempted. On a real batch the method was better than a
-reading triage in one specific way: every refutation came with the
+reported, not attempted. Run on a batch, verification is the execution
+method of `coverity-triage`, which assigns each finding a lane and hands
+the value-or-path ones here when the plan says so. On a real batch the
+method was better than a reading triage in one specific way: every refutation came with the
 behaviour the analyzer had assumed, and one real defect came out beside a
 false one. The same machinery, run twice, answers a second question that
 reading cannot: when a finding disappears between two versions, did the
@@ -432,6 +434,7 @@ not this change, not checked with the reason.
 | The finding is a candidate from a function that reached the path bound, or you need the candidate list | `coverity-pathout` |
 | The slice does not emit, or the target is a C++ method | `coverity-function-slice` |
 | "Would checker X have found this at all?" | `coverity-defect-detectability` |
+| Triage a set of findings: which lane each belongs in, a method per lane, records in Connect's fields | `coverity-triage` (it calls this skill for the execution method) |
 
 ## Layout
 

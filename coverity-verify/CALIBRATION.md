@@ -11,7 +11,7 @@ versions were used, each against an idir it wrote:
 | idir | written by | size | analyzed with |
 |---|---|---|---|
 | proftpd 1.3.9 (`coverity-demo-data-workspace/idirs/v1.3.9`), 149 C files, 2102 functions | 2025.9.0 (cov-build, gcc, WSL) | 2 GB | 2025.9.0 win64, scratch copy |
-| subversion + sqlite amalgamation (`C:\Data\tool-interop\coverity\idirs\svn-augmented-post-enrichment`), 9533 functions | 2026.3.0 | 185 MB | 2026.3.0 win64, scratch copy |
+| subversion 1.14 + sqlite amalgamation, 9533 functions | 2026.3.0 | 185 MB | 2026.3.0 win64, scratch copy |
 | fixtures (`evals/fixtures/*`), emitted with bare `cov-emit --c` / `--c++` | 2026.6.0 | -- | 2026.6.0 win64 |
 
 All dates 2026-09-09.
@@ -89,11 +89,11 @@ the 12 chosen not taken (`tpl_map_va`, `tpl_peek`: variadic targets).
   end long runs on stub allocations (`-detect_leaks=0`, per-input arena);
   a seed on the analyzer's path took a line from once in 7,617 inputs to
   hundreds of thousands.
-- Work products under `C:\Data\fuzz-triage-work\proftpd\` (slices,
-  models, harnesses, `RESULTS.md`); not in the repository.
+- The work products (slices, models, harnesses, the per-finding results)
+  are not in the repository; the tools and this record are.
 
 - **The CID entry point, measured 2026-10-02** against a hosted Connect
-  2026.9.0 (HTTPS, an admin key Ed supplied, five proftpd streams, 112
+  2026.9.0 (HTTPS, an administrator's authentication key, five proftpd streams, 112
   issues in `proftpd-1.3.9`'s newest snapshot 10024). `connect_auth.py
   check`: VALID. `getSnapshotsForStream` over SOAP with the key as the
   WS-Security password: works over HTTPS. `issues/search`: a `cid`
@@ -111,8 +111,7 @@ the 12 chosen not taken (`tpl_map_va`, `tpl_peek`: variadic targets).
   which is the hand-off into Step 0. Lookup by `--project proftpd
   --snapshot 10024` works the same way. The tool now sends stream (or
   project) and cid filters together and scans only if the row still does
-  not come back. Ed's point stands: a CID lookup needs no skill, any REST
-  client does it; the tool is a convenience so the merge key lands in the
+  not come back. A CID lookup needs no skill, any REST client does it; the tool is a convenience so the merge key lands in the
   right place.
 
 ### The fix check (2026-10-07)
@@ -130,11 +129,10 @@ the 12 chosen not taken (`tpl_map_va`, `tpl_peek`: variadic targets).
   unmodelled helper, did **not** silence: `FORWARD_NULL` keys on the
   explicit null test, not on where the pointer came from, and the toggle
   still showed the finding (at line 23). Whole run: about four minutes.
-- **OpenSSL 3.0.7 vs 3.2.0** (`CoveritySkillsTesting/covdemo-openssl/ws/
-  verify/fix320`, 2026-10-05..07; done in the testing workspace by the
-  session that proposed the check, with 2026.9.0 linux64 under WSL, clang
-  18, gcc 13.3; its outputs are kept there and were read, not re-run,
-  here): `cipher_hw_des_cfb1_cipher`, `UNINIT` on `d[0]`, merge key
+- **OpenSSL 3.0.7 vs 3.2.0** (2026-10-05..07, the run that motivated the
+  fix check: 2026.9.0 linux64 under WSL, clang 18, gcc 13.3; its outputs
+  are kept outside the repository and were read, not re-run, for this
+  record): `cipher_hw_des_cfb1_cipher`, `UNINIT` on `d[0]`, merge key
   `e93ca9ad...`; the change `unsigned char d[1] = {0};`. F on A: refuted
   by execution with the real callee (151,417,888 reaches / 2,315,328
   inputs; re-poisoned per call 124,267,264 / 1,905,085, never false; the

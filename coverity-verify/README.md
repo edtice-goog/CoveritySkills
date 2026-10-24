@@ -52,7 +52,9 @@ chain were stubbed from their models.
 
 ## Where it fits
 
-It is the verification stage. `coverity-pathout` sends it the candidates
+It is the verification stage. Triaging a set of findings is
+`coverity-triage`'s job; this skill is its execution method for the
+value-or-path lane, and for other findings when the user chooses. `coverity-pathout` sends it the candidates
 it collects from functions that reached the path bound, and it stands on
 its own: a CID or a batch of ordinary findings in, a verdict with evidence
 per finding out.
