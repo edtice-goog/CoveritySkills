@@ -19,7 +19,8 @@ description: >
   its user) before anything runs. It writes a records file and touches no
   server; whoever owns the Connect instance applies the records, with or
   without the custom attributes. Needs the findings as cov-format-errors
-  JSON and the source at the analyzed version in git; no Coverity
+  JSON and the source at the analyzed version, from git or, when there
+  is no git source, from the intermediate directory itself; no Coverity
   Connect, and no build.
 ---
 
@@ -127,7 +128,7 @@ triages because a step in its procedure came up.
 | input | where it comes from |
 |---|---|
 | the findings | `cov-format-errors --dir <idir> --json-output-v10 <file>` on the analyzed idir (rule 26 lists the fields). A Connect CID is turned into a merge key and the idir's findings with `coverity-verify/tools/cid_lookup.py` |
-| the source at the analyzed version | a git repository and the tag or commit the idir was built from. **Read from git, never from the working tree**: a working tree holds whatever was checked out last, which is the wrong source in a way that reads as entirely plausible |
+| the source at the analyzed version | **the default:** a git repository and the tag or commit the idir was built from. **Read from git, never from the working tree**: a working tree holds whatever was checked out last, which is the wrong source in a way that reads as entirely plausible. **The backup, when there is no git source** (an analyzed tree with no tag or commit to read): the intermediate directory, with the `bin/` of the installation that wrote it (rule 3) |
 | the build root | the path prefix to strip from recorded paths (`--strip-prefix`) |
 | the selection | `--merge-key` for named findings (repeatable), `--per-checker N` for rule 26's stratified sample, `--all` for every finding |
 | the plan | the method per lane (*Step 3*), and the assigner's model |
@@ -140,12 +141,23 @@ python3 tools/bundle.py --issues <findings.json> --git-repo <repo> --tag <tag> \
     --out <dir> [--plan]
 ```
 
+With no git source, replace `--git-repo` and `--tag` with `--idir <idir>
+--cov-bin <install>/bin` (and `--tag <label>` if the idir's directory name
+is not a good one). The tool then reads the source the idir holds, with
+`cov-manage-emit extract-files`. Git stays the default because it is faster
+and does not depend on a Coverity installation. One source per run. The idir
+is only read: one filed under another machine's host name is refused, since
+`reset-host-name` would change it; run that on a copy, or use git. A
+`--cov-bin` of a different version from the one that wrote the idir is
+refused too.
+
 `--plan` prints what the selection holds (total, per checker, why each was
 selected) and writes nothing: run it first when the plan is not fixed.
 Without it the tool writes one self-contained markdown bundle per finding
 (`NNN-CHECKER.md`: the checker, the merge key, every site the merge key was
 reported at, the full event trace, and the source around every event, read
-with `git show <tag>:<path>`), an `INDEX.md`, and `index.json`, which the
+with `git show <tag>:<path>` or from the idir), an `INDEX.md`, and
+`index.json`, which the
 records step reads. A bundle is enough for a reader, human or model, to
 reach a verdict without the build machine.
 
@@ -318,7 +330,8 @@ surfaces, whether a true positive is legible on screen.
 - A dismissal with no location: report `unresolved` instead (rule 30).
 - A confirmation resting on a callee nobody read: `unresolved` too. A
   caveat is not a verdict.
-- Reading source from the working tree instead of `git show <tag>:<path>`.
+- Reading source from the working tree instead of `git show <tag>:<path>`,
+  or from the idir.
 - Quoting a sample as the run's false-positive rate.
 - Reporting verdicts without naming who produced them and where, or
   calling them AI-Assisted Triage when they were not.
@@ -351,7 +364,7 @@ coverity-triage/
 │   ├── reading.md               # the reading method: each lane's questions, the verdict set
 │   └── records.md               # lanes.json, verdict files, run.json, triage.json; the mappings
 ├── tools/
-│   ├── bundle.py                # select + bundle: trace and source from git at the tag; --plan
+│   ├── bundle.py                # select + bundle: trace and source from git at the tag (or the idir); --plan
 │   └── records.py               # assemble + validate the records; TRIAGE-REPORT.md
 └── evals/
     ├── evals.json

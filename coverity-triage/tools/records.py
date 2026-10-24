@@ -227,7 +227,7 @@ def assemble(args):
 
     doc = {"format": "coverity-triage-records", "schema": 1,
            "run": dict(run, assigned_by=assigner,
-                       source={k: index.get(k) for k in ("issues", "git_repo", "tag",
+                       source={k: index.get(k) for k in ("issues", "git_repo", "tag", "source",
                                                          "strip_prefix", "findings_in_file")}),
            "records": records}
     problems = check(doc)

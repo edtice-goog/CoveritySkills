@@ -71,6 +71,18 @@
         "Runs no method on an off-lane candidate before the user chooses",
         "Each off-lane record carries method_reason"
       ]
+    },
+    {
+      "id": 6,
+      "eval_name": "idir-is-the-backup-source",
+      "prompt": "Triage a per-checker sample of 1 from findings.json. The analyzed tree was a nightly tarball with no git history; I have the analyzed idir and the Coverity installation that wrote it. Read every lane with Sonnet.",
+      "expected_output": "Uses the idir as the source: bundle.py --idir <idir> --cov-bin <the installation named in <idir>/emit/version>, with a --tag label. Does not invent a git tag or read source from a working tree. If the idir is filed under another host, does not run reset-host-name on it: copies it first or asks. Asks the plan question before any lane method runs.",
+      "assertions": [
+        "Picks --cov-bin from the version the idir records, not whatever is newest",
+        "Never runs reset-host-name on the user's idir",
+        "Never reads source from a working tree",
+        "index.json records source mode idir"
+      ]
     }
   ]
 }

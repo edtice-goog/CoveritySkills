@@ -11,8 +11,9 @@ what is reasoned rather than measured.
   deterministic; source comes from `git show <tag>:<path>`, not the working
   tree (the fixture changes the working tree after tagging); a form feed in
   the source does not shift excerpts; a merge key reported at two sites
-  bundles both; nothing selected, or a merge key not in the findings, is
-  refused. `records.py`: one good assembly; thirteen refusals, each
+  bundles both; nothing selected, a merge key not in the findings, no
+  source, both sources, `--idir` without `--cov-bin`, and `--git-repo`
+  without `--tag` are refused. `records.py`: one good assembly; thirteen refusals, each
   writing nothing (a global invariant with no location, a word outside the
   verdict set, a NUL in a comment, a missing verdict, a verdict read in the
   wrong lane, an unassigned finding, an unknown lane, a verdict for Other, a
@@ -46,6 +47,20 @@ what is reasoned rather than measured.
   roughly 43 k per finding; the lane assignment alone was 198 k. Wall clock
   per reader batch: 5 to 13 minutes, the longest the seven value-or-path
   findings that needed the most callee reading.
+
+- **The idir as the backup source, 2026-10-24.** The same 24 proftpd
+  v1.3.9 findings bundled with `--idir` (the analyzed idir) and `--cov-bin`
+  of the 2025.9.0 installation that wrote it, on Windows: all 24 bundles
+  byte-identical to the git-sourced ones, in about a second; the extracted
+  `modules/mod_log.c` byte-identical to `git show v1.3.9:modules/mod_log.c`.
+  `extract-files` did not match the recorded paths given as file names, and
+  did match by `--regex`; the tool therefore matches by path suffix and finds
+  each file through the `emit-file-map.json` it writes. On a one-file idir
+  emitted for the test: a `--cov-bin` of 2026.9.0 refused; a copy re-filed
+  under another host name refused with the tool's own `reset-host-name`
+  message, and left unchanged; both sources, no source, and `--idir` without
+  `--cov-bin` refused. A Linux installation reading a Linux capture was not
+  run.
 
 ## What the run showed that the text must answer
 

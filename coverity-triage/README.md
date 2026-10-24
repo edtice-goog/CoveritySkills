@@ -53,7 +53,9 @@ job of whoever owns the instance.
 - **The source is read from git at the analyzed version**, never from the
   working tree, and split on the line terminators a C compiler counts: one
   form feed in a file otherwise shifts every excerpt after it a line away
-  from the line Coverity reported.
+  from the line Coverity reported. With no git source, the intermediate
+  directory's own copy is the backup (`cov-manage-emit extract-files`, with
+  the installation that wrote it); the idir is only read.
 - **A merge key can be reported at several sites** (copy-pasted code in two
   files); the bundle shows all of them and the record covers all of them.
 - **A dismissal must be falsifiable**: a global-invariant verdict names the
@@ -86,7 +88,8 @@ coverity-triage/
 ## Requirements
 
 - The findings as `cov-format-errors --json-output-v10` from the analyzed
-  idir, and the source in git at the analyzed tag or commit.
+  idir, and the source in git at the analyzed tag or commit; or, as the
+  backup, the idir and the Coverity installation that wrote it.
 - Python 3, standard library only; git.
 - For the execution method only: what `coverity-verify` needs (the idir, the
   Coverity version that wrote it, clang with libFuzzer and ASan).

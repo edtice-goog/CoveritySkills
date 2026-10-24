@@ -134,6 +134,7 @@ verdict on the finding; mention it in `reason` so a person sees it.
  "schema": 1,
  "run": { ...run.json..., "assigned_by": "LLM: Sonnet 5.5",
           "source": {"issues": "v1.3.9.json", "git_repo": "...", "tag": "v1.3.9",
+                     "source": {"mode": "git", "repo": "...", "rev": "v1.3.9"},
                      "strip_prefix": "/home/me/proftpd"} },
  "records": [
   {"mergeKey": "6b0b0c...",
@@ -156,6 +157,9 @@ verdict on the finding; mention it in `reason` so a person sees it.
 }
 ```
 
+- **`run.source.source`** says where the bundles' source came from:
+  `{"mode": "git", "repo", "rev"}` by default, or `{"mode": "idir", "idir",
+  "coverity"}` when there was no git source.
 - **`triageState`** uses the attribute names of Connect's triage-store
   export: `classification`, `action`, `severity`, `comment`, and
   `customTriage` for custom attributes. **`null` means leave that

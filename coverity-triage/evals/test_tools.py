@@ -99,10 +99,19 @@ def main():
         assert "selected: 4" in p.stdout and not (work / "b").exists(), p.stdout
         run(TOOLS / "bundle.py", *common, "--plan", ok=False)          # nothing selected
         run(TOOLS / "bundle.py", *common, "--merge-key", "nope", "--plan", ok=False)
+        # One source per run: git by default, the idir only as the backup.
+        no_src = ["--issues", fj, "--strip-prefix", ROOT, "--all", "--out", work / "x"]
+        run(TOOLS / "bundle.py", *no_src, ok=False)                                # no source
+        run(TOOLS / "bundle.py", *no_src, "--git-repo", repo, "--tag", "v1",
+            "--idir", work, "--cov-bin", work, ok=False)                           # both
+        run(TOOLS / "bundle.py", *no_src, "--idir", work, ok=False)                # no --cov-bin
+        run(TOOLS / "bundle.py", *no_src, "--git-repo", repo, ok=False)            # no --tag
+        assert not (work / "x").exists(), "a refused run wrote bundles"
 
         b = work / "b"
         run(TOOLS / "bundle.py", *common, "--per-checker", "1", "--out", b)
         index = json.loads((b / "index.json").read_text())
+        assert index["source"] == {"mode": "git", "repo": str(repo), "rev": "v1"}, index["source"]
         assert [x["mergeKey"] for x in index["bundles"]] == ["k3", "k4", "k2", "k1"], index
         k2 = next(x for x in index["bundles"] if x["mergeKey"] == "k2")
         assert [s["line"] for s in k2["sites"]] == [10, 11], k2
@@ -218,7 +227,7 @@ def main():
         c = json.loads((d / "triage.json").read_text())["records"][-1]["triageState"]["comment"]
         assert len(c) <= 4000 and "shortened" in c
 
-        print("ok: bundle plan, bundles (git at the tag, form feed, two sites), 2 bundle refusals, "
+        print("ok: bundle plan, bundles (git at the tag, form feed, two sites), 6 bundle refusals, "
               "one assembly, 13 records refusals, expected-lane overrides, check-lanes, "
               "shortened comment")
         return 0
