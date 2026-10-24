@@ -234,6 +234,7 @@ they are simply two lines shipping on the same day, which is what happened.
 - The restore point earned itself twice over. The backup taken *after* auth-key
   creation meant the key survived the reset; a factory `empty.bak` would have
   deleted it.
-- Check who else is using the instance before restoring. This run found four
-  snapshots from a concurrent session's analyzer-comparison calibration, which
-  the reset would have destroyed silently; they were backed up first.
+- Check what else is on the instance before restoring. This run found four
+  unrelated snapshots that the reset would have destroyed silently -- an
+  instance is rarely as empty as the person restoring it assumes. They were
+  backed up first.

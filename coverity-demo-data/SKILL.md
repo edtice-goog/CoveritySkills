@@ -403,11 +403,12 @@ python3 ../coverity-triage/tools/bundle.py --issues <tip>.json --git-repo <repo>
 ```
 
 Say in the question that the model matters. Measured on the proftpd corpus, a
-stratified sample of nine defects contained three false positives, and every
+stratified sample of nine defects contained **four** false positives, and every
 one was *checker-correct*: catching them required reading a guarding
 `strncasecmp` that made a null-return path infeasible, recognising a deliberate
-two-check cycle idiom that a copy-paste heuristic misread, and knowing that a
-`time_t` duration is not an epoch timestamp
+two-check cycle idiom that a copy-paste heuristic misread, knowing that a
+`time_t` duration is not an epoch timestamp, and following a setter that copies
+by address family rather than by the size of its argument
 (`references/worked-example-fp-audit.md`). The user weighs that against the
 cost; this skill does not decide it for them.
 

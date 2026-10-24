@@ -366,6 +366,8 @@ def assemble(dataset, rows, facts, args, ws, idirs_root, version):
     # speaker-test/speaker-test.c as an installed program). Record the shape so
     # the builder sees it before publishing and a consumer sees it in the
     # manifest without re-deriving it.
+    triage_records = sorted(q.relative_to(dataset).as_posix()
+                            for q in (dataset / "audit").glob("**/triage.json"))
     tip = rows[-1]["tag"]
     tip_dirs = collections.Counter(s.split("/")[0]
                                   for s in facts[tip]["stripped"] if "/" in s)
@@ -394,11 +396,14 @@ def assemble(dataset, rows, facts, args, ws, idirs_root, version):
             "streams": sorted({r["stream"] for r in rows}),
             "cids_at_tip": facts[rows[-1]["tag"]]["cids"],
         },
-        "audit": {"present": (dataset / "audit").is_dir(),
-                  # coverity-triage records, so a consumer finds the verdicts
-                  # without guessing; empty when the dataset is untriaged
-                  "triage_records": sorted(p.relative_to(dataset).as_posix()
-                                           for p in (dataset / "audit").glob("**/triage.json"))},
+        # coverity-triage records, so a consumer finds the verdicts without
+        # guessing. An empty list means untriaged, which is a normal and
+        # expected state: triage is the user's choice, not a default. Report
+        # the records themselves rather than whether an audit/ directory
+        # exists -- a directory can hold anything, and "a directory is there"
+        # reads as "this was checked" when it may not have been.
+        "audit": {"triaged": bool(triage_records),
+                  "triage_records": triage_records},
         "capture": {
             "tu_by_top_dir_at_tip": dict(sorted(tip_dirs.items(),
                                                 key=lambda kv: -kv[1])),
@@ -413,7 +418,11 @@ def assemble(dataset, rows, facts, args, ws, idirs_root, version):
         args.description or "(no description given)", "",
         f"- {len(rows)} versions, {', '.join(manifest['counts']['streams'])}",
         f"- {manifest['counts']['cids_at_tip']} CIDs at the newest version",
-        f"- analyzed with Coverity {version}", "",
+        f"- analyzed with Coverity {version}",
+        ("- triage: " + (f"{len(triage_records)} record(s) under audit/"
+                         if triage_records else
+                         "NONE. Nothing here has been checked; triage anything "
+                         "you intend to feature before showing it.")), "",
         "## Commit it", "",
         "Take a database backup of the target Connect first: the dates this",
         "writes are write-once per merge key and cannot be corrected in place.",

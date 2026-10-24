@@ -3,8 +3,8 @@
 Stratified per-checker sample (rule 26) from the committed corpus tip, 2 per
 checker. Nine triaged against real source read from `git show v1.3.9:<path>`.
 
-**Headline: 4 of 9 are false positives.** All three are checker-correct but
-wrong in context, and all three would have been embarrassing on stage.
+**Headline: 4 of 9 are false positives.** All four are checker-correct but
+wrong in context, and all four would have been embarrassing on stage.
 
 | # | checker | location | verdict |
 |---|---|---|---|
@@ -134,8 +134,8 @@ analysis defaults with no triage history -- these are unreviewed findings, not
 a curated set. It matters only because a demo points at individual defects.
 
 The audit cost is small and the failure mode is severe, which is the argument
-for doing it with a strong model: every one of the three false positives is
-*checker-correct*. Catching them required reading the guarding `strncasecmp`,
-recognising a deliberate two-check idiom, and knowing that a duration is not a
-timestamp. None of that is visible in the defect title, the checker name, or
+for doing it with a strong model: every one of the four false positives is
+*checker-correct*. Catching them required reading a guarding `strncasecmp`,
+recognising a deliberate two-check idiom, knowing that a duration is not a
+timestamp, and following a setter that copies by address family. None of that is visible in the defect title, the checker name, or
 the event trace alone.

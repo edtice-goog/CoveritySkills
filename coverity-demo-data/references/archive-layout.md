@@ -141,8 +141,8 @@ it.
   "built_at": "2026-10-13T18:22:04-04:00",
   "analysis": { "version": "2025.9.0" },
   "commit": {
-    "strip_path": "/home/etice/demo/proftpd",
-    "strip_path_per_tag": { "v1.3.5a": "/home/etice/demo/proftpd" },
+    "strip_path": "/build/proftpd",
+    "strip_path_per_tag": { "v1.3.5a": "/build/proftpd" },
     "suggested_project": "proftpd"
   },
   "streams": [
