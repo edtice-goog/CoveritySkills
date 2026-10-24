@@ -150,8 +150,6 @@ coverity-recreate-from-emit/
 │   ├── target-state.md               # bringing an idir current WITHOUT known
 │   │                                 #   provenance: extract-files, what the
 │   │                                 #   recorded hash is and is not
-│   ├── corporate-tls.md              # TLS-inspecting proxies: four trust stores,
-│   │                                 #   and the two that fail silently
 │   └── worked-example-proftpd.md     # the calibration session, with the numbers
 ├── tools/
 │   ├── emit_probe.py                 # identify / extract / probe / delta /

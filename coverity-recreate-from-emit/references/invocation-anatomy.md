@@ -150,7 +150,8 @@ a single-project build.
 
 **This is the whole build environment, `PATH` included, and anything else the
 build had in scope -- which may include secrets.** `coverity`'s
-`references/idir-anatomy.md` flags the same exposure for `build-log.txt` and
+`coverity/references/idir-anatomy.md` flags the same exposure for
+`build-log.txt` and
 `cli-diagnostics.json`. Anything this skill extracts inherits it. Check before
 forwarding a `pairs.json`, a replay script, or the idir itself.
 
