@@ -37,19 +37,6 @@ long write(int, const void *, unsigned long);
 #define fz_write(b, n) write(2, (b), (n))
 #endif
 void __sanitizer_set_death_callback(void (*)(void));
-void __asan_set_error_report_callback(void (*)(const char *));
-/* Under ASan the trace is printed from the error-report callback, which leaves
-   libFuzzer's own death callback in place: that callback is what writes the
-   crash-<hash> artifact, and replacing it lost the reproducer (measured on
-   rockbox). MemorySanitizer has only the death callback, so there the trace
-   still costs the artifact. */
-#if defined(__SANITIZE_ADDRESS__)
-#define FZ_ASAN 1
-#elif defined(__has_feature)
-#if __has_feature(address_sanitizer)
-#define FZ_ASAN 1
-#endif
-#endif
 
 /* a formatter of its own (%s %d %u %llu %lld %%): the UCRT exports neither
    vsnprintf nor _vsnprintf as symbols under clang-cl, and glibc's would drag
@@ -160,11 +147,6 @@ static void fz_dump_trace(void) {
 /* the finding's claim, checked where the finding is: false => abort (confirmed) */
 #define __fz_claim(cond) do { fz_reached++; if (!(cond)) { fz_msg("== fz: CLAIM HOLDS at line %d: !(%s)\n", __LINE__, #cond); fz_dump_trace(); abort(); } } while (0)
 static void fz_summary(void) { fz_msg("== fz: summary: %llu inputs, finding line reached %llu times, claim never false\n", fz_inputs, fz_reached); }
-#ifdef FZ_ASAN
-static void fz_asan_report(const char *report) { (void)report; fz_dump_trace(); }
-static void fz_init(void) { static int done; if (!done) { done = 1; __asan_set_error_report_callback(fz_asan_report); atexit(fz_summary); } }
-#else
 static void fz_init(void) { static int done; if (!done) { done = 1; __sanitizer_set_death_callback(fz_dump_trace); atexit(fz_summary); } }
-#endif
 #define FZ_BEGIN(data, size) do { fz_init(); fz_cur = (data); fz_left = (size); fz_trace_n = 0; fz_arena_used = 0; fz_inputs++; } while (0)
 #endif

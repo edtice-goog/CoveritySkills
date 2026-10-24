@@ -149,46 +149,6 @@ the 12 chosen not taken (`tpl_map_va`, `tpl_peek`: variadic targets).
   gave the same result. The vacuous-claim pitfall was found here: the
   original MSan claim is true by construction after the initializer.
 
-### From the Coverity triage study (2026-10-15)
-
-A separate study ran the skill as shipped (60fbabc) over proftpd, rockbox,
-openssl and alsa-utils findings and sent four findings back; its reports
-live beside its data, not here. What changed in the skill, and what was
-measured for it:
-
-- **The slicer's one meaning-changing form**, a subscript base printed
-  bare (`(*__ctype_b_loc())[c]` as `*__ctype_b_loc()[c]`, `*(*opt + 1)` as
-  `*opt[1]`), gave the study two false crashes on proftpd `parse_list_opts`,
-  one on the finding's own line. Repaired from the `--print-debug` tree in
-  `coverity-function-slice` (its CALIBRATION has the fixture and the
-  re-runs on nginx and proftpd). The folded `sizeof` is restored as well:
-  an ILP32 rockbox `SIZEOF_MISMATCH` built LP64 had given a false
-  confirmation, and an openssl `BAD_SIZEOF` had not reproduced from the
-  slice. Step 0 now says to build at the capture's pointer size.
-- **`accessdbuffer` edges.** `model_stubs.py` reduced
-  `accessdbuffer(<arg 0>): elem_size -> 1; index_value -> 7` to a one-byte
-  dereference, so no interprocedural OVERRUN could crash under generated
-  stubs (the study's rockbox `WI_drawLF`: 9.5 M reaches, no report, until
-  the edge was patched in by hand, then a global-buffer-overflow at input
-  1,284). The stub now reads the farthest byte the model names
-  (`index_value * elem_size`, or `buffer_size - 1`); pointee and field
-  forms (`*<arg N>`, `<arg N>->base`) are left as a comment in the stub.
-  Measured on a synthetic model with both forms.
-- **Crash artifacts under ASan.** `fz_support.h` installed its trace
-  printer as the sanitizer death callback, which replaced libFuzzer's own
-  and so lost the `crash-<hash>` reproducer on every sanitizer crash (the
-  study rebuilt one by hand). Under ASan the trace now prints from
-  `__asan_set_error_report_callback`, leaving libFuzzer's callback in
-  place: measured under WSL clang 18 (a null store: the trace line, then
-  `Test unit written to ./crash-...`) and under clang-cl on the fixture
-  (`evals/run.sh`, exit 77 and the artifact, unchanged). MemorySanitizer
-  keeps the death callback and still loses the artifact.
-- **Verdict rules and the real-code ladder** (SKILL.md) are the study's
-  precedents, adopted as Ed ruled them; they are rules, not measurements.
-  The study's own evidence for contract first: four findings where the
-  fuzzer found the function-level failure and the parameter-sourced tier
-  discarded it because today's callers never pass that input.
-
 ## Reasoned, not measured
 
 - The automatic detection of a vacuous claim in a fix check (B with the
