@@ -142,7 +142,10 @@ Not just the C compiler: the C++ driver, the archiver, and the linker where
 relevant. For cross builds, configure the *prefixed* names
 (`arm-none-eabi-gcc`), not the host ones. Wrappers — `ccache`, `distcc`,
 `sccache`, bespoke shell scripts — are what the build actually invokes, so
-they must be configured or bypassed.
+they need configuring too. **Configure them; do not disable them** to make
+capture work — see rule 32 for the command and the reasons. Disabling is
+reserved for a wrapper that genuinely cannot be configured, which is a
+theoretical case rather than one anyone has had to use.
 
 Repeated `cov-configure` calls against the same `--config` accumulate; each
 adds an `<include>`.

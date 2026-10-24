@@ -10,7 +10,7 @@ differently -- which is the entire point of running all three.
 | | Method | Evidence base | Blind to |
 |---|---|---|---|
 | A | `coverity list` / `cov-manage-emit` | the emit database | anything the build never attempted |
-| B | `idir/scan-transparency/` | the build's process tree | anything configured that then failed to parse -- **and compiler wrappers, which it does not name at all** |
+| B | `idir/scan-transparency/` | the capture's own compiler-detection heuristic (mechanism undocumented) | anything configured that then failed to parse -- and an empty file is **never** evidence that a wrapper was handled |
 | C | model inference | source tree + build system | what actually happened at runtime |
 
 No single one is sufficient. A reports triumphantly on an empty idir. B is
@@ -389,18 +389,32 @@ cat <idir>/scan-transparency/unconfigured-compilers
 
 `unconfigured-compilers` lists binaries that ran during the build, looked
 like compilers, and were not configured as such. Its independence is why it
-earns a separate method: it comes from **observing the build's process
-tree**, not from the emit database. A capture can be completely empty and
-still produce a truthful, informative `unconfigured-compilers`.
+earns a separate method: **it does not read the emit database**. A capture can
+be completely empty and still produce a truthful, informative
+`unconfigured-compilers`.
 
-- Empty file: no compiler-shaped binary escaped configuration. This is a
-  positive result, and it is *not* evidence that anything was captured.
-  **Nor is it evidence that a wrapper was handled.** Measured: with
-  `CC = ccache gcc` and only `--gcc` configured, this file was empty on every
-  run -- including one that captured zero TUs. `ccache` ran as the compiler
-  driver, was unconfigured, and was never named. For wrappers
-  (`ccache`, `sccache`, `distcc`, `icecc`) Method B is simply silent; the
-  count against Method C is what finds them. See rule 32.
+Do not assume how it is produced. The mechanism is undocumented, and the
+observed behaviour is not a filesystem-verified record of what executed: a
+fully successful capture still named a path that does not exist (below),
+consistent with a bare command name resolved against the working directory.
+Treat it as the capture's own compiler-detection heuristic and read its
+semantics as measured, not specified.
+
+- Empty file: nothing the heuristic recognised escaped configuration. That is
+  a weaker statement than it looks, and it is *not* evidence that anything
+  was captured. **Nor is it evidence that a wrapper was handled.** Measured:
+  with `CC = ccache gcc` and only `--gcc` configured, this file was empty on
+  every run -- including one that captured zero TUs. `ccache` ran as the
+  compiler driver, was unconfigured, and was never named.
+
+  Do not build a rule out of what this file does or does not contain for a
+  given wrapper, build tool or version. That is vendor output and it can
+  change, and a reader who learns the expected contents will pattern-match
+  instead of adjudicating. **An unhandled wrapper is a disagreement, not a
+  lookup:** B comes back clean while A falls short of C. That is precisely
+  the shape the three methods exist to produce, and the adjudication below
+  resolves it without anyone having to know in advance what Method B would
+  say. See rule 32 for the configuration.
 - Non-empty: each entry is a *candidate* hole -- see the caveat immediately
   below before treating it as one. The usual real causes are cross-compiler
   prefixes, wrapper scripts, and `ccache`/`sccache`/`distcc`; route those to

@@ -216,6 +216,33 @@ done
 Repeated `cov-configure` calls against the same `--config` accumulate; each
 adds an `<include>`.
 
+## Wrappers: configure the prefix, do not disable the wrapper
+
+`ccache`, `sccache`, `distcc`, `icecc` and bespoke wrapper scripts are what the
+build actually invokes, so they need configuring like anything else here --
+with a template, using the `prefix` comptype:
+
+```bash
+cov-configure --config "$CFG" --template --compiler ccache --comptype prefix
+```
+
+That writes `template-prefix-config-N/`, named for the *comptype* rather than
+the compiler, holding `<comp_name>ccache</comp_name>` and
+`<comp_translator>prefix</comp_translator>`. **Still configure the underlying
+compiler as well** (and `cc`, per the section above): the prefix configuration
+tells Coverity how to see *through* the wrapper, not how to handle `gcc`.
+
+**Do not turn the wrapper off to make capture work.** It changes the build, so
+what you scanned is no longer what the project ships; it can turn minutes into
+hours on a large build; and "first, switch off your build accelerator" is the
+wrong thing to ask of a project that uses a cache precisely because it is big.
+Disabling is reserved for a wrapper that genuinely *cannot* be configured,
+which is a theoretical case rather than one anyone has had to use.
+
+`coverity/RULES.md` rule 32 carries the measurements, including that a warm
+cache is not a problem: with the prefix configured, a build where the real
+compiler never executed at all still captured completely.
+
 ## Verify after the build, not before
 
 Configuration correctness shows up in the capture, so check there:
@@ -224,9 +251,10 @@ Configuration correctness shows up in the capture, so check there:
   build"** near the end, and writes the same finding to
   `<idir>/scan-transparency/unconfigured-compilers`. Anything named there was
   invoked but not configured, and its translation units are missing from the
-  emit. An **empty** file means no compiler-shaped binary escaped
-  configuration; a **missing** `scan-transparency/` directory means the check
-  did not run, which is not the same as passing.
+  emit. An **empty** file means only that nothing the check recognised escaped
+  configuration -- it is **not** evidence that a wrapper was handled; see
+  Wrappers above. A **missing** `scan-transparency/` directory means the
+  check did not run, which is not the same as passing.
 - Compare emitted translation units against what the build actually compiled.
   Do not trust the headline percentage: the denominator includes the build
   system's own throwaway compilations (CMake `TryCompile`, `CompilerId`,
@@ -258,8 +286,9 @@ the build produced. This skill stops at the configuration.
    `arm-none-eabi-gcc`, not `gcc`.
 5. **Reusing a config directory after fixing the flags.** Stale probed configs
    persist; start fresh.
-6. **Assuming a wrapper is transparent.** `ccache`, `distcc`, `sccache` and
-   bespoke wrapper scripts are what the build actually invokes; they need
-   configuring or bypassing.
+6. **Disabling a wrapper to make capture work.** `ccache`, `distcc`, `sccache`
+   and bespoke wrapper scripts are what the build actually invokes, so they
+   need configuring -- reaching for `CCACHE_DISABLE` or its equivalent is
+   itself the mistake. See Wrappers above.
 7. **Treating `< 100%` capture as failure.** Reconcile against product
    translation units first.
