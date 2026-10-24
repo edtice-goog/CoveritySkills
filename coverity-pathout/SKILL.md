@@ -247,13 +247,23 @@ the triage skill reads, then follow its steps:
 python3 tools/pathout_filter.py --findings <outdir>/candidates.json \
     --log <print-paths idir>/output/analysis-log.txt --relevant auto \
     --dir <idir> --bin $BIN --json <triage>/survivors.json --run-json <triage>/run.json
-# then, in coverity-triage:
-python3 ../coverity-triage/tools/bundle.py --issues <triage>/survivors.json --all --out <triage> ...
+# then, in coverity-triage. Source for the bundles: git when the user has the
+# analyzed tag or commit (the default: faster, no Coverity dependence) ...
+python3 ../coverity-triage/tools/bundle.py --issues <triage>/survivors.json --all --out <triage> \
+    --git-repo <repo> --tag <tag> --strip-prefix <build-root>
+# ... or the idir itself when there is no git source (--cov-bin must be the
+# version that wrote it; an idir filed under another host name is refused,
+# so run reset-host-name on a copy first):
+python3 ../coverity-triage/tools/bundle.py --issues <triage>/survivors.json --all --out <triage> \
+    --idir <idir> --cov-bin $BIN
 #   assign lanes (its Step 2), then, before any method runs:
 python3 ../coverity-triage/tools/records.py check-lanes --bundles <triage> --lanes <triage>/lanes.json --run <triage>/run.json
 ```
 
-`survivors.json` is in cov-format-errors v10 shape, merge keys intact;
+The idir route exists because a PATHOUT user usually has the idir and the
+sources at the paths the emit recorded, not a tag; offer git when the
+user has one. `survivors.json` is in cov-format-errors v10 shape, merge
+keys intact;
 `run.json` carries `"expected": {"by": "coverity-pathout", "lane": "Value
 or path", "method": "Execution: coverity-verify"}`. Lane assignment is
 cheap and runs first; it is the one check that each candidate's claim is
