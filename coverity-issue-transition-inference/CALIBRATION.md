@@ -4,11 +4,11 @@ This project's standard is that factual claims in a skill were established by
 real runs. This file records where `coverity-issue-transition-inference` stands,
 so that nothing unverified reads as measured.
 
-Environment for everything marked verified: Windows 11 with Coverity
-installations under `C:\Coverity\`, WSL2 Ubuntu with gcc 13.3.0, and a local
-Coverity Connect 2025.12.0. Subject: proftpd v1.3.8 and v1.3.9 built from a
-fixed tree at `~/iti/proftpd`, serial `make`, 90 TUs per cell at 100%. Analyzer
-versions 2024.12.1 and 2025.12.2. Session run 2026-08-24.
+Environment for everything marked verified: Windows 11 host with several
+Coverity installations side by side, WSL2 Ubuntu with gcc 13.3.0, and a local
+Coverity Connect 2025.12.0. Subject: proftpd v1.3.8 and v1.3.9, each checked
+out in place in one build tree, serial `make`, 90 TUs per cell at 100%.
+Analyzer versions 2024.12.1 and 2025.12.2. Run 2026-08-24.
 
 Full narrative in `references/worked-example-proftpd.md`.
 
@@ -104,8 +104,11 @@ measured, and what would settle it.
    findings are labelled but nobody has read the traces to say whether the old
    analyzer was right. The label reports a transition; it does not claim the
    defect is real.
-6. **The four-cell form was used to validate the two-cell form.** The claim that
-   the production two-cell procedure suffices rests on the four-cell run showing
-   no `CONTROL_FAILURE`. That has been observed once.
+6. **The four-cell form was used to validate the three-cell form.** The claim
+   that the production three-cell procedure suffices rests on the four-cell run
+   showing no `CONTROL_FAILURE`. That has been observed once. Note that a
+   three-cell run cannot detect `CONTROL_FAILURE` itself -- both its patterns
+   involve the fourth cell -- so it inherits that assurance rather than
+   re-establishing it.
 7. **No eval set.** Unlike `coverity-defect-detectability`, this skill has not
    been tested by giving the task to a model with and without it.

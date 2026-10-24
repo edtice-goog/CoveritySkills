@@ -12,10 +12,10 @@ C2 =    c  94 occ / 60 keys   d  147 occ / 112 keys
 v1.3.9
 ```
 
-Session run 2026-08-24. Capture in WSL2 (gcc 13.3.0), analysis in WSL with
-`--security-file`, commit from Windows to a local Connect 2025.12.0. Fixed
-build tree `~/iti/proftpd`, serial `make`, one fresh idir per cell, all 90 TUs
-at 100% in every cell.
+Run 2026-08-24. Capture in WSL2 (gcc 13.3.0), analysis in WSL with
+`--security-file`, commit from Windows to a local Connect 2025.12.0. One build
+tree with each tag checked out in place, serial `make`, one fresh idir per
+cell, all 90 TUs at 100% in every cell.
 
 ## What the user would have seen
 

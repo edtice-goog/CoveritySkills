@@ -199,14 +199,26 @@ One label per finding, from its presence across the cells. `a=(C1,A1)`,
 `VERSION_ATTRIBUTABLE` carries a `sub_attribution` of `checker_enablement` or
 `analyzer_behaviour` from Step 5. Detail, not headline.
 
-### Two cells or four
+### Three cells or four
 
-The **production** case needs only the anchor plus `(C1,A2)`: code held
-constant, so the user's question is answered without touching their new code.
+The **production** case uses three: the anchor `(C1,A1)` you reproduced, the
+control `(C1,A2)` you add, and `(C2,A2)` -- the result the user already has and
+is asking about. Only one of the three is new work, which is what makes the
+procedure affordable.
 
-The **four-cell** form adds `(C2,A1)` and is what validates the method, because
-it makes the labels falsifiable. Run it when calibrating, or when the code delta
-itself is under dispute.
+Every primary label is decidable from those three, and the discriminator is
+usually `b`, not `c`:
+
+- appeared, and `b` reports it on the old code -> `VERSION_ATTRIBUTABLE`
+- appeared, and `b` does not -> `CODE_ATTRIBUTABLE`
+- disappeared, and `b` still reports it on the old code -> `RESOLVED_BY_CODE`
+- disappeared, and `b` does not -> `DROPPED_BY_VERSION`
+
+The **four-cell** form adds `(C2,A1)`, the old analyzer on the new code. It buys
+two things and is worth the extra capture when either matters: it confirms the
+code-side labels independently, and it is the only way to detect
+`CONTROL_FAILURE`, whose patterns both involve `c`. Run it when calibrating the
+method, or when the code delta itself is under dispute.
 
 ### `CONTROL_FAILURE` must be empty
 
