@@ -913,7 +913,7 @@ the code is deliberate (a defensive branch after an exhaustive switch), the
 honest verdict is **intentional**, not false positive.
 
 Source: verified — `coverity-demo-data`. Measured on a stratified sample of
-nine proftpd findings: three were wrong, and every one was checker-correct.
+nine proftpd findings: four were wrong, and every one was checker-correct.
 Full worked triage in
 `coverity-demo-data/references/worked-example-fp-audit.md`; vocabulary, and
 the reading method that applies it lane by lane, in
