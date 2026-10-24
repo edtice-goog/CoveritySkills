@@ -4,7 +4,7 @@ compiles on its own -- the function body plus every typedef, struct, enum,
 global and callee prototype it needs -- so it can be re-emitted and
 re-analyzed in seconds while you change it.
 
-    slice_function.py --dir <idir> --bin <install>/bin --tu <N> --name <fn> \
+    slice_function.py --dir <idir> --bin <install>/bin --tu <N> --name <fn> [--name <fn2>[@<tu>] ...] \
         [--out <dir>] [--emit] [--analyze] [--obfuscate]
 
 Everything comes from the emit's own AST via `cov-manage-emit find`:
@@ -28,6 +28,13 @@ string literals masked to same-length placeholders, comments dropped,
 library names and all constants kept; with --analyze both files are
 analyzed and compared, so the twin is proven to analyze like the original
 before it leaves. The rename map (<fn>.obf.map.json) stays local.
+
+--name repeated slices a SET of functions into one file: every member is
+real code (a `static` one loses only the keyword, so the others can reach
+it), every member is declared before any is defined, callees outside the set
+stay prototypes, and line 1 reads `/* slice-set: a, b, c */`. `name@tu`
+names a member from another translation unit; declarations that differ
+between member TUs are reported as `conflict:` with exit 2, never guessed.
 
 Scope: C. C++ bodies extract fine, but classes with methods, templates and
 namespaces are not reconstructed; for C++ use the preprocessed TU instead
@@ -255,27 +262,37 @@ class Names:
     def __init__(self, function_name=None):
         self.tags = {}
         self.n = 0
-        self.function_name = function_name
+        # one function, or the whole slice set: a type local to any member is
+        # hoisted to file scope the same way
+        if isinstance(function_name, (list, tuple)):
+            self.function_names = [f for f in function_name if f]
+        else:
+            self.function_names = [function_name] if function_name else []
+        self.function_name = self.function_names[0] if self.function_names else None
         self.local_tags = []      # (qualified name, tag) for types local to the function
         self.unnamed_local = []   # (variable name or "", tag) for unnamed types local to the function
 
-    def _local_of(self, name):
-        """A type declared inside the function is named either `fn::tag` or,
-        Itanium-style, `_ZZ<len>fnE<len>tag`. Return `tag` if it is local to
-        our function, else None."""
-        fn = self.function_name
-        if name.startswith(fn + "::"):
-            return name[len(fn) + 2:]
-        m = re.match(r"^_ZZ(\d+)(.*)$", name)
-        if m:
-            n = int(m.group(1))
-            rest = m.group(2)
-            if rest[:n] == fn and rest[n:n + 1] == "E":
-                m2 = re.match(r"^(\d+)(.*)$", rest[n + 1:])
-                if m2:
-                    k = int(m2.group(1))
-                    return m2.group(2)[:k]
+    def _local_fn_of(self, name):
+        """A type declared inside a member function is named either `fn::tag`
+        or, Itanium-style, `_ZZ<len>fnE<len>tag`. Return (fn, tag) if it is
+        local to one of our functions, else None."""
+        for fn in self.function_names:
+            if name.startswith(fn + "::"):
+                return fn, name[len(fn) + 2:]
+            m = re.match(r"^_ZZ(\d+)(.*)$", name)
+            if m:
+                n = int(m.group(1))
+                rest = m.group(2)
+                if rest[:n] == fn and rest[n:n + 1] == "E":
+                    m2 = re.match(r"^(\d+)(.*)$", rest[n + 1:])
+                    if m2:
+                        k = int(m2.group(1))
+                        return fn, m2.group(2)[:k]
         return None
+
+    def _local_of(self, name):
+        r = self._local_fn_of(name)
+        return r[1] if r else None
 
     def _unnamed_local_of(self, name):
         """An unnamed type declared inside the function is named
@@ -283,23 +300,22 @@ class Names:
         {...} state;`) and `_ZZ<len>fnE$Ua<len>...` when it is not (`enum
         {LIMIT = 3};`). Return the variable name, "" for the second form,
         None when the name is not one of ours."""
-        fn = self.function_name
-        if not fn:
-            return None
         m = re.match(r"^_ZZ(\d+)(.*)$", name)
         if not m:
             return None
         n = int(m.group(1))
         rest = m.group(2)
-        if rest[:n] != fn or rest[n:n + 1] != "E":
-            return None
-        m2 = re.match(r"^\$U([au])(\d+)(.*)$", rest[n + 1:])
-        if not m2:
-            return None
-        if m2.group(1) != "u":
-            return ""
-        k = int(m2.group(2))
-        return m2.group(3)[:k]
+        for fn in self.function_names:
+            if rest[:n] != fn or rest[n:n + 1] != "E":
+                continue
+            m2 = re.match(r"^\$U([au])(\d+)(.*)$", rest[n + 1:])
+            if not m2:
+                return None
+            if m2.group(1) != "u":
+                return ""
+            k = int(m2.group(2))
+            return m2.group(3)[:k]
+        return None
 
     def tag(self, name, kind="s"):
         if name in self.tags:
@@ -313,12 +329,12 @@ class Names:
                 # file scope under this tag; the body's `fn::[unnamed type of
                 # 'var']` spelling is pointed at it (see rewrite_body)
                 self.unnamed_local.append((var, t))
-        elif self.function_name and self._local_of(name):
+        elif self.function_names and self._local_fn_of(name):
             # a struct/enum declared inside the function: hoist it to file scope
             # under its own tag; the body is rewritten to match (see rewrite_body)
-            local = self._local_of(name)
+            fn, local = self._local_fn_of(name)
             t = re.sub(r"[^A-Za-z0-9_]", "_", local)
-            self.local_tags.append(("%s::%s" % (self.function_name, local), t))
+            self.local_tags.append(("%s::%s" % (fn, local), t))
         elif nested_components(name):
             # A nested type is spelled through its class everywhere it is
             # referenced; the definition itself uses the bare last component
@@ -639,14 +655,62 @@ SIZEOF_FOLDED = re.compile(r"\b(\d+)(ULL|UL|LL|U|L)?[ \t]*/\*[ \t]*(sizeof\b.*?)
 # ==========================================================================
 # collection
 
+def type_sig(t, depth=0):
+    """A structural signature of a type node, for telling apart two
+    declarations of the same name from different TUs. Tags, names, scalar
+    kinds, cv flags and array counts; no node identities."""
+    if not isinstance(t, Node) or depth > 12:
+        return "?"
+    tag = t.tag
+    if tag == "scalar_type_t":
+        return t.get("kind", "int")
+    if tag == "cv_wrapper_type_t":
+        return "%s %s" % (t.get("flags", ""), type_sig(t.get("target"), depth + 1))
+    if tag in ("pointer_type_t", "reference_type_t"):
+        return type_sig(t.get("pointed_to") or t.get("target"), depth + 1) + "*"
+    if tag == "array_type_t":
+        return "%s[%s]" % (type_sig(t.get("element_type"), depth + 1), t.get("element_count", ""))
+    if tag == "typedef_type_t":
+        return "typedef " + (t.get("name") or "?")
+    if tag in ("class_type_t", "internal_defined_class_type_t"):
+        return "%s %s" % (t.get("classKey", "struct"), t.get("name") or "?")
+    if tag in ("enum_type_t", "internal_defined_enum_type_t"):
+        return "enum " + (t.get("name") or "?")
+    if tag == "function_type_t":
+        return "%s(%s)" % (type_sig(t.get("return"), depth + 1),
+                           ",".join(type_sig(p, depth + 1) for k, p in (t.get("parameters") or [])))
+    return tag
+
+
+def class_sig(cls):
+    return ";".join("%s:%s" % (f.get("name"), type_sig(f.get("type"))) for k, f in (cls.get("fields") or []))
+
+
+class Member:
+    """One function of the slice set: what was fetched for it and where it
+    came from."""
+    def __init__(self, name, tu, body, root, callees_text=None):
+        self.name = name             # as the analysis log spells it (mangled for C++)
+        self.tu = tu
+        self.body = body             # --print-definitions text
+        self.root = root             # --print-debug tree
+        self.callees_text = callees_text
+        self.static = False          # `static` in the original definition
+        self.prototype = None        # rendered from the definition's own signature
+
+
 class Slice:
     def __init__(self, bin_dir, idir, tu, name, cxx):
         self.bin = bin_dir
         self.idir = idir
-        self.tu = tu
-        self.name = name
+        self.tu = tu                 # the first member's TU: recorded flags, lookups
+        self.name = name             # the first member's name: filenames, the single-name path
         self.cxx = cxx
+        self.members = []            # Member, in --name order
+        self.member_keys = {name}    # names the emit keys the members by
+        self.tus = [tu]              # every member TU, first first
         self.typedefs = {}       # name -> typedef_type_t node (with target)
+        self.typedef_tu = {}     # name -> TU the typedef was first collected from
         self.classes = {}        # name -> classKey
         self.complete = set()    # class names that need a full definition
         self.class_defs = {}     # name -> internal_defined_class_type_t node
@@ -660,22 +724,46 @@ class Slice:
         self.locals = []         # local variable names, in tree order
         self.params = []         # parameter names, in tree order
         self.notes = []
+        self.conflicts = []      # declarations that differ between member TUs
         self.root = None         # the --print-debug tree, for the subscript repair
         self.fold_sizeof = False # keep the printer's folded sizeof constants
         self.repaired = []       # (base text, [source lines]) parenthesized from the tree
         self.unfolded = {}       # body line index -> the folded line it replaced
+        self._collecting_tu = tu
+
+    def add_member(self, m):
+        """Register a set member before collecting its tree. The first member
+        defines self.name / self.tu, as the single-name path always has."""
+        self.members.append(m)
+        self.member_keys.add(m.name)
+        if m.tu not in self.tus:
+            self.tus.append(m.tu)
+        self.names = Names([x.name for x in self.members])
 
     # ---- walking a tree -------------------------------------------------
-    def collect(self, root):
+    def collect(self, root, tu=None):
         if self.root is None:
             self.root = root     # the function's tree; close() re-enters for field types
+        if tu is not None:
+            self._collecting_tu = tu
 
         def visit(node, path):
             tag = node.tag
             if tag == "typedef_type_t":
                 nm = node.get("name")
-                if nm and nm not in self.typedefs and isinstance(node.get("target"), Node):
-                    self.typedefs[nm] = node
+                if nm and isinstance(node.get("target"), Node):
+                    if nm not in self.typedefs:
+                        self.typedefs[nm] = node
+                        self.typedef_tu[nm] = self._collecting_tu
+                    elif self._collecting_tu != self.typedef_tu[nm] \
+                            and type_sig(node.get("target")) != type_sig(self.typedefs[nm].get("target")):
+                        # the same typedef spelled differently in another
+                        # member's TU: the slice cannot carry both
+                        c = ("typedef %s: `%s` in TU %s, `%s` in TU %s"
+                             % (nm, type_sig(self.typedefs[nm].get("target")), self.typedef_tu[nm],
+                                type_sig(node.get("target")), self._collecting_tu))
+                        if c not in self.conflicts:
+                            self.conflicts.append(c)
             elif tag in ("class_type_t", "internal_defined_class_type_t"):
                 nm = node.get("name")
                 if nm:
@@ -697,7 +785,8 @@ class Slice:
                     self.globals.setdefault(nm, node)
             elif tag == "function_t":
                 nm = node.get("name")
-                if nm and nm != self.name and isinstance(node.get("type"), Node):
+                # a set member is defined in the slice, not declared as a callee
+                if nm and nm not in self.member_keys and isinstance(node.get("type"), Node):
                     self.functions.setdefault(nm, node)
             elif tag == "field_t":
                 mc = node.get("memberOfClass")
@@ -747,14 +836,10 @@ class Slice:
             if self.enums[e] is None:
                 self.enums[e] = self.fetch_enum(e)
 
-    def fetch_class(self, name):
-        # TU-scoped first: a project can define the same tag differently in
-        # different TUs (redis has hiredis's `dict` beside its own), and the
-        # wrong one drops the function at emit time with "struct has no
-        # field". Fall back to the whole emit for tags the TU only declares.
-        out = manage_emit(self.bin, self.idir, ["--tu", str(self.tu), "find", find_regex(name), "--kind", "c", "--print-debug"])
+    def _fetch_class_in(self, name, scope):
+        out = manage_emit(self.bin, self.idir, scope + ["find", find_regex(name), "--kind", "c", "--print-debug"])
         if "Matching" not in out:
-            out = manage_emit(self.bin, self.idir, ["find", find_regex(name), "--kind", "c", "--print-debug"])
+            return None
         for header, root in parse_debug(out):
             cls = root.get("class")
             if isinstance(cls, Node) and cls.get("name") == name:
@@ -764,8 +849,35 @@ class Slice:
                 return cls
         return None
 
+    def fetch_class(self, name):
+        # TU-scoped first: a project can define the same tag differently in
+        # different TUs (redis has hiredis's `dict` beside its own), and the
+        # wrong one drops the function at emit time with "struct has no
+        # field". Fall back to the whole emit for tags the TU only declares.
+        # With members from several TUs, every member TU is asked, and a tag
+        # defined differently in two of them is a conflict the slice reports
+        # instead of picking one.
+        found = []
+        for tu in self.tus:
+            cls = self._fetch_class_in(name, ["--tu", str(tu)])
+            if cls is not None:
+                found.append((tu, cls))
+        if not found:
+            return self._fetch_class_in(name, [])
+        first_tu, first = found[0]
+        for tu, cls in found[1:]:
+            if class_sig(cls) != class_sig(first):
+                c = "%s %s: defined differently in TU %s and TU %s" % (first.get("classKey", "struct"), name, first_tu, tu)
+                if c not in self.conflicts:
+                    self.conflicts.append(c)
+        return first
+
     def fetch_enum(self, name):
-        out = manage_emit(self.bin, self.idir, ["--tu", str(self.tu), "find", find_regex(name), "--kind", "e", "--print-debug"])
+        out = ""
+        for tu in self.tus:
+            out = manage_emit(self.bin, self.idir, ["--tu", str(tu), "find", find_regex(name), "--kind", "e", "--print-debug"])
+            if "Matching" in out:
+                break
         if "Matching" not in out:
             out = manage_emit(self.bin, self.idir, ["find", find_regex(name), "--kind", "e", "--print-debug"])
         for header, root in parse_debug(out):
@@ -872,15 +984,79 @@ class Slice:
         return order
 
     # ---- printing -----------------------------------------------------------
+    @staticmethod
+    def split_signature(body):
+        """(head, signature, rest) of a pretty-printed definition: the `//`
+        header lines, the text from the first declaration token up to and
+        including the `{` that opens the body, and everything after. The
+        signature is what a prototype of a set member is made from."""
+        lines = body.split("\n")
+        i = 0
+        while i < len(lines) and (lines[i].startswith("//") or not lines[i].strip()):
+            i += 1
+        head = "\n".join(lines[:i])
+        rest = "\n".join(lines[i:])
+        depth = 0
+        for k, ch in enumerate(rest):
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+            elif ch == "{" and depth == 0:
+                return head, rest[:k + 1], rest[k + 1:]
+        return head, None, rest
+
+    def member_prototype(self, m, body):
+        """The prototype of a set member, from its own definition's signature,
+        and whether the original was `static`. A member that was file-local
+        loses the keyword, as callee prototypes always have, so another member
+        can reach it; `inline` goes with it (an inline definition with
+        external linkage is not a definition in C99)."""
+        # the raw body still carries the `/* Matching function ... */` block;
+        # respell it first so the signature search starts at the declaration
+        head, sig, rest = self.split_signature(self.respell_header(body))
+        if sig is None:
+            return None, False
+        sig = " ".join(sig[:-1].split())          # drop the `{`, fold whitespace
+        static = bool(re.match(r"^(?:(?:static|inline|__inline__|__inline)\s+)*static\b", sig))
+        sig = re.sub(r"^(?:(?:static|inline|__inline__|__inline)\s+)+", "", sig)
+        return sig + ";", static
+
+    @staticmethod
+    def drop_static(body):
+        """Remove `static` / `inline` from a member definition's signature
+        line, leaving the header comments and the body alone."""
+        head, sig, rest = Slice.split_signature(body)
+        if sig is None:
+            return body
+        sig2 = re.sub(r"^(\s*)(?:(?:static|inline|__inline__|__inline)\s+)+", r"\1", sig)
+        return (head + "\n" if head else "") + sig2 + rest
+
     def render(self, body_text, provenance, obf=None):
         self.obf = obf
         P = Printer(self.names, self.class_defs, self.enums, self.cxx)
+        bodies = list(body_text) if isinstance(body_text, (list, tuple)) else [body_text]
+        multi = len(self.members) > 1
         out = []
-        out.append("/* Standalone slice of %s, generated by slice_function.py from the AST in\n"
-                   " * %s (TU %s).\n"
-                   " * Declarations were printed back from the emit; the body is the analyzer's\n"
-                   " * own pretty-print (macros expanded). Anonymous types carry synthetic tags.\n"
-                   " */" % (self.name, provenance, self.tu))
+        set_names = [m.name for m in self.members] or [self.name]
+        # line 1 names the set, so that a consumer can tell which definitions
+        # are the slice's own without parsing C (the obfuscated twin gets the
+        # same line with the new names, added after renaming)
+        out.append("/* slice-set: %s */" % ", ".join(set_names))
+        if multi:
+            out.append("/* Standalone slice of %d functions (%s), generated by slice_function.py from the AST in\n"
+                       " * %s (TU%s %s).\n"
+                       " * Declarations were printed back from the emit; the bodies are the analyzer's\n"
+                       " * own pretty-print (macros expanded). Anonymous types carry synthetic tags.\n"
+                       " * Each member is real code here; only callees outside the set are prototypes.\n"
+                       " */" % (len(set_names), ", ".join(source_spelling(n) for n in set_names), provenance,
+                                "s" if len(self.tus) > 1 else "", ", ".join(str(t) for t in self.tus)))
+        else:
+            out.append("/* Standalone slice of %s, generated by slice_function.py from the AST in\n"
+                       " * %s (TU %s).\n"
+                       " * Declarations were printed back from the emit; the body is the analyzer's\n"
+                       " * own pretty-print (macros expanded). Anonymous types carry synthetic tags.\n"
+                       " */" % (self.name, provenance, self.tu))
         # the pretty-printer keeps NULL and the va_* family in macro form;
         # nothing else survives as a macro
         out.append("\n#ifndef NULL\n#define NULL %s\n#endif\n"
@@ -1014,12 +1190,56 @@ class Slice:
             pr.append("%s;" % P.decl(ft, f.get("id") or nm))
         if pr:
             out.append("\n/* callees (prototypes only: the analysis sees them as unmodeled) */\n" + "\n".join(pr))
-        # the body, and where it starts in the rendered file: a cov-emit
-        # diagnostic at slice line L is body line L - body_offset (1-based)
-        self.rendered_body = self.rewrite_body(body_text).rstrip()
-        prefix = "\n".join(out) + "\n\n/* the function */\n"
+        # the bodies, and where they start in the rendered file: a cov-emit
+        # diagnostic at slice line L is body line L - body_offset (1-based);
+        # body_spans says which member a body line belongs to
+        if multi:
+            # every member is declared before any is defined, so definition
+            # order and mutual recursion never matter; a member that was
+            # file-local loses `static` here and in its definition
+            protos = []
+            for m, b in zip(self.members, bodies):
+                proto, static = self.member_prototype(m, b)
+                m.static = static
+                m.prototype = proto
+                if proto is None:
+                    self.notes.append("%s: could not find the definition's signature; no prototype for it"
+                                      % source_spelling(m.name))
+                else:
+                    protos.append(proto)
+            out.append("\n/* the slice set (prototypes first, so definition order and mutual recursion never matter;\n"
+                       " * a member that was static in the original keeps its definition and loses only the keyword) */\n"
+                       + "\n".join(protos))
+        pieces = []
+        self.body_spans = []
+        self.unfolded = {}
+        self.repaired = []
+        line_base = 0
+        for i, b in enumerate(bodies):
+            m = self.members[i] if i < len(self.members) else None
+            self.root = m.root if m is not None else self.root
+            text = self.rewrite_body(b, line_base=line_base)
+            if multi:
+                text = self.drop_static(text)
+            text = text.rstrip()
+            if i:
+                sep = "\n\n/* --- %s --- */\n" % source_spelling(m.name if m else self.name)
+                pieces.append(sep)
+                line_base += sep.count("\n")
+            start = line_base
+            pieces.append(text)
+            n = text.count("\n") + 1
+            self.body_spans.append((start, start + n))
+            line_base += n - 1
+        self.rendered_body = "".join(pieces)
+        prefix = "\n".join(out) + ("\n\n/* the functions */\n" if multi else "\n\n/* the function */\n")
         self.body_offset = prefix.count("\n")
         return prefix + self.rendered_body + "\n"
+
+    def bodies_from_rendered(self, rendered_lines):
+        """Split a (possibly edited) rendered body back into one text per
+        member, by the spans render() recorded."""
+        return ["\n".join(rendered_lines[s:e]) for s, e in self.body_spans]
 
     # A declaration whose declarator is missing: the token before `[` is a type
     # keyword or `*`/`&`, never an identifier, and a string literal initialises
@@ -1084,7 +1304,7 @@ class Slice:
                 for ln in lines[1:end]]
         return "\n".join(head + lines[end + 1:])
 
-    def rewrite_body(self, body):
+    def rewrite_body(self, body, line_base=0):
         """Constructs the pretty-printer emits that are not C:
 
         1. `struct fn::tag` for a struct declared inside the function, plus a
@@ -1124,10 +1344,10 @@ class Slice:
         for qualified, tag in self.names.local_tags:
             body = re.sub(r"\b(struct|union|enum)\s+" + re.escape(qualified) + r"\b", r"\1 " + tag, body)
             body = re.sub(r"^\s*(struct|union|enum)\s+" + re.escape(tag) + r";\s*$\n?", "", body, flags=re.M)
-        # 5. a function-local typedef spelled fn::name
-        fn = source_spelling(self.name)
-        if fn:
-            body = re.sub(r"\b" + re.escape(fn) + r"::(?=[A-Za-z_])", "", body)
+        # 5. a function-local typedef spelled fn::name (any member's)
+        for fn in set(source_spelling(n) for n in (list(self.member_keys) or [self.name])):
+            if fn:
+                body = re.sub(r"\b" + re.escape(fn) + r"::(?=[A-Za-z_])", "", body)
         # 6. `1e+09.`
         body = re.sub(r"(\b\d+(?:\.\d*)?[eE][+-]?\d+)\.(?![\d.])", r"\1", body)
         # 7. [[attributes]] in C
@@ -1169,7 +1389,7 @@ class Slice:
         body = self.repair_subscripts(body)
         # 11. folded sizeof constants, restored to the expression the comment keeps
         if not self.fold_sizeof:
-            body = self.unfold_sizeof(body)
+            body = self.unfold_sizeof(body, line_base)
         return body
 
     def repair_subscripts(self, body):
@@ -1213,7 +1433,7 @@ class Slice:
                                  ", ".join(str(l) for l in sorted(set(x for x in unrendered if x)))))
         return body
 
-    def unfold_sizeof(self, body):
+    def unfold_sizeof(self, body, line_base=0):
         """`8ULL /* sizeof (&r) */` back to `(sizeof (&r))`, so the slice carries
         the expression and not the capture's answer to it: a BAD_SIZEOF or
         SIZEOF_MISMATCH survives re-analysis, and a build with another pointer
@@ -1236,7 +1456,7 @@ class Slice:
                 continue
             new = SIZEOF_FOLDED.sub(lambda m: "(" + m.group(3) + ")", line)
             if new != line:
-                self.unfolded[k] = line
+                self.unfolded[line_base + k] = line      # keyed in rendered-body lines
                 lines[k] = new
         return "\n".join(lines)
 
@@ -1542,9 +1762,17 @@ class Obfuscator:
         m = self._map_for(category)
         if name in m or name in self.keep:
             return
-        n = self.counters.get(category, 0) + 1
-        self.counters[category] = n
-        new = "fn_0" if category == "target" else "%s_%d" % (self.PREFIX[category], n)
+        if category in ("target", "function"):
+            # one counter for both, targets first: the slice set is fn_0,
+            # fn_1, ..., and the callees continue after it (a single target
+            # is fn_0 and its callees start at fn_1, as they always have)
+            n = self.counters.get("fn", -1) + 1
+            self.counters["fn"] = n
+            new = "fn_%d" % n
+        else:
+            n = self.counters.get(category, 0) + 1
+            self.counters[category] = n
+            new = "%s_%d" % (self.PREFIX[category], n)
         m[name] = new
         self.category[new] = (category, name)
 
@@ -1573,12 +1801,18 @@ class Obfuscator:
 
     def classify(self, callees_text):
         sl = self.sl
+        # the set members first, so they are fn_0, fn_1, ... in --name order;
+        # the body declares each by its source name, not the mangled one the
+        # emit keys it by
+        for nm in ([m.name for m in sl.members] or [sl.name]):
+            self._rename(nm, "target")
+            self._also(source_spelling(nm), nm, "target")
         # callees: --print-callees gives each one's declaring file (a
         # 'defined in TU' line appears only for same-TU definitions, so it is
         # not the criterion; the declaring file is)
         callee_loc = {}
         cur = None
-        for line in callees_text.splitlines():
+        for line in (callees_text or "").splitlines():
             s = line.strip()
             if s.startswith("Call to: "):
                 sig = s[len("Call to: "):]
@@ -1687,11 +1921,8 @@ class Obfuscator:
             # name. A typedef is renamed unless it is recognisably standard,
             # which the STD_TYPEDEFS check above decides.
             self._rename(nm, "typedef")
-        # the function, its parameters and locals
-        self._rename(sl.name, "target")
-        # the body declares the function by its source name, not the mangled
-        # one the emit keys it by
-        self._also(source_spelling(sl.name), sl.name, "target")
+        # the members' parameters and locals (the members themselves were
+        # renamed first, above)
         for nm in sl.params:
             self._rename(nm, "param")
         for nm in sl.locals:
@@ -1926,7 +2157,12 @@ def emit_symbol_name(bin_dir, idir, source_name):
     return m.group(1) if m else source_name
 
 
-def run_analyze(bin_dir, idir, fn_name, log_path, paths=None, emit_name=None):
+def run_analyze(bin_dir, idir, fn_name, log_path, paths=None, emit_name=None, targets=None):
+    """Analyze the one-file idir and read the log for every target function.
+    `targets` is [(source spelling, name the log will use)]; the single
+    (fn_name, emit_name) form is kept for the one-function path. Returns the
+    first target's result dict (as before), with `per` holding one such dict
+    per target in order."""
     exe = os.path.join(bin_dir, "cov-analyze")
     if os.name == "nt" and os.path.exists(exe + ".exe"):
         exe += ".exe"
@@ -1936,27 +2172,34 @@ def run_analyze(bin_dir, idir, fn_name, log_path, paths=None, emit_name=None):
     p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     with open(log_path, "w", encoding="utf-8", newline="\n") as f:
         f.write(" ".join(cmd) + "\n\n" + p.stdout + p.stderr)
-    res = {"rc": p.returncode, "wur": None, "paths": None, "pathout": False, "pathed_out": [], "count": None}
+    if targets is None:
+        targets = [(fn_name, emit_name or fn_name)]
+    per = [{"rc": p.returncode, "fn": fn, "wur": None, "paths": None, "pathout": False, "pathed_out": [], "count": None}
+           for fn, en in targets]
     logp = os.path.join(idir, "output", "analysis-log.txt")
-    if p.returncode != 0 or not os.path.exists(logp):
-        return res
-    with open(logp, encoding="utf-8", errors="replace") as f:
-        for l in f:
-            l = l.rstrip()
-            if l.startswith("wur: ") and l.endswith(" n: %s in TU 1" % (emit_name or fn_name)):
-                res["wur"] = re.sub(r" mem=\d+ max=\d+", "", l)
-                m = re.search(r" (\d+)( PATHOUT=\d+)? n: ", l)
-                if m:
-                    res["paths"] = int(m.group(1))
-                    res["pathout"] = bool(m.group(2))
-            elif "Pathed out" in l and (' in "%s(' % fn_name in l or "::%s(" % fn_name in l):
-                m = re.search(r"Pathed out: (\d+) paths traversed by (\S+) in", l)
-                if m:
-                    res["pathed_out"].append((m.group(2), int(m.group(1))))
-            elif l.startswith("summary: paths_exceeded count: "):
-                res["count"] = int(l.rsplit(" ", 1)[1])
-    res["pathed_out"] = sorted(set(res["pathed_out"]))
-    return res
+    if p.returncode == 0 and os.path.exists(logp):
+        with open(logp, encoding="utf-8", errors="replace") as f:
+            for l in f:
+                l = l.rstrip()
+                for (fn, en), res in zip(targets, per):
+                    if l.startswith("wur: ") and l.endswith(" n: %s in TU 1" % en):
+                        res["wur"] = re.sub(r" mem=\d+ max=\d+", "", l)
+                        m = re.search(r" (\d+)( PATHOUT=\d+)? n: ", l)
+                        if m:
+                            res["paths"] = int(m.group(1))
+                            res["pathout"] = bool(m.group(2))
+                    elif "Pathed out" in l and (' in "%s(' % fn in l or "::%s(" % fn in l):
+                        m = re.search(r"Pathed out: (\d+) paths traversed by (\S+) in", l)
+                        if m:
+                            res["pathed_out"].append((m.group(2), int(m.group(1))))
+                if l.startswith("summary: paths_exceeded count: "):
+                    for res in per:
+                        res["count"] = int(l.rsplit(" ", 1)[1])
+        for res in per:
+            res["pathed_out"] = sorted(set(res["pathed_out"]))
+    first = per[0]
+    first["per"] = per
+    return first
 
 
 def report_emit(label, r):
@@ -1990,27 +2233,29 @@ def report_emit(label, r):
                     break
 
 
-def report_analyze(label, r, fn_name, emit_result=None):
+def report_analyze(label, r, fn_name, emit_result=None, tag=""):
     """One line per fact from the analysis log. No `wur:` line for the
     function is a failure, never "no PATHOUT": the log's `paths_exceeded
-    count: 0` says nothing about a function the emit dropped."""
+    count: 0` says nothing about a function the emit dropped. `tag` prefixes
+    each line with the member's name when the slice is a set."""
     if r["rc"] != 0:
-        print("%-9s analysis: cov-analyze FAILED (exit %d)" % (label, r["rc"]))
+        print("%-9s analysis: %scov-analyze FAILED (exit %d)" % (label, tag, r["rc"]))
         return False
     if r["wur"] is None:
-        if emit_result and emit_result["not_emitted"]:
-            why = 'function "%s" not emitted, see %s' % (
-                '", "'.join(emit_result["not_emitted"]), emit_result["log_path"])
+        dropped = [d for d in (emit_result or {}).get("not_emitted") or [] if d == fn_name] \
+            if tag else (emit_result or {}).get("not_emitted")
+        if dropped:
+            why = 'function "%s" not emitted, see %s' % ('", "'.join(dropped), emit_result["log_path"])
         else:
             why = ("the emit did not flag it; check cov-emit.log for recoverable errors and "
                    "the analysis log for the name it used")
-        print("%-9s analysis: COULD NOT VERIFY -- no wur: line for %s in the one-file idir; %s"
-              % (label, fn_name, why))
+        print("%-9s analysis: %sCOULD NOT VERIFY -- no wur: line for %s in the one-file idir; %s"
+              % (label, tag, fn_name, why))
         return False
-    print("%-9s analysis: %s" % (label, r["wur"]))
+    print("%-9s analysis: %s%s" % (label, tag, r["wur"]))
     for comp, n in r["pathed_out"]:
-        print("%-9s analysis: Pathed out: %d paths traversed by %s" % (label, n, comp))
-    if r["count"] is not None:
+        print("%-9s analysis: %sPathed out: %d paths traversed by %s" % (label, tag, n, comp))
+    if r["count"] is not None and not tag:
         print("%-9s analysis: paths_exceeded count: %d" % (label, r["count"]))
     return True
 
@@ -2022,9 +2267,12 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dir", required=True)
     ap.add_argument("--bin", required=True, help="<install>/bin of the version that wrote the idir")
-    ap.add_argument("--tu", required=True, type=int)
-    ap.add_argument("--name", required=True, help="function name exactly as the analysis log printed it")
-    ap.add_argument("--out", help="output directory (default <idir>/output/pathout/slice-<name>)")
+    ap.add_argument("--tu", required=True, type=int, help="translation unit of the function(s); a --name may override it as name@tu")
+    ap.add_argument("--name", required=True, action="append",
+                    help="function name exactly as the analysis log printed it; repeat to slice a SET of functions into "
+                         "one file (each defined as real code, declared before any is defined); `name@tu` names a "
+                         "member from another translation unit")
+    ap.add_argument("--out", help="output directory (default <idir>/output/pathout/slice-<name>[-set])")
     ap.add_argument("--emit", action="store_true", help="re-emit the slice with the recorded flags")
     ap.add_argument("--analyze", action="store_true", help="also cov-analyze --print-paths the one-file idir")
     ap.add_argument("--paths", type=int, help="pass --paths N to the analysis")
@@ -2036,40 +2284,72 @@ def main():
                          "pretty-printer prints it; by default the expression is restored")
     a = ap.parse_args()
 
-    out_dir = a.out or os.path.join(a.dir, "output", "pathout", "slice-" + re.sub(r"[^A-Za-z0-9_]", "_", a.name))
+    # the set: (name, tu) pairs, in --name order; `name@tu` overrides --tu
+    specs = []
+    for raw in a.name:
+        nm, _, tu = raw.rpartition("@")
+        if nm and tu.isdigit():
+            specs.append((nm, int(tu)))
+        else:
+            specs.append((raw, a.tu))
+    seen = set()
+    specs = [s for s in specs if not (s in seen or seen.add(s))]
+    first_name, first_tu = specs[0]
+    multi = len(specs) > 1
+    stem = re.sub(r"[^A-Za-z0-9_]", "_", first_name)
+    out_dir = a.out or os.path.join(a.dir, "output", "pathout", "slice-" + stem + ("-set" if multi else ""))
     os.makedirs(out_dir, exist_ok=True)
 
-    flags, meta = recorded_emit_flags(a.bin, a.dir, a.tu)
+    flags, meta = recorded_emit_flags(a.bin, a.dir, first_tu)
     cxx = bool(meta and meta["lang"] == "c++")
+    for nm, tu in specs[1:]:
+        if tu != first_tu:
+            _, m2 = recorded_emit_flags(a.bin, a.dir, tu)
+            if bool(m2 and m2["lang"] == "c++") != cxx:
+                sys.exit("members from TU %d and TU %d are not the same language; one slice cannot hold both"
+                         % (first_tu, tu))
 
-    # 1. body
-    body = manage_emit(a.bin, a.dir, ["--tu", str(a.tu), "find", find_regex(a.name), "--kind", "f", "--print-definitions"])
-    if "Matching function" not in body:
-        sys.exit("no function matched %s in TU %d" % (find_regex(a.name), a.tu))
-    if body.count("Matching function") > 1:
-        print("warning: several definitions matched; slicing the first", file=sys.stderr)
-        body = body.split("/*\n * Matching function")[1]
-        body = "/*\n * Matching function" + body
-    # 2. tree
-    dbg = manage_emit(a.bin, a.dir, ["--tu", str(a.tu), "find", find_regex(a.name), "--kind", "f", "--print-debug"])
-    roots = parse_debug(dbg)
-    if not roots:
-        sys.exit("could not parse --print-debug output")
-    header, root = roots[0]
-    sl = Slice(a.bin, a.dir, a.tu, a.name, cxx)
+    # 1. bodies and trees, one member at a time
+    members = []
+    for nm, tu in specs:
+        body = manage_emit(a.bin, a.dir, ["--tu", str(tu), "find", find_regex(nm), "--kind", "f", "--print-definitions"])
+        if "Matching function" not in body:
+            sys.exit("no function matched %s in TU %d" % (find_regex(nm), tu))
+        if body.count("Matching function") > 1:
+            print("warning: several definitions matched %s; slicing the first" % nm, file=sys.stderr)
+            body = body.split("/*\n * Matching function")[1]
+            body = "/*\n * Matching function" + body
+        dbg = manage_emit(a.bin, a.dir, ["--tu", str(tu), "find", find_regex(nm), "--kind", "f", "--print-debug"])
+        roots = parse_debug(dbg)
+        if not roots:
+            sys.exit("could not parse --print-debug output for %s" % nm)
+        header, root = roots[0]
+        members.append(Member(nm, tu, body, root))
+    # 2. one closure over every member's tree
+    sl = Slice(a.bin, a.dir, first_tu, first_name, cxx)
     sl.fold_sizeof = a.fold_sizeof
-    sl.collect(root)
+    for m in members:
+        sl.add_member(m)
+    for m in members:
+        sl.collect(m.root, m.tu)
     sl.close()
-    text = sl.render(body, a.dir)
+    bodies = [m.body for m in members]
+    text = sl.render(bodies, a.dir)
 
     ext = ".cpp" if cxx else ".c"
-    slice_path = os.path.join(out_dir, re.sub(r"[^A-Za-z0-9_]", "_", a.name) + ".slice" + ext)
+    slice_path = os.path.join(out_dir, stem + (".set" if multi else "") + ".slice" + ext)
     with open(slice_path, "w", encoding="utf-8", newline="\n") as f:
         f.write(text)
+    set_names = [m.name for m in members]
     print("slice   : %s  (%d lines)" % (slice_path, text.count("\n")))
+    print("set     : " + ", ".join(set_names))
     print("contents: %d typedefs, %d struct definitions (+%d forward-declared only), %d enums, %d globals, %d prototypes"
           % (len([t for t in sl.typedefs if not t.startswith("__builtin_")]), len(sl.class_defs),
              len(sl.classes) - len(sl.class_defs), len(sl.enums), len(sl.globals), len(sl.functions)))
+    if multi:
+        statics = [source_spelling(m.name) for m in members if m.static]
+        print("members : %d defined as code%s" % (len(members),
+              ("; static in the original, now reachable across the set: " + ", ".join(statics)) if statics else ""))
     if sl.repaired:
         print("repaired: %d subscript base%s the pretty-printer printed bare, parenthesized from the tree: %s"
               % (sum(len(l) for _, l in sl.repaired), "s" if sum(len(l) for _, l in sl.repaired) > 1 else "",
@@ -2081,35 +2361,56 @@ def main():
               % (len(sl.unfolded), "s" if len(sl.unfolded) > 1 else ""))
     for n in sl.notes:
         print("note    : " + n)
+    for c in sl.conflicts:
+        print("conflict: " + c)
 
     # ---- obfuscated twin
+    OBF_HEADER = ("/* Obfuscated slice: project identifiers renamed by kind (fn_ p_ v_ g_ T_ S_ E_ e_ f_ L_),\n"
+                  " * string literals masked to same-length placeholders, comments removed. Library\n"
+                  " * functions, types and standard typedefs keep their names so the analyzer's models\n"
+                  " * still apply. Numeric constants and all control flow are unchanged. */\n")
     obf_path = obf_name = None
+    obf_names = []
+    callees = None
+
+    def write_twin(ob, bodies):
+        obf_text, mapping, unclassified = ob.apply(sl.render(bodies, a.dir, ob))
+        names = [ob.new_name(m.name) for m in members]
+        # the comment layer was dropped with the rest; line 1 names the set
+        # by its NEW names, so a consumer of the twin can read it the same way
+        obf_text = "/* slice-set: %s */\n" % ", ".join(names) + OBF_HEADER + obf_text
+        with open(obf_path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(obf_text)
+        return obf_text, mapping, unclassified, names
+
     if a.obfuscate:
-        callees = manage_emit(a.bin, a.dir, ["--tu", str(a.tu), "find", find_regex(a.name), "--kind", "f", "--print-callees"])
+        parts = []
+        for m in members:
+            m.callees_text = manage_emit(a.bin, a.dir, ["--tu", str(m.tu), "find", find_regex(m.name), "--kind", "f", "--print-callees"])
+            parts.append(m.callees_text)
+        callees = "\n".join(parts)
         ob = Obfuscator(sl, (meta or {}).get("sys_includes", []), callees)
-        obf_text, mapping, unclassified = ob.apply(sl.render(body, a.dir, ob))
-        obf_name = ob.new_name(a.name)
-        obf_text = ("/* Obfuscated slice: project identifiers renamed by kind (fn_ p_ v_ g_ T_ S_ E_ e_ f_ L_),\n"
-                    " * string literals masked to same-length placeholders, comments removed. Library\n"
-                    " * functions, types and standard typedefs keep their names so the analyzer's models\n"
-                    " * still apply. Numeric constants and all control flow are unchanged. */\n" + obf_text)
+        obf_name = ob.new_name(first_name)
         # Named after the NEW name: this is the one file that leaves, and a C++
         # mangled name spells out the function and its parameter types, so
         # naming it after --name would publish in the filename exactly what the
         # contents just removed.
         obf_path = os.path.join(out_dir, re.sub(r"[^A-Za-z0-9_]", "_", obf_name) + ".obf" + ext)
-        with open(obf_path, "w", encoding="utf-8", newline="\n") as f:
-            f.write(obf_text)
-        map_path = os.path.join(out_dir, re.sub(r"[^A-Za-z0-9_]", "_", a.name) + ".obf.map.json")
+        obf_text, mapping, unclassified, obf_names = write_twin(ob, bodies)
+        map_path = os.path.join(out_dir, stem + (".set" if multi else "") + ".obf.map.json")
         import json
         with open(map_path, "w", encoding="utf-8", newline="\n") as f:
-            json.dump({"function": a.name, "tu": a.tu, "idir": a.dir, "renamed": mapping,
+            json.dump({"function": first_name, "tu": first_tu, "idir": a.dir,
+                       "set": [{"was": m.name, "tu": m.tu, "now": nn} for m, nn in zip(members, obf_names)],
+                       "renamed": mapping,
                        "kept": {k: v for k, v in ob.reasons.items()},
                        "unclassified": unclassified}, f, indent=1, sort_keys=True)
         cats = {}
         for new, (cat, old) in ob.category.items():
             cats[cat] = cats.get(cat, 0) + 1
         print("obfusc. : %s  (%d lines)" % (obf_path, obf_text.count("\n")))
+        if multi:
+            print("obf-set : " + ", ".join(obf_names))
         print("renamed : " + ", ".join("%d %s" % (n, c) for c, n in sorted(cats.items())))
         print("kept    : %d library names (listed with reasons in the map); map, keep it local: %s"
               % (len(ob.keep), map_path))
@@ -2117,26 +2418,33 @@ def main():
             print("review  : %d identifiers neither renamed nor classified as library -- check them "
                   "before the file leaves: %s" % (len(unclassified), ", ".join(unclassified[:20])))
 
+    if sl.conflicts:
+        # two members' TUs disagree about a declaration the slice must carry
+        # once; the file above holds the first TU's spelling, which is a guess
+        print("analysis: COULD NOT VERIFY -- %d declaration%s differ%s between member TUs (listed above as "
+              "`conflict:`); split the set by TU, or slice the members separately"
+              % (len(sl.conflicts), "s" if len(sl.conflicts) > 1 else "", "" if len(sl.conflicts) > 1 else "s"))
+        sys.exit(2)
     if not (a.emit or a.analyze):
         return
     if flags is None:
-        sys.exit("no recorded cov-emit invocation for TU %d; cannot re-emit" % a.tu)
+        sys.exit("no recorded cov-emit invocation for TU %d; cannot re-emit" % first_tu)
     with open(os.path.join(out_dir, "cov-emit.flags"), "w", encoding="utf-8", newline="\n") as f:
         f.write("\n".join(flags) + "\n")
 
-    # the `Pathed out` lines name the function by its demangled signature, so
+    # the `Pathed out` lines name a function by its demangled signature, so
     # these are source spellings; the `wur:` line needs the emit's own name
-    runs = [("slice", slice_path, source_spelling(a.name), os.path.join(out_dir, "idir"))]
+    runs = [("slice", slice_path, [source_spelling(m.name) for m in members], os.path.join(out_dir, "idir"))]
     if obf_path:
-        runs.append(("obfusc.", obf_path, obf_name, os.path.join(out_dir, "idir-obf")))
+        runs.append(("obfusc.", obf_path, obf_names, os.path.join(out_dir, "idir-obf")))
     results = {}
     failed = False
     first_emit = None
-    # The plain slice goes first, and if cov-emit drops the function on a
+    # The plain slice goes first, and if cov-emit drops a function on a
     # diagnostic, the two ambiguous pretty-printer forms are rewritten on the
     # lines it named and the emit is repeated (at most three rounds). The
-    # twin is regenerated from the rewritten body so both files agree.
-    label, path, fn_name, idir = runs[0]
+    # twin is regenerated from the rewritten bodies so both files agree.
+    label, path, fn_names, idir = runs[0]
     er = run_emit(a.bin, flags, idir, path, os.path.join(out_dir, "cov-emit.log"))
     rounds = 0
     while er["ok"] and er["not_emitted"] and rounds < 3:
@@ -2162,19 +2470,13 @@ def main():
             print("rewrote : line %d: %s (cov-emit rejected the line; the pretty-printer drops these parentheses)"
                   % (ln, what))
             sl.notes.append("line %d rewritten after a cov-emit diagnostic: %s" % (ln, what))
-        body = "\n".join(blines)
-        text = sl.render(body, a.dir)
+        bodies = sl.bodies_from_rendered(blines)
+        text = sl.render(bodies, a.dir)
         with open(slice_path, "w", encoding="utf-8", newline="\n") as f:
             f.write(text)
         if obf_path:
             ob = Obfuscator(sl, (meta or {}).get("sys_includes", []), callees)
-            obf_text, mapping, unclassified = ob.apply(sl.render(body, a.dir, ob))
-            obf_text = obf_text  # header comment is re-added below
-            with open(obf_path, "w", encoding="utf-8", newline="\n") as f:
-                f.write("/* Obfuscated slice: project identifiers renamed by kind (fn_ p_ v_ g_ T_ S_ E_ e_ f_ L_),\n"
-                        " * string literals masked to same-length placeholders, comments removed. Library\n"
-                        " * functions, types and standard typedefs keep their names so the analyzer's models\n"
-                        " * still apply. Numeric constants and all control flow are unchanged. */\n" + obf_text)
+            write_twin(ob, bodies)
         er = run_emit(a.bin, flags, idir, path, os.path.join(out_dir, "cov-emit.log"))
     first_emit = er
     if er["ok"] and not er["not_emitted"]:
@@ -2185,7 +2487,7 @@ def main():
             print("note    : %d cast-under-subscript site%s compiled as written, i.e. as (T *)(p[i]); if the "
                   "source reads ((T *)p)[i], the pretty-printer dropped the parentheses -- check them"
                   % (amb, "s" if amb > 1 else ""))
-    for label, path, fn_name, idir in runs:
+    for label, path, fn_names, idir in runs:
         suffix = "" if label == "slice" else "-obf"
         if label == "slice":
             er = first_emit
@@ -2196,30 +2498,47 @@ def main():
             failed = True
         if not er["ok"] or not a.analyze:
             continue
-        ar = run_analyze(a.bin, idir, fn_name, os.path.join(out_dir, "cov-analyze%s.log" % suffix), a.paths,
-                         emit_name=emit_symbol_name(a.bin, idir, fn_name))
-        if not report_analyze(label, ar, fn_name, er):
-            failed = True
+        targets = [(fn, emit_symbol_name(a.bin, idir, fn)) for fn in fn_names]
+        ar = run_analyze(a.bin, idir, fn_names[0], os.path.join(out_dir, "cov-analyze%s.log" % suffix), a.paths,
+                         targets=targets)
+        for fn, res in zip(fn_names, ar["per"]):
+            if not report_analyze(label, res, fn, er, tag=("%s: " % fn) if multi else ""):
+                failed = True
+        if multi and ar["count"] is not None and ar["rc"] == 0:
+            print("%-9s analysis: paths_exceeded count: %d" % (label, ar["count"]))
         results[label] = ar
     if "slice" in results and "obfusc." in results:
-        s, o = results["slice"], results["obfusc."]
-        same = (s["paths"], s["pathout"], s["pathed_out"]) == (o["paths"], o["pathout"], o["pathed_out"])
-        if s["wur"] is None or o["wur"] is None:
-            # nothing to compare: the function was not analyzed (not emitted,
-            # or logged under a name we did not predict). Never call that a pass.
-            print("verify  : COULD NOT VERIFY -- no analysis line for the function in %s; "
-                  "check cov-emit for recoverable errors and the analysis log for the name it used"
-                  % ("either file" if s["wur"] is None and o["wur"] is None
-                     else ("the plain slice" if s["wur"] is None else "the obfuscated twin")))
-        elif same:
-            print("verify  : obfuscation preserved the analysis -- same path count (%s), same PATHOUT flag, "
-                  "same pathed-out checkers" % s["paths"])
-        else:
-            print("verify  : DIFFERS -- slice %s/%s/%s vs obfuscated %s/%s/%s; do not trust the obfuscated "
-                  "copy for this question" % (s["paths"], s["pathout"], [c for c, n in s["pathed_out"]],
-                                              o["paths"], o["pathout"], [c for c, n in o["pathed_out"]]))
+        key = lambda r: (r["paths"], r["pathout"], tuple(r["pathed_out"]))
+        sp, op = results["slice"]["per"], results["obfusc."]["per"]
+        # members that call each other are one strongly connected component,
+        # and which of them the analyzer walks first decides how the paths
+        # split between them; the set's multiset of results is the invariant
+        set_same = multi and sorted(key(r) for r in sp) == sorted(key(r) for r in op) \
+            and all(r["wur"] is not None for r in sp + op)
+        for i, (s, o) in enumerate(zip(sp, op)):
+            tag = ("%s: " % runs[0][2][i]) if multi else ""
+            same = key(s) == key(o)
+            if not same and set_same:
+                print("verify  : %spreserved up to analysis order within the set -- slice %s vs obfuscated %s, and the "
+                      "set as a whole has the same counts, PATHOUT flags and pathed-out checkers (the members call "
+                      "each other; which is analyzed first decides the split)" % (tag, s["paths"], o["paths"]))
+                continue
+            if s["wur"] is None or o["wur"] is None:
+                # nothing to compare: the function was not analyzed (not emitted,
+                # or logged under a name we did not predict). Never call that a pass.
+                print("verify  : %sCOULD NOT VERIFY -- no analysis line for the function in %s; "
+                      "check cov-emit for recoverable errors and the analysis log for the name it used"
+                      % (tag, "either file" if s["wur"] is None and o["wur"] is None
+                         else ("the plain slice" if s["wur"] is None else "the obfuscated twin")))
+            elif same:
+                print("verify  : %sobfuscation preserved the analysis -- same path count (%s), same PATHOUT flag, "
+                      "same pathed-out checkers" % (tag, s["paths"]))
+            else:
+                print("verify  : %sDIFFERS -- slice %s/%s/%s vs obfuscated %s/%s/%s; do not trust the obfuscated "
+                      "copy for this question" % (tag, s["paths"], s["pathout"], [c for c, n in s["pathed_out"]],
+                                                  o["paths"], o["pathout"], [c for c, n in o["pathed_out"]]))
     if failed:
-        # a slice that did not emit, or emitted without the function, or was
+        # a slice that did not emit, or emitted without a member, or was
         # analyzed without a line for it, is not a result; exit 2 so a script
         # cannot read "paths_exceeded count: 0" as "no PATHOUT"
         sys.exit(2)

@@ -276,6 +276,36 @@ All dates 2026-09-09.
   numbers are in the fixture run's transcript; nothing from a non-public
   codebase was used.
 
+- **A set of functions in one file (2026-10-24).** `--name` repeated;
+  `evals/fixtures/slice_set.c` (+ `slice_set_tu2.c` as TU 2), 2026.6.0,
+  bare `cov-emit --c`:
+  - caller + `static` callee (`set_caller`, `set_callee`): both defined,
+    the callee's `static` dropped from prototype and definition; the
+    one-file idir reports **FORWARD_NULL** in the caller (the null-tested
+    pointer passed to the callee that dereferences it), which the caller
+    sliced alone does not report (the callee is a prototype there, `0`
+    FORWARD_NULL files). Twin verifies identical per member (4 and 1 paths).
+  - mutual recursion (`set_odd`, `set_even`, both `static`): emits clean
+    from the prototype block; per-member path counts came out 2/3 in the
+    slice and 3/2 in the twin, 5 in both -- the analyzer's order within the
+    pair decides the split, and `verify` reports `preserved up to analysis
+    order within the set`.
+  - one member + a non-member callee (`set_caller` alone): `set_callee` and
+    `set_helper` stay prototypes; same filenames and lines as before the
+    change, plus the line-1 comment.
+  - two TUs defining `struct rec` differently (`set_caller`,
+    `set_other@2`): `conflict: struct rec: defined differently in TU 1 and
+    TU 2`, `COULD NOT VERIFY`, exit 2, the slice written with TU 1's shape
+    for a reader.
+  - nginx 1.26.0 (WSL capture, 2026.6.0, analyzed on win64): the static
+    pair `ngx_http_upstream_send_response` + `ngx_http_upstream_finalize_
+    request` (TU 79) slices to 1,449 lines (130 typedefs, 36 structs, 28
+    prototypes) and emits and analyzes in 38 s end to end; the caller alone
+    is 1,301 lines in 33 s (1443 vs 433 paths for the caller: the callee's
+    code is now walked). A two-TU set, `ngx_http_parse_complex_uri` (TU 73)
+    + `ngx_http_upstream_finalize_request@79`, emits clean with no conflict
+    and reproduces the parser's `DEADCODE_pass2` 10001 PATHOUT.
+
 ## Reasoned, not measured
 
 - That a slice whose callees are unmodeled prototypes can only *lose*

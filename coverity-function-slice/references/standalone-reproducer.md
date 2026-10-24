@@ -180,6 +180,42 @@ Six more came out of the zstd and redis blind runs (2026-09-11; fixed
   written the tool prints a `note` with the count, because the other
   reading may be what the source meant; that is the one hand check left.
 
+## Several functions in one slice
+
+`--name` repeated makes the slice a *set*: every named function is
+fetched (body and tree, each from its own TU), one closure is taken over
+all the trees, and the file carries the union of declarations, then a
+prototype for every member, then the definitions in `--name` order,
+separated by `/* --- name --- */` lines. Three things the single-function
+slice never had to decide:
+
+- **Linkage.** A member that was `static` loses the keyword in both its
+  prototype and its definition (the same stripping callee prototypes get),
+  so a sliced caller reaches a sliced file-local callee. The analysis of
+  the fixture proves the reach: `set_caller` passes a null-tested pointer
+  to `set_callee`, which dereferences it; sliced alone the callee is a
+  prototype and nothing is reported, sliced as a set the one-file idir
+  reports FORWARD_NULL in the caller.
+- **Order.** The prototype block ahead of the definitions is what lets two
+  members that call each other (`set_even` / `set_odd`) compile in either
+  order; it is emitted for every set, whether or not it is needed.
+- **Several TUs.** `name@tu` picks a member's TU; the slice is re-emitted
+  with the first member's recorded flags, and members must be the same
+  language. Struct and enum lookups ask every member TU in order; a typedef
+  or struct that two member TUs define with different shapes is a
+  `conflict:` line and `COULD NOT VERIFY`, exit 2. The fixture's second TU
+  defines `struct rec` with other fields for exactly this check.
+
+The set is named on line 1 (`/* slice-set: a, b, c */`) and on the
+`set     :` console line; the obfuscated twin carries the new names there
+(`fn_0`, `fn_1`, ... in `--name` order) and the map lists the pairs under
+`set`. Verification is per member. Two members that call each other are
+one strongly connected component, and the analyzer's order within it
+decides how the paths split between them (the fixture's pair measured 2/3
+in one file and 3/2 in its twin, 5 in both); when the per-member counts
+differ but the set's multiset matches, `verify` says `preserved up to
+analysis order within the set` rather than `DIFFERS`.
+
 ## What is different from the original, and why it does not matter here
 
 - **Callees have no bodies.** In the original analysis every callee had a
