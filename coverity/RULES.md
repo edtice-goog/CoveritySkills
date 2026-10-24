@@ -140,17 +140,14 @@ Source: verified — `coverity`, `coverity-defect-detectability`.
 
 Not just the C compiler: the C++ driver, the archiver, and the linker where
 relevant. For cross builds, configure the *prefixed* names
-(`arm-none-eabi-gcc`), not the host ones.
-
-Wrappers — `ccache`, `distcc`, `sccache`, bespoke shell scripts — are what
-the build actually invokes, so they must be configured too: as **prefix
-compilers, never by disabling the wrapper**. Rule 32 carries the command, the
-measured cache-state behaviour, and why disabling is the wrong fix.
+(`arm-none-eabi-gcc`), not the host ones. Wrappers — `ccache`, `distcc`,
+`sccache`, bespoke shell scripts — are what the build actually invokes, so
+they must be configured or bypassed.
 
 Repeated `cov-configure` calls against the same `--config` accumulate; each
 adds an `<include>`.
 
-Source: verified — `coverity-compiler-configuration`; wrappers, rule 32.
+Source: verified — `coverity-compiler-configuration`.
 
 ### 32. Configure compiler wrappers like ccache — never disable them
 
@@ -184,12 +181,6 @@ The reason people reach for it is that an unconfigured `ccache gcc foo.c`
 invocation is not recognised as a compiler, so nothing is captured and the
 build looks uncapturable. Configure the prefix and the invocation is
 understood.
-
-And expect the wrapper even where nobody set it up: build systems wire it in
-on their own. CMake adds ccache as a compiler launcher whenever a project
-requests it and the binary is on `PATH` — pytorch does this out of the box —
-so a stock `cmake && ninja` build on a machine with ccache installed invokes
-the wrapper without a single mention of it in anyone's configuration.
 
 **A warm cache is not a problem — measured.** Capture works by intercepting
 and parsing the compilation invocation and driving `cov-emit` from it, not by
@@ -235,16 +226,10 @@ So the check that is worth doing is the compilation-unit count against an
 expectation formed independently of the idir — Method C — not a glance at
 `unconfigured-compilers`.
 
-Source: measured — the three-way cache-state comparison and the empty
-`unconfigured-compilers` result are the rule 32 entry in `CALIBRATION.md`
-(two-source project, 2026.6.0, one fresh idir per run). `prefix` is documented
-by `cov-configure --list-compiler-types` as "Prefix to a compiler (e.g.
-ccache)"; confirmed on 2025.9.0, linux64-2025.12.2, and win64-2026.6.0, and
-the generated configuration was inspected on 2025.9.0. Corroborated at scale
-on a pytorch capture (linux64-2025.12.2, ccache auto-wired by CMake): with
-the wrapper *unconfigured* and the cache cold, every TU still captured via
-the intercepted child compile — the partial-warm middle row armed and waiting
-for the first warm rebuild.
+Source: `prefix` is documented by `cov-configure --list-compiler-types` as
+"Prefix to a compiler (e.g. ccache)", and the configuration above was generated
+and inspected on 2025.9.0. The invocation-driven capture behaviour is domain
+knowledge from the repository owner.
 
 ### 6. Regenerate a tainted configuration, never patch it — and replace the idir with it
 
