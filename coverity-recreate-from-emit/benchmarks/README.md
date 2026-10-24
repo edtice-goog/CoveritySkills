@@ -4,9 +4,29 @@ The scripts that produced the measurements in `../CALIBRATION.md`. Kept because
 re-deriving them cost more than running them, and because several encode a
 correctness trap that is not obvious from the outside.
 
-**All paths are hardcoded to the box they ran on.** Edit `COV`, `LIC`, `SRC`
-and the idir paths before use. They are evidence and starting points, not
-turn-key tools.
+**Configure by environment; nothing is tied to one machine.** Every script
+reads the same variables and fails fast with a message if a required one is
+missing:
+
+| Variable | Meaning |
+|---|---|
+| `COV` | Coverity Analysis install root (required; `overnight.sh` wants `COV12` and `COV9`, two versions) |
+| `LIC` | licence file (default `$COV/bin/license.dat`) |
+| `WORK` | scratch root for idirs, builds and logs (default `$TMPDIR/coverity-bench`) |
+| `SRC` | the subject under test -- a source checkout, or an analyzed reference idir |
+| `KERNEL_TARBALL` | `overnight.sh` only: a kernel idir archive |
+| `POSTRUN` | `sequencer.sh` only: optional follow-on script; unset means stop after T3 |
+
+Tool paths resolve relative to the script, so the scripts work from any
+checkout. Example:
+
+```bash
+COV=/opt/cov-analysis-linux64-2025.12.2 SRC=~/src/proftpd WORK=/var/tmp/covbench   ./correctness-proftpd.sh
+```
+
+They are evidence and starting points rather than turn-key tools: the subjects
+and tags are the ones the measurements were taken on, and a different subject
+needs the obvious edits.
 
 | Script | What it measures | Status |
 |---|---|---|

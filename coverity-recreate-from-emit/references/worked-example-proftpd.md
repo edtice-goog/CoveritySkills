@@ -15,7 +15,7 @@ gcc 13.3.0 available.
 
 The subject: `C:\analysis\proftpd\idir1.3.8` and `idir1.3.9`. Both were
 produced on 2025-05-19 by `cov-analysis-linux64-2024.12.1` running under WSL
-from `/home/etice/proftpd`, each emitting 90 C translation units at 100%, and
+from `/home/build/proftpd`, each emitting 90 C translation units at 100%, and
 each already carrying a completed analysis from that same version:
 
 | idir | source rev | TUs | defects |
@@ -124,7 +124,7 @@ cov-translate gcc -DHAVE_CONFIG_H -DLINUX -I.. -I../include -I../include -g2 -O2
               -c pr_fnmatch.c -o pr_fnmatch.o
 ```
 
-cwd `/home/etice/proftpd/lib`. The recorded output was a 61-token `cov-emit`
+cwd `/home/build/proftpd/lib`. The recorded output was a 61-token `cov-emit`
 line carrying `--comp_ver 13.3.0`, `--gnu_version 130300`,
 `--type_sizes=e16Pdlx8fi4s2`, four `--sys_include` paths, and
 `--coverity_config_md5=b577f776b05173caa21361c7ea6c1f1d`.
@@ -161,7 +161,7 @@ the original build's configuration:
 
 ```
 <metric><name>config</name>
-  <value>/mnt/c/Coverity/cov-analysis-linux64-2024.12.1/config/coverity_config.xml</value>
+  <value><install-root>/cov-analysis-linux64-2024.12.1/config/coverity_config.xml</value>
 ```
 
 The original build used the **install's own** config directory, which ships a

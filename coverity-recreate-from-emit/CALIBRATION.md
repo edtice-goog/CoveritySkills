@@ -38,7 +38,7 @@ Full narrative in `references/worked-example-proftpd.md`.
   **2024.12.1**: 90 TUs listed, matching the build log's `Emitted 90`. This is
   the single most useful operational finding in the skill.
 - **A win64 tool reading a Linux emit renders paths with backslashes**
-  (`\home\etice\proftpd\lib\pr_fnmatch.c`). Separators come from the reading
+  (`\home\build\proftpd\lib\pr_fnmatch.c`). Separators come from the reading
   tool, not the writing one.
 - **`list-capture-invocations` structure**, on a 90-TU C capture (3.1 MB of
   JSON): `files` 413, `environment-variables` 68 in 5 blocks (sizes 29, 61,

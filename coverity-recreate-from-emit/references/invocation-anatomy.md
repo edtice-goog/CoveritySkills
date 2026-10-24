@@ -29,15 +29,15 @@ metrics                       tu-count, tu-failures, lu-count, lu-failures
 ## `files[]` -- the path table
 
 ```json
-{ "id": 4, "case-normalized": "\\home\\etice\\proftpd",
-           "case-preserved":  "\\home\\etice\\proftpd" }
+{ "id": 4, "case-normalized": "\\home\\build\\proftpd",
+           "case-preserved":  "\\home\\build\\proftpd" }
 ```
 
 Everything else refers to paths by `id`. Resolve through this table.
 
 **Separator caution.** The separators are rendered by the *reading* tool, not
 the writing one. A win64 `cov-manage-emit` reading a Linux-emitted idir prints
-`\home\etice\proftpd`. Cosmetic, but it breaks naive path matching and it makes
+`\home\build\proftpd`. Cosmetic, but it breaks naive path matching and it makes
 "is this a Windows or Linux capture?" unanswerable from this field alone. Use
 `process-invocation.platform` for that.
 
@@ -45,13 +45,13 @@ the writing one. A win64 `cov-manage-emit` reading a Linux-emitted idir prints
 
 ```json
 {
-  "hostname": "BD-46312",
+  "hostname": "buildhost",
   "pid": 19660,
   "start-time": "2025-05-19T20:08:12Z",
   "end-time":   "2025-05-19T20:08:21Z",
   "exit-code": 0,
   "platform": "Linux x86_64",
-  "username": "etice",
+  "username": "builder",
   "command-line": [ ... ],
   "working-directory-id": 5,
   "environment-variable-block-id": 2

@@ -1,13 +1,24 @@
 #!/bin/bash
-COV=/mnt/c/Coverity/cov-analysis-linux64-2025.12.2
-CFG=/home/etice/llvm-cov-config/coverity_config.xml
-IDIR=/home/etice/llvm-idir-ref
+# ---------------------------------------------------------------------------
+# Configuration. Override by exporting these before running; nothing here is
+# tied to the machine the measurements were taken on.
+#
+#   COV   Coverity Analysis install root            (required)
+#   LIC   licence file                              (default: $COV/bin/license.dat)
+#   WORK  scratch root for idirs, builds and logs   (default: $TMPDIR/coverity-bench)
+#   SRC   the subject under test                    (required where used)
+# ---------------------------------------------------------------------------
+COV="${COV:?set COV to a Coverity Analysis install root}"
+SRC="${SRC:?set SRC to an llvm-project checkout}"
+WORK="${WORK:-${TMPDIR:-/tmp}/coverity-bench}"
+CFG=$WORK/llvm-cov-config/coverity_config.xml
+IDIR=$WORK/llvm-idir-ref
 rm -rf "$IDIR"
-echo "=== BASELINE COMMIT: $(git -C /home/etice/llvm-project rev-parse HEAD)"
+echo "=== BASELINE COMMIT: $(git -C $SRC rev-parse HEAD)"
 echo "=== CAPTURE START $(date -Is)"
 s=$(date +%s)
 "$COV/bin/cov-build" --dir "$IDIR" --config "$CFG" \
-    ninja -C /home/etice/llvm-build -j16
+    ninja -C $WORK/llvm-build -j16
 rc=$?
 e=$(date +%s)
 echo "=== CAPTURE DONE rc=$rc wall=$((e-s))s $(date -Is)"

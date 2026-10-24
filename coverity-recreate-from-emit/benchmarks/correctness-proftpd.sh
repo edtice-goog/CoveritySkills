@@ -3,14 +3,25 @@
 # then independently full-build+analyze the later tag and check they agree.
 # All three arms run in the SAME directory so capture paths are identical --
 # that removes path normalization as a variable.
-COV=/mnt/c/Coverity/cov-analysis-linux64-2025.12.2
-LIC=/mnt/c/Coverity/cov-analysis-win64-2025.12.0/bin/license.dat
-SRC=/home/etice/proftpd
-T=/home/etice/ct/tree
-R=/home/etice/ct/results
-CFG=/home/etice/ct/config/coverity_config.xml
-OLD=v1.3.8
-NEW=v1.3.9
+# ---------------------------------------------------------------------------
+# Configuration. Override by exporting these before running; nothing here is
+# tied to the machine the measurements were taken on.
+#
+#   COV   Coverity Analysis install root            (required)
+#   LIC   licence file                              (default: $COV/bin/license.dat)
+#   WORK  scratch root for idirs, builds and logs   (default: $TMPDIR/coverity-bench)
+#   SRC   the subject under test                    (required where used)
+# ---------------------------------------------------------------------------
+COV="${COV:?set COV to a Coverity Analysis install root}"
+LIC="${LIC:-$COV/bin/license.dat}"
+SRC="${SRC:?set SRC to a proftpd clone}"
+WORK="${WORK:-${TMPDIR:-/tmp}/coverity-bench}"
+TOOLS="$(cd "$(dirname "$0")/../tools" && pwd)"
+T=$WORK/ct/tree
+R=$WORK/ct/results
+CFG=$WORK/ct/config/coverity_config.xml
+OLD="${OLD:-v1.3.8}"
+NEW="${NEW:-v1.3.9}"
 say(){ echo "[$(date -Is)] $*" | tee -a $R/RESULTS.txt; }
 
 # cov-build exits 0 and reports "100%" even when the build died early, because
@@ -49,7 +60,7 @@ analyze(){
   return 0
 }
 
-rm -rf /home/etice/ct; mkdir -p $R /home/etice/ct/config
+rm -rf $WORK/ct; mkdir -p $R $WORK/ct/config
 say "############ CORRECTNESS TEST  $OLD -> $NEW"
 git clone -q --shared $SRC $T || exit 1
 
@@ -62,31 +73,31 @@ say "    delta: $(git -C $T diff --name-only $OLD $NEW | wc -l) files, $(git -C 
 say "=== [1] full capture + analyze at $OLD  (reference idir)"
 git -C $T checkout -q $OLD
 ( cd $T && ./configure -q ) >> "$R/1-old-configure.log" 2>&1
-build_capture /home/etice/ct/idir-A 1-old || exit 1
-analyze /home/etice/ct/idir-A 1-old || exit 1
+build_capture $WORK/ct/idir-A 1-old || exit 1
+analyze $WORK/ct/idir-A 1-old || exit 1
 
 say "=== [2] roll tree to $NEW, REUSE the idir, incremental capture"
-cp -a /home/etice/ct/idir-A /home/etice/ct/idir-reuse
+cp -a $WORK/ct/idir-A $WORK/ct/idir-reuse
 git -C $T checkout -q $NEW
 say "    staleness check (tool under test)"
-python3 /mnt/c/Data/CoveritySkills/coverity-recreate-from-emit/tools/staleness.py \
-   --bin "$COV/bin" --dir /home/etice/ct/idir-reuse --tree $T > "$R/2-staleness.log" 2>&1
+python3 $TOOLS/staleness.py \
+   --bin "$COV/bin" --dir $WORK/ct/idir-reuse --tree $T > "$R/2-staleness.log" 2>&1
 say "    staleness rc=$?"
 tail -14 "$R/2-staleness.log" | sed "s/^/        /" | tee -a $R/RESULTS.txt
 ( cd $T && ./configure -q ) >> "$R/2-reuse-configure.log" 2>&1
-build_capture /home/etice/ct/idir-reuse 2-reuse || exit 1
-analyze /home/etice/ct/idir-reuse 2-reuse || exit 1
+build_capture $WORK/ct/idir-reuse 2-reuse || exit 1
+analyze $WORK/ct/idir-reuse 2-reuse || exit 1
 
 say "=== [3] ORACLE: clean full capture + analyze at $NEW, same directory"
 ( cd $T && make distclean ) >> "$R/3-clean.log" 2>&1
 git -C $T clean -xdfq; git -C $T checkout -q $NEW
 ( cd $T && ./configure -q ) >> "$R/3-oracle-configure.log" 2>&1
-build_capture /home/etice/ct/idir-oracle 3-oracle || exit 1
-analyze /home/etice/ct/idir-oracle 3-oracle || exit 1
+build_capture $WORK/ct/idir-oracle 3-oracle || exit 1
+analyze $WORK/ct/idir-oracle 3-oracle || exit 1
 
 say "=== [4] REUSED vs ORACLE -- defect sets, not totals"
-python3 /mnt/c/Data/CoveritySkills/coverity-recreate-from-emit/tools/compare_analyses.py \
-   --a /home/etice/ct/idir-reuse --b /home/etice/ct/idir-oracle --self-test \
+python3 $TOOLS/compare_analyses.py \
+   --a $WORK/ct/idir-reuse --b $WORK/ct/idir-oracle --self-test \
    > "$R/4-compare.log" 2>&1
 say "    compare rc=$?   (0=IDENTICAL 1=DIFFERENT 2=REFUSED/unsound)"
 cat "$R/4-compare.log" | tee -a $R/RESULTS.txt
