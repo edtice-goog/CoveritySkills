@@ -169,6 +169,25 @@ the 12 chosen not taken (`tpl_map_va`, `tpl_peek`: variadic targets).
   which is the circularity the rule exists for. The two existing evals
   (`run.sh`, `run_fixcheck.sh`) pass unchanged with the new assembler:
   their single-name slices carry a one-member set on line 1.
+- **The proftpd batch re-read for cross-function paths** (2026-10-24,
+  2025.9.0 win64 against the same idir): for each of the ten findings,
+  the path events (every event except the `example_*` ones, which are
+  the statistical evidence a `NULL_RETURNS` cites from other call sites
+  and other files, and name no function on the path) were taken from the
+  v10 entry, and the emit was asked, per TU (`find . --kind f`), which
+  functions are declared inside the events' line range. C functions do
+  not nest, so an empty answer means every path event is in the home
+  function. All ten came back empty: every path lay inside its home
+  function (`parse_config_path2` 1165-1231, `set_extendedlog` 323-339,
+  `log_sess_init` 1194-1328, `tpl_node_new` 257-260, `core_post_pass`
+  6640-6664, `pr_data_open` 523-576, `delay_shutdown_ev` 2133-2177,
+  `dolist` 1921-1947, `glob_limited` 447-918, `tpl_free_keep_map`
+  586-667). The slice set of each is its home function, the batch's
+  verdicts stand as made, and nothing was re-verified. The `example_*`
+  events of the three `NULL_RETURNS` do point into five other files
+  each; a first, naive owner pass that counted them would have named a
+  five-function "set" for every one, which is why the resolution step in
+  Step 0 excludes them.
 
 ## Reasoned, not measured
 
@@ -176,9 +195,8 @@ the 12 chosen not taken (`tpl_map_va`, `tpl_peek`: variadic targets).
   from what a stub is (the analyzer's belief about a callee): a stub for a
   function on the finding's own path lets a model edge produce the claimed
   state by construction. The fixture above shows it happening once; the
-  proftpd batch was run under the single-function assumption, and which of
-  its ten findings had a path that crossed functions, and whether any
-  verdict changes with the set, is not yet re-checked.
+  proftpd batch (below) had no finding whose path crossed functions, so
+  it neither confirms nor contradicts the rule on real code.
 
 - The automatic detection of a vacuous claim in a fix check (B with the
   blamed callee pinned to the behaviour that made the claim false on A):
