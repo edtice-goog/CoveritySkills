@@ -10,7 +10,9 @@ description: >
   instrumented build, or needs a trustworthy fidelity input for downstream
   issue-transition inference. Requires a local Coverity Analysis installation
   and the ability to run the build; this skill runs real builds and diffs real
-  binaries rather than reasoning about what should have happened.
+  binaries rather than reasoning about what should have happened. When the
+  build can no longer be run, this is the wrong skill: hand that case to
+  coverity-recreate-from-emit.
 ---
 
 # Coverity Build Fidelity
@@ -66,6 +68,17 @@ environment gap cancels. If `O` proves incomparable, **fall back to
 calibration** and report the weaker honest claim: "could not tie to the
 official build; established that Coverity does not perturb this build in this
 environment."
+
+**Neither topology applies if the build cannot be run at all** -- the
+toolchain is gone, the dependencies have vanished, the old commit no longer
+builds. Both arms here require running the build twice, so there is nothing to
+compare. That case belongs to `coverity-recreate-from-emit`, which rebuilds an
+analyzable intermediate directory from an existing one. Say so and hand it
+over rather than reporting a fidelity verdict you cannot support.
+
+When this skill succeeds, its output is also the control run that
+`coverity-issue-transition-inference` needs: a build held constant, so a
+finding delta can be attributed to the analyzer rather than to the code.
 
 ## Step 0: Read the rules, then locate tools
 

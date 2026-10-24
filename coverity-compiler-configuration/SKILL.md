@@ -242,8 +242,10 @@ Configuration correctness shows up in the capture, so check there:
   multiply during the build as new argument sets are encountered. That growth
   is the mechanism working, not a problem.
 
-See `coverity-build-fidelity` for the full reconciliation procedure and for
-proving that wrapping the build in `cov-build` did not change its output.
+Verifying the capture is not this skill's job. The full three-method
+reconciliation belongs to `coverity`; `coverity-build-fidelity` is for the
+separate question of whether wrapping the build in `cov-build` changed what
+the build produced. This skill stops at the configuration.
 
 ## Common mistakes
 
