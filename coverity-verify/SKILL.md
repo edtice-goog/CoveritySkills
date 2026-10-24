@@ -208,18 +208,18 @@ bad value.
 ## Step 1: The slice set as a file
 
 ```bash
-python3 ../coverity-function-slice/tools/slice_function.py --dir <idir> --bin $BIN --tu <N> --name <fn> --out <work>/<fn> --emit
+python3 ../coverity-function-slice/tools/slice_function.py --dir <idir> --bin $BIN --tu <N> \
+    --name <home fn> [--name <member>[@<tu>] ...] --out <work>/<fn> --emit
 ```
 
-`<fn>.slice.c` is the function with every typedef, struct, global and
-callee prototype it needs, printed from the emit. When the slice set has
-more than one member, every member is sliced and the file carries all of
-them as definitions, each seeing the others; a member must never appear
-in the `/* callees */` block as a prototype to be stubbed (the slicer's
-support for several `--name`s in one file is in progress; until it lands,
-slice each member and merge the definitions by hand, keeping one copy of
-the shared declarations). `cov-emit: emitted` is
-the check; `NOT EMITTED` means a pretty-printer form to hand-edit first
+One `--name` per member of the slice set, the home function first; a
+member in another TU is `name@tu`. One member writes `<fn>.slice.c`, a set
+writes `<first>.set.slice.c`: the shared declarations, a prototype for
+every member, then every member's definition as real code, each seeing
+the others. Line 1 is `/* slice-set: a, b */` in `--name` order, and that
+line is what Step 3's assembler reads; callees outside the set stay
+prototypes in the `/* callees */` block, and a member never appears there.
+`cov-emit: emitted` is the check; `NOT EMITTED` means a pretty-printer form to hand-edit first
 (`coverity-function-slice`, Step 2: dropped cast parentheses, a VLA
 printed as `char a[]` with its dimension in a comment).
 
@@ -261,10 +261,15 @@ clang -g -O1 -fsanitize=fuzzer,address -Wno-everything -I tools target.c -o fz  
 ./fz -max_total_time=60 -seed=1 -detect_leaks=0 -timeout=10 [seeds/]
 ```
 
-`fz_target.py` classifies every callee (real libc / model stub with its
-behaviours listed by index / `NO MODEL` generic stub), inserts
+`fz_target.py` reads the slice set from the slice's first line
+(`--slice-set a,b` overrides it), compiles every member as code and never
+stubs one -- a model saved for a member is ignored and the log says so --
+then classifies every callee outside the set (real libc / model stub with
+its behaviours listed by index / `NO MODEL` generic stub), inserts
 `__fz_claim(<expr>)` before the first line matching `--before`, and
-appends the harness. `tools/fz_support.h` supplies the byte stream, the
+appends the harness. Its log begins with `slice set: ...`; a member named
+there without a definition in the slice is reported and the target will
+not link until it is sliced into the set. `tools/fz_support.h` supplies the byte stream, the
 choice trace, the pins, the per-input arena and the claim counter.
 
 - **Focused mode** (`--pin-normal`) holds every stub to its normal
@@ -485,13 +490,15 @@ coverity-verify/                         # formerly coverity-fuzz-triage; that d
 ├── tools/
 │   ├── cid_lookup.py                    # a Connect CID -> stream, checker, file, function, merge key; then the idir's events
 │   ├── model_stubs.py                   # a callee stub from its cov-find-function model
-│   ├── fz_target.py                     # slice + models + harness -> target.c; focused/free, --semantic, claim insertion
+│   ├── fz_target.py                     # slice set + models + harness -> target.c; members are code, never stubs; focused/free, --semantic, claim insertion
 │   └── fz_support.h                     # byte stream, choice trace, pins, arena, pointer-filled objects, __fz_claim
 └── evals/
     ├── run.sh                           # candidate -> slice -> model stub -> fuzz, on the fixture, about a minute
     ├── run_fixcheck.sh                  # the fix check on the fixture: a fix and a silencer, toggled, replayed, fuzzed; a few minutes
+    ├── run_sliceset.sh                  # the slice set on a caller/callee pair: the callee as code refutes, the same callee as a stub "confirms"
     ├── evals.json
     ├── lookup.c, use.c                  # a callee with a derived model, a caller with an unguarded dereference
     ├── harness.c                        # the harness pattern
-    └── fixcheck/                        # use_fixed.c (a fix), use_silenced.c + rec_id.c (the dereference moved out of the capture), harness.c
+    ├── fixcheck/                        # use_fixed.c (a fix), use_silenced.c + rec_id.c (the dereference moved out of the capture), harness.c
+    └── sliceset/                        # pair.c (get_value and pick both carry a primary event), harness.c
 ```

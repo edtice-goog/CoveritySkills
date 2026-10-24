@@ -147,16 +147,38 @@ the 12 chosen not taken (`tpl_map_va`, `tpl_peek`: variadic targets).
   gave the same result. The vacuous-claim pitfall was found here: the
   original MSan claim is true by construction after the initializer.
 
+### The slice set (2026-10-24)
+
+- **The fixture** (`evals/run_sliceset.sh`, 2026.6.0 win64, clang-cl,
+  `evals/sliceset/pair.c`): `get_value` dereferences `pick`'s result
+  without a test; `pick` returns NULL for a negative id and `get_value`
+  never passes one. Both carry a primary event of the finding. `pick`'s
+  derived model: `<arg 0> < 0` then `returnsnull`, `<arg 0> > -1` then
+  `!= 0` -- a precondition the stub cannot act on, so as a stub the null
+  branch is a free choice. The default analysis reports nothing here (the
+  path-sensitive run honours the precondition), which does not matter to
+  the test: the question is what verification does with the two shapes.
+  Slice set `--name get_value --name pick`: line 1 `/* slice-set:
+  get_value, pick */`, two members as code, `cov-emit: emitted`.
+  Assembled with `pick`'s model deliberately in the index: the log says
+  `slice-set member: compiled as code; its saved model is IGNORED`; 20 s,
+  5,865,663 inputs, the finding's line reached 5,865,663 times, claim
+  never false: **refuted by execution**. The control, `get_value` alone
+  with `pick` as its model stub: the claim fails on the first input with
+  `pick=0` (`returnsnull`): the stub adjudicates a false positive as real,
+  which is the circularity the rule exists for. The two existing evals
+  (`run.sh`, `run_fixcheck.sh`) pass unchanged with the new assembler:
+  their single-name slices carry a one-member set on line 1.
+
 ## Reasoned, not measured
 
-- That the slice set, every function carrying a primary event compiled as
-  code with stubs only outside it, is the right target. The rule follows
+- That the slice set is the right target in general. The rule follows
   from what a stub is (the analyzer's belief about a callee): a stub for a
   function on the finding's own path lets a model edge produce the claimed
-  state by construction. The proftpd batch was run under the
-  single-function assumption; which of its ten findings had a path that
-  crossed functions, and whether any verdict changes with the set, is not
-  yet re-checked.
+  state by construction. The fixture above shows it happening once; the
+  proftpd batch was run under the single-function assumption, and which of
+  its ten findings had a path that crossed functions, and whether any
+  verdict changes with the set, is not yet re-checked.
 
 - The automatic detection of a vacuous claim in a fix check (B with the
   blamed callee pinned to the behaviour that made the claim false on A):

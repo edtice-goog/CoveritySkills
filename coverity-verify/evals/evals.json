@@ -65,6 +65,19 @@
         "Reports the verdict on the change from the fix-check table, not 'fixed' because the finding is gone, and not 'silenced' because the diff is small",
         "Selects the fix check from the two idirs and the named change without asking whether that is what the user wants"
       ]
+    },
+    {
+      "id": 5,
+      "eval_name": "slice-set-not-a-stub",
+      "prompt": "Verify this NULL_RETURNS: get_value() in C:\\work\\src\\pair.c dereferences the result of pick() without a test, and the events say pick() returns NULL on its `id < 0` branch. The idir is at C:\\work\\idir (Coverity 2026.6.0), TU 1 for both functions.",
+      "expected_output": "Lists the primary-event functions from the events (get_value for the dereference, pick for the NULL return) and names the slice set {get_value, pick}; slices both with --name get_value --name pick; saves models only for callees outside the set; assembles with fz_target.py, whose log shows pick compiled as code (and a saved model for it ignored, if one exists); fuzzes with the harness entering get_value; reports the reach count with the claim never false, verdict refuted by execution; names the slice set and the stubbed callees separately in the record. Does not run get_value alone with pick as a stub and call the resulting crash a confirmation.",
+      "assertions": [
+        "Resolves each primary event to its owning function and names the slice set before slicing",
+        "Slices every member as code and stubs none of them",
+        "The verdict record lists the slice set and the stubbed callees as two disjoint lists",
+        "Does not present a crash through a stub of a slice-set member as a confirmation",
+        "Reports the reach count with the verdict"
+      ]
     }
   ]
 }

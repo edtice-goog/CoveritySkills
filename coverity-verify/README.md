@@ -101,11 +101,11 @@ execution in about four minutes).
 | `SKILL.md` | the procedure: name the claim -> slice -> models -> assemble (focused, then free) -> verdict with tier |
 | `references/fuzz-confirmation.md` | why the model is the stub, the harness, the proftpd batch, the verdict tiers, what is not built |
 | `references/fix-check.md` | fixed, or silenced? the inputs, which fixes to check, re-arming a claim the change made vacuous, the differential run, the verdicts on the change, the OpenSSL case and the fixture |
-| `tools/fz_target.py` | slice + saved models + harness snippet -> `target.c`: libc left real, model stubs with their behaviours listed, `--claim` inserted at the finding's line, `--pin-normal --free` focused mode, `--semantic` copy semantics |
+| `tools/fz_target.py` | slice set + saved models + harness snippet -> `target.c`: the set's members compiled as code and never stubbed (a member's saved model is ignored, and the log says so), libc left real, model stubs with their behaviours listed, `--claim` inserted at the finding's line, `--pin-normal --free` focused mode, `--semantic` copy semantics |
 | `tools/fz_support.h` | the byte stream, the per-stub choice trace printed on a crash, pins, the per-input arena, pointer-filled objects, the claim counter; builds with clang and clang-cl |
 | `tools/cid_lookup.py` | a Connect CID to its stream, checker, file, function and merge key over REST, then the matching issue and its events out of the idir's findings |
 | `tools/model_stubs.py` | a callee stub from its `cov-find-function --save` model |
-| `evals/` | `lookup.c` (a callee with a model), `use.c` (a caller with an unguarded dereference), `harness.c`, and `run.sh`, which runs the chain end to end; `run_fixcheck.sh` with `fixcheck/` (a fix and a silencer of the same finding) runs the fix check end to end |
+| `evals/` | `lookup.c` (a callee with a model), `use.c` (a caller with an unguarded dereference), `harness.c`, and `run.sh`, which runs the chain end to end; `run_fixcheck.sh` with `fixcheck/` (a fix and a silencer of the same finding) runs the fix check end to end; `run_sliceset.sh` with `sliceset/` (a caller and a callee that both carry a primary event) shows the callee as code refuting what the same callee as a stub would have "confirmed" |
 | `CALIBRATION.md` | what was measured, on what, and what was not |
 
 ## Requirements
