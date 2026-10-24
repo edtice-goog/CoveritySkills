@@ -16,9 +16,13 @@ second, with proof that the analyzer treats it like the original.
 cov-manage-emit --dir <idir> --ticker-mode none --tu 77 find '^setup_env$' --kind f --print-definitions
 ```
 
-509 lines for a 963-line function, macros expanded, `sizeof` folded, types
-canonical: what the checker actually walked, including the branches that
-live inside macros. No `cov-preprocess`, no extracting files, no scripts
+509 lines for a 963-line function, macros expanded, types canonical: what
+the checker actually walked, including the branches that live inside
+macros. The printer folds `sizeof` to the capture's constant and prints
+every subscript base bare (`(*f())[c]` as `*f()[c]`, which compiles and
+indexes the wrong thing); the slicer restores the expression and
+parenthesizes the base from the `--print-debug` tree, and names by source
+line any site it could not settle. No `cov-preprocess`, no extracting files, no scripts
 that parse `.i` text. C++ is addressed by mangled name, so overloads are
 never confused; static functions with the same name are separated by `--tu`.
 
@@ -42,9 +46,8 @@ analysis: wur: gen1 ... 5001 PATHOUT=1 n: setup_env in TU 1
 ```
 
 Fifteen seconds. Edit the slice, run again. Forty randomly chosen proftpd
-functions re-emitted 40 for 40; seventeen of nginx's eighteen PATHOUT
-functions slice and analyze (the eighteenth needs one hand edit, for a cast
-whose parentheses the pretty-printer drops). A function cov-emit dropped is
+functions re-emitted 40 for 40; all eighteen of nginx's PATHOUT functions
+slice and analyze. A function cov-emit dropped is
 reported as `COULD NOT VERIFY`, never as a clean result. C++ free functions
 work; methods use the preprocessed TU as their container instead.
 
@@ -73,7 +76,7 @@ skill: this is the piece that belongs in the product.
 | `references/function-extraction.md` | `cov-manage-emit find` for C and C++, duplicates, reading the pretty-print, the metrics join, the other `find` outputs |
 | `references/standalone-reproducer.md` | how the slice is built from the tree, the five rewrites, what differs from the original and why that is fine, the obfuscation mechanism, the C++ boundary and the preprocessed-TU route |
 | `tools/slice_function.py` | one function as a standalone `.c`/`.cpp` file; `--emit`, `--analyze`, `--obfuscate`; exit 2 when there is no result |
-| `evals/` | three fixtures (a C function with `for(;;)` and function-local unnamed types; C++ overloads; a C++ free function calling a static member) and a script that emits, extracts, slices and verifies them on your installation |
+| `evals/` | four fixtures (a C function with `for(;;)` and function-local unnamed types; the pretty-printer forms that need repair, bare subscript bases and folded `sizeof` among them; C++ overloads; a C++ free function calling a static member) and a script that emits, extracts, slices and verifies them on your installation |
 | `CALIBRATION.md` | what was measured, on what, and what was not |
 
 ## Requirements

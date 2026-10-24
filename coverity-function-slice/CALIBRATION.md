@@ -10,7 +10,7 @@ versions were used, each against an idir it wrote:
 | idir | written by | size | analyzed with |
 |---|---|---|---|
 | proftpd 1.3.9 (`coverity-demo-data-workspace/idirs/v1.3.9`), 149 C files, 2102 functions | 2025.9.0 (cov-build, gcc, WSL) | 2 GB | 2025.9.0 win64, scratch copy |
-| subversion + sqlite amalgamation (`C:\Data\tool-interop\coverity\idirs\svn-augmented-post-enrichment`), 9533 functions | 2026.3.0 | 185 MB | 2026.3.0 win64, scratch copy |
+| subversion 1.14 + sqlite amalgamation, 9533 functions (an MSVC capture) | 2026.3.0 | 185 MB | 2026.3.0 win64, scratch copy |
 | fixtures (`evals/fixtures/*`), emitted with bare `cov-emit --c` / `--c++` | 2026.6.0 | -- | 2026.6.0 win64 |
 
 All dates 2026-09-09.
@@ -112,8 +112,8 @@ All dates 2026-09-09.
   methods are not reconstructed, and `--obfuscate` leaves `demo` and
   `Widget` on the `review` line. Documented as the boundary; the
   preprocessed-TU route is the path for methods.
-- **C++ free functions (PR #1, from an Opus 5 run against a customer TU;
-  merged 2026-09-10).** Reported there, not reproduced here: a 12-parameter
+- **C++ free functions (PR #1, merged 2026-09-10).** Reported there, not
+  reproduced here: a 12-parameter
   free function in a large real-world C++ TU, 2026.3.0, `--c++`,
   a GCC 10 compiler configuration -- 76 recoverable errors before the change, clean
   after; slice `FORWARD_NULL_pass1` 2578 vs 2580 in the full TU,
@@ -186,9 +186,9 @@ All dates 2026-09-09.
     pretty-printer writes as `((uint32_t *)m[1] & 65535)` -- the
     parentheses around the cast are dropped, so the subscript binds first
     and cov-emit says `expression must have integral type` (slice lines 452
-    and 456). Not rewritten: the printed text is the same for a genuine
-    `(T *)m[1]`, so a textual fix would be a guess. Edit the two lines by
-    hand in the slice, or read the function from the preprocessed TU.
+    and 456). At the time not rewritten, because the printed text is the
+    same for a genuine `(T *)m[1]`; since 2026-10-24 the tree decides (the
+    *subscript bases* entry below).
   - `--analyze` now reports the missing `wur:` line as `COULD NOT VERIFY`
     (with `function "<name>" not emitted, see cov-emit.log` when cov-emit
     said so), suppresses the misleading count line, and exits 2; the
@@ -201,8 +201,8 @@ All dates 2026-09-09.
     continuation line: the detector unwraps the log first.
   - Two Windows facts from the same run: cov-emit fails with `Could not
     create unique lock file ... emit-db.creation-lock-<32 hex>` when the
-    output idir path is long (a 230-character `--out` under the session
-    scratch directory; the same slices emitted from a 60-character path),
+    output idir path is long (a 230-character `--out`; the same slices
+    emitted from a 60-character path),
     and `evals/fixture.sh` must be given a short `workdir` for the same
     reason.
 - **Struct and enum lookups are TU-scoped (found by the redis blind run,
@@ -244,6 +244,37 @@ All dates 2026-09-09.
   `-I/-D/--sys_include` succeeded; `cov-analyze` analyzed 12 functions.
   Not runnable for the WSL-built proftpd idir on Windows: the recorded
   `cov-emit` is a Linux binary.
+- **Subscript bases printed bare, and `sizeof` folded (2026-10-24).**
+  Measured on a fixture (`evals/fixtures/pretty_forms.c`, `cov-emit --c`,
+  2026.6.0, `--print-definitions` beside `--print-debug`): the printer
+  parenthesizes by precedence everywhere except a subscript base, which it
+  prints bare whatever it is. `(*rr)->id`, `(*fp)(a)`, `(a + b) * c` and
+  `-(a + b)` all survive; `(*f())[c]` prints as `*f()[c]`, `(*p)[1]` as
+  `*p[1]`, `(p + 1)[c]` as `p + 1[c]`, `((T *)p)[i]` as `(T *)p[i]`. The
+  first two type-check as a different expression (index the pointer, then
+  dereference), so the emit accepts them and a slice built from them
+  computes something else; the others do not parse. The `--print-debug`
+  tree keeps the structure, so the slicer renders each offending base from
+  the tree the way the printer spells it, locates it as `<base>[` and
+  parenthesizes it. The fixture's six sites repair and the slice emits with
+  no diagnostic; its obfuscated twin verifies identical (`evals/fixture.sh`).
+  Two limits, both exercised on the fixture: text that also occurs with
+  the other meaning is counted, not guessed (`*opt[` twice for one site:
+  reported by source line); a base the renderer cannot spell (a
+  conditional, a comma expression) is reported by source line, and the
+  comma form still goes through the diagnostic-driven rewrite. The folded
+  `sizeof` is restored from the printer's own comment, `8ULL /* sizeof (&r)
+  */` to `(sizeof (&r))`, so that a BAD_SIZEOF or SIZEOF_MISMATCH survives
+  re-analysis and a slice built with another pointer size computes its own
+  value; it stays folded when it names a struct the slice does not define,
+  is folded back on a cov-emit diagnostic, and `--fold-sizeof` keeps the
+  constant throughout. Re-run on real code the same day: nginx
+  `ngx_http_parse_request_line` (TU 73; the `ngx_str6cmp` cast that needed
+  the diagnostic round before now repairs from the tree, no round) and
+  proftpd `parse_list_opts` (TU 78, 2025.9.0; glibc's `(*__ctype_b_loc())[c]`
+  and `(*opt)[1]`, both of which had emitted as the wrong expression). The
+  numbers are in the fixture run's transcript; nothing from a non-public
+  codebase was used.
 
 ## Reasoned, not measured
 

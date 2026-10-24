@@ -15,7 +15,7 @@
     {
       "id": 1,
       "eval_name": "standalone-reproducer",
-      "prompt": "setup_env in modules/mod_auth.c (TU 77 of the proftpd idir at C:\\Data\\CoveritySkills\\coverity-demo-data-workspace\\idirs\\v1.3.9, Coverity 2025.9.0) hits the path limit. I want to try restructuring it, but the full build takes too long to iterate on. Give me that one function as a file I can cov-emit and cov-analyze by itself, and show me that it still reproduces the PATHOUT before I start editing.",
+      "prompt": "setup_env in modules/mod_auth.c (TU 77 of a proftpd 1.3.9 idir written by Coverity 2025.9.0) hits the path limit. I want to try restructuring it, but the full build takes too long to iterate on. Give me that one function as a file I can cov-emit and cov-analyze by itself, and show me that it still reproduces the PATHOUT before I start editing.",
       "expected_output": "Uses tools/slice_function.py --tu 77 --name setup_env --emit --analyze (or reproduces its method: body from find --print-definitions, declarations printed from the --print-debug tree and struct dumps, re-emit with the TU's recorded cov-emit flags minus -I/-D/--sys_include); reports a clean emit and the wur/Pathed out lines showing REVERSE_INULL at 5001 on the one-file idir; explains that callees are unmodeled prototypes and globals extern, and what that can change.",
       "assertions": [
         "Produces a single file containing the function plus its typedefs, struct definitions, extern globals and callee prototypes -- not a body alone, and not hand-written declarations",
@@ -28,12 +28,12 @@
     {
       "id": 2,
       "eval_name": "dropped-function-is-not-a-result",
-      "prompt": "Slice ngx_http_parse_request_line (TU 73) out of the nginx idir at C:\\Data\\pathout-campaign\\idirs\\nginx (Coverity 2026.6.0) and tell me whether it paths out on its own.",
-      "expected_output": "Runs slice_function.py --emit --analyze; reads the cov-emit line, which says NOT EMITTED because of the cast whose parentheses the pretty-printer dropped (`((uint32_t *)m[1] & 65535)`); reports COULD NOT VERIFY and exit 2 as 'no result yet', not as 'does not path out'; either hand-edits the two lines and re-runs, or says that is what would be needed.",
+      "prompt": "Slice ngx_http_parse_request_line (TU 73) out of an nginx 1.26.0 idir written by Coverity 2026.6.0 and tell me whether it paths out on its own.",
+      "expected_output": "Runs slice_function.py --emit --analyze; reads the `repaired:` line (the `ngx_str6cmp` cast under a subscript, parenthesized from the tree) and the `cov-emit: emitted` line; reports the wur: line and the pathed-out components. If the emit had instead said NOT EMITTED, treats COULD NOT VERIFY and exit 2 as 'no result yet', not as 'does not path out'.",
       "assertions": [
-        "Does not report the slice's `paths_exceeded count: 0` as the answer",
-        "Quotes the cov-emit diagnostic and names the pretty-printer form that caused it",
-        "Either completes the hand edit and re-runs, or states exactly what edit is needed and that the question is open"
+        "Does not report a slice's `paths_exceeded count: 0` as the answer without a wur: line for the function",
+        "Reads the repaired: and note: lines and says what the slicer changed in the body",
+        "Reports the wur: line and the pathed-out components as the result, with the unmodeled-callee caveat"
       ]
     },
     {

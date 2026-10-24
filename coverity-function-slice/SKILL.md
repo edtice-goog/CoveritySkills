@@ -70,9 +70,13 @@ $BIN/cov-manage-emit --dir <idir> --ticker-mode none --tu <N> \
   it otherwise.
 - 0.4 s; 509 lines for a 963-line function. A miss prints nothing and exits
   0 -- check for the `Matching function` header.
-- The body is what the analyzer saw: **macros expanded**, `sizeof` folded
-  (`4UL /* sizeof (gid_t) */`), `errno` as `*__errno_location()`, types
-  canonical. Branches hidden in macros are visible here and nowhere else.
+- The body is what the analyzer saw: **macros expanded**, `errno` as
+  `*__errno_location()`, types canonical. The printer folds `sizeof` to the
+  capture's constant (`4UL /* sizeof (gid_t) */`); the slicer restores the
+  expression from that comment, so a sizeof-class finding survives
+  re-analysis and a build with another pointer size computes its own value
+  (`--fold-sizeof` keeps the constant). Branches hidden in macros are
+  visible here and nowhere else.
   Line numbers are not preserved inside the body; the header's `declared
   at:` is the anchor, and `--tu N print-source` gives the captured source
   with a three-line header offset for a side-by-side.
@@ -101,8 +105,8 @@ or `--out`, re-emits it with the flags recorded for the original TU minus
 include paths, analyzes the one-file idir with `--print-paths`, and prints
 the function's `wur:` line. `setup_env`: 906 lines, clean emit, analyzed
 in 15 seconds, editable, repeatable. A random sample of 40 proftpd
-functions re-emitted 40 for 40; all 18 nginx PATHOUT functions but one
-slice and analyze.
+functions re-emitted 40 for 40; all 18 nginx PATHOUT functions slice and
+analyze.
 
 **Read the two result lines.** `cov-emit: emitted` with no recoverable
 errors, then `analysis: wur: ... n: <name> in TU 1`. If instead it prints
@@ -111,10 +115,21 @@ NOT VERIFY` (exit 2), cov-emit accepted the file but dropped the function
 on a parse diagnostic, and there is no result yet: read the quoted
 diagnostics, fix the slice (or the slicer -- the forms seen so far,
 `for (; true; )`, a function-local `enum <anonymous>`, `struct fn::tag`,
-transparent-union arguments, `NULL`/`va_*`, are rewritten; a cast whose
-parentheses the pretty-printer dropped, `((uint32_t *)m[1] & 65535)`, is
-not and needs a hand edit), and re-run. Never report that run's
-`paths_exceeded count: 0` as a result.
+transparent-union arguments, `NULL`/`va_*`, a comma initializer, a
+`[[attribute]]` in C, the lowered `__atomic_*` form, are rewritten), and
+re-run. Never report that run's `paths_exceeded count: 0` as a result.
+
+**One printer form compiles and means something else.** `--print-definitions`
+prints every subscript base bare: `(*table())[c]` comes out as
+`*table()[c]`, `(*pp)[1]` as `*pp[1]`, `((T *)p)[i]` as `(T *)p[i]`,
+`(p + 1)[c]` as `p + 1[c]`. The first two type-check, so `cov-emit:
+emitted` passes and the slice indexes a different object; the others fail
+to parse. The slicer repairs all of them from the `--print-debug` tree,
+which keeps the structure, and prints a `repaired:` line naming each base
+and its source line. Read the `note:` lines too: a base whose printed text
+also occurs with the other meaning, or whose form the slicer cannot spell
+(a conditional, a comma expression), is left as printed and named by
+source line for a hand check.
 
 **What is different from the original, and say so**: callees are
 prototypes with no models, globals are `extern`, static callees lose
@@ -143,9 +158,9 @@ Use this step only when the user **asks** for the function to be seen by
 someone who must not see the source: another model, a vendor, a colleague
 outside the project. The request may be phrased as "obfuscate",
 "anonymize", "rename the variables", "strip the identifying parts", or
-"make a version I can send". The case it was built for: taking a real
-customer function out of a zero-retention environment so a larger workflow
-could be tested on it.
+"make a version I can send". The case it exists for: a function that
+must be discussed outside the environment that holds the source, for
+example in a support ticket or with a model that may not see the code.
 
 The structure is what the outside reader needs and the names are what
 identify the codebase, so the tool renames and masks, keeps everything the
@@ -254,6 +269,7 @@ coverity-function-slice/
     ├── evals.json
     └── fixtures/
         ├── local_enum_forever.c         # for(;;) and function-local unnamed types (the nginx forms)
+        ├── pretty_forms.c               # bare subscript bases, folded sizeof, and the zstd/redis forms
         ├── overloads.cpp                # C++: mangled names, picking one overload
         └── nested_members.cpp           # C++ free function: static member, nested enum, __func__
 ```

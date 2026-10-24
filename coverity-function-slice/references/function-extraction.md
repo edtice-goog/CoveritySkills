@@ -86,11 +86,11 @@ prints seven definitions, each headed by its file and TU:
 ```
 Matching function: main
  declared at:
-   /home/etice/demo/proftpd/src/main.c:2423:5-...
+   /home/user/proftpd/src/main.c:2423:5-...
  defined in TU 14 with row 156
 Matching function: main
  declared at:
-   /home/etice/demo/proftpd/src/ftpdctl.c:371:5-...
+   /home/user/proftpd/src/ftpdctl.c:371:5-...
  defined in TU 71 with row 1505
 ...
 ```
@@ -114,7 +114,7 @@ pretty-printed from the AST:
 /*
  * Matching function: setup_env
  * declared at:
- *   /home/etice/demo/proftpd/modules/mod_auth.c:1035:12-/home/etice/demo/proftpd/modules/mod_auth.c:1035:20
+ *   /home/user/proftpd/modules/mod_auth.c:1035:12-/home/user/proftpd/modules/mod_auth.c:1035:20
  * defined in TU 77 with row 1911
  */
 static int setup_env(pool *p, cmd_rec *cmd, char const *user, char *pass) {
@@ -155,7 +155,7 @@ entry per function, keyed by the same name the log uses:
 
 ```xml
 <fnmetric>
-<file>/home/etice/demo/proftpd/modules/mod_auth.c</file>
+<file>/home/user/proftpd/modules/mod_auth.c</file>
 <names><![CDATA[fn:setup_env;]]></names>
 <metrics>be:0;fe:448;bl:298;lc:963;on:249;ot:23;tn:1343;tt:1137;cc:152;pce:4.07238e+26;pcs:3.69356e+19;hf:234861;hr:4.63413;ml:1035</metrics>
 </fnmetric>
