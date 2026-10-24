@@ -220,10 +220,83 @@ deletes anything (*measured*). Facts behind it:
 The UI lists a user's active keys under *\<user\> > Authentication Keys*.
 There is no REST endpoint for that list.
 
+## HTTPS trouble: the bundled JDKs have their own trust stores
+
+If a Coverity command fails to reach Connect over HTTPS while `curl` and `git`
+reach the same host happily, suspect the trust store before the key.
+
+A Coverity installation ships **its own JDKs**, and each one carries its own
+`lib/security/cacerts` independent of the system store. On the installation
+measured (a 2025.12.2 Linux install, 2026-08-25) there were three such JDKs
+under the install root, each with 109 trusted certificates, and **none of them
+— nor the system store — carried the CA of the TLS-inspecting proxy in front
+of the host** (*measured*).
+
+The consequence is a failure that diagnoses badly. A Coverity JVM can fail an
+intercepted host while every other client on the machine succeeds, and
+interception is often selective, so the same run produced
+`SSLHandshakeException ... (certificate_unknown)`, *PKIX path building failed*
+for one host and `http=200` for another (*measured*, via
+`HttpsURLConnection` under the bundled `java`). Proving `curl` works proves
+nothing about the JVM: runtimes read different stores. Go binaries, for
+instance, ignore `CURL_CA_BUNDLE` and read the system store, with
+`SSL_CERT_FILE` overriding it.
+
+### The fix: add the CA to a copy of the keystore
+
+Copy it rather than editing the installation, so the install stays pristine
+across upgrades and the change is obvious and reversible.
+
+```bash
+COV=/path/to/cov-analysis-<platform>-<version>
+JDK="$COV/<a bundled JDK>"          # each bundled JDK has its own cacerts
+
+cp "$JDK/lib/security/cacerts" ./cov-cacerts-corp.jks
+chmod u+w ./cov-cacerts-corp.jks
+
+"$JDK/bin/keytool" -importcert -noprompt -trustcacerts \
+    -alias corp-root -file corp-root.pem \
+    -keystore ./cov-cacerts-corp.jks -storepass changeit
+
+export JAVA_TOOL_OPTIONS="-Djavax.net.ssl.trustStore=$PWD/cov-cacerts-corp.jks -Djavax.net.ssl.trustStorePassword=changeit"
+```
+
+`changeit` is the JDK's documented default `cacerts` password, not a secret.
+
+`JAVA_TOOL_OPTIONS` is honoured by every JVM at startup, which is why it
+reaches the bundled JDKs through their wrapper scripts without naming any of
+them. It prints one `Picked up JAVA_TOOL_OPTIONS:` line to stderr; where
+something parses Coverity's stderr strictly, pass `-Djavax.net.ssl.trustStore`
+on that one command instead of exporting it. Verified to turn the failing call
+into `http=200` (*measured*).
+
+Write the JDK path generically. The number of bundled JDKs and their directory
+names vary by release, so target "each bundled JDK under the install root"
+rather than a specific one.
+
+### Do not disable verification instead
+
+This **adds** a CA the organization already requires. It does not weaken
+anything. The tempting shortcuts do:
+
+| Tempting | Why not |
+|---|---|
+| `GIT_SSL_NO_VERIFY=1` | turns off verification wholesale |
+| `curl -k` | same, per call |
+| `-Dcom.sun.net.ssl.checkRevocation=false` | stops revocation checking, and does not fix path building anyway |
+
+A Connect connection carries an **authentication key**. Disabling verification
+on it means handing that credential to whatever answers, which is the opposite
+of the care the rest of this document is about. Add the CA.
+
+This is a different mechanism from Coverity's own `--on-new-cert` / `--certs`
+options; those are not covered here.
+
 ## What was not measured
 
 - LDAP users: how `domain` and the username combine for REST Basic auth.
 - The documented POSIX file-mode rejection.
 - That the `coverity` CLI picks up `~/.coverity/ak-<host>-<port>`
   unconfigured. The default is documented; it was not exercised.
-- Creation and use over HTTPS, with `--on-new-cert` or `--certs`.
+- Creation and use over HTTPS, with `--on-new-cert` or `--certs`, and whether
+  either interacts with the bundled JDKs' trust stores.
