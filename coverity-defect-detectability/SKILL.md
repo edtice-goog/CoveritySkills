@@ -34,6 +34,22 @@ path to an empirical answer: capture, run defaults, escalate only while the
 answer is still "not found". Save deeper experiments for when the verdict is
 surprising, contested, or needs to transfer to real code (see Step 4b).
 
+## Scope and hand-offs
+
+This skill answers one question: *can Coverity detect this defect, and with
+what configuration?* It delivers an empirical detectability verdict, the
+minimal configuration that reports the defect, and a command to reproduce it.
+
+Two things it deliberately does not do:
+
+- **Triaging real findings.** Deciding whether a finding Coverity already
+  reported is a true or false positive, and recording a verdict on it, is a
+  different job. Hand a question about the disposition of an actual finding to
+  `coverity-triage`, which assigns it a lane and a verdict.
+- **Reasoning about what a checker "should" do** in the abstract. The method
+  here is to run Coverity and report what it actually does; speculation about
+  intended behavior is out of scope (and, as noted above, a trap to avoid).
+
 ## Step 0: Locate the Coverity installation
 
 Ask the user for the installation path if it isn't already known (check project
