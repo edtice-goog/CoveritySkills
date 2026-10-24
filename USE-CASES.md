@@ -145,7 +145,9 @@ flowchart LR
 ```
 
 - `coverity-pathout` finds the functions and the checker, runs the shape
-  catalogue there, and measures what a higher bound costs.
+  catalogue there, and measures what a higher bound costs. With many
+  functions at the bound, it pilots one, prices the rest (triage of each
+  candidate included) and asks before going on.
 - Its candidates are built to be run: `coverity-verify` is their triage
   method. They still pass through `coverity-triage`'s lane assignment, which is
   cheap and checks that each candidate's claim is what the shape assumed.
@@ -204,6 +206,9 @@ flowchart LR
 
 - `coverity-issue-transition-inference` adds the missing control run, the old
   code under the new analyzer, which splits one confounded delta into two.
+  The control decides both directions: for a finding that appeared, whether
+  you wrote it or the analyzer changed; for one that disappeared, whether you
+  fixed it or the analyzer stopped reporting it.
 - When the old build can still be run, `coverity-build-fidelity` keeps it
   constant. When it cannot, `coverity-recreate-from-emit` rebuilds an
   analyzable intermediate directory from the old one.
@@ -255,9 +260,9 @@ and which came from a CWE with no mapping.
 | `coverity` | standing rules; pinning one installation; reading an idir; verifying capture three ways; Connect authentication; routing | a specialist's job; explaining a noisy sample beyond re-checking capture | the specialist skill the question belongs to |
 | `coverity-compiler-configuration` | template configurations; cross-compilers, embedded toolchains and wrappers; diagnosing and regenerating a tainted configuration | verifying the capture; judging the build | `coverity` (capture verification) |
 | `coverity-build-fidelity` | native vs `cov-build` comparison of the product; capture coverage; a release-gate verdict and a profile draft | guessing at unexplained differences (it escalates to a person); work where the build cannot run | `coverity-recreate-from-emit` when the build cannot run |
-| `coverity-defect-detectability` | an empirical detectability verdict; the minimal configuration; a repro command | triaging real findings; reasoning about what a checker "should" do | `coverity-triage` for verdicts on findings |
+| `coverity-defect-detectability` | an empirical detectability verdict; the minimal configuration; a repro command | triaging real findings; speculating about what a checker would do instead of running it | `coverity-triage` for verdicts on findings |
 | `coverity-demo-data` | a multi-version history with real release dates; streams per branch; guarded oldest-first commits; a self-contained published dataset | triaging on its own or by default; the customer narrative; backdating triage history | `coverity-triage`, when the user chooses |
-| `coverity-pathout` | which functions reached the path bound and which checker; the shape catalogue there; the cost of raising the bound; restructuring | judging its candidates; analyzing an idir from a version that is not installed (it stops and asks) | `coverity-function-slice` for bodies; `coverity-triage` for candidates, expecting value or path with `coverity-verify`; anything else goes to the user |
+| `coverity-pathout` | which functions reached the path bound and which checker; the shape catalogue there; the cost of raising the bound; restructuring; a priced pilot before a large run | judging its candidates; analyzing an idir from a version that is not installed (it stops and asks) | `coverity-function-slice` for bodies; `coverity-triage` for candidates, expecting value or path with `coverity-verify`; anything else goes to the user |
 | `coverity-function-slice` | one function from the AST; a standalone file that compiles and analyzes; an obfuscated twin with proof | deciding whether a finding is real | `coverity-pathout`, `coverity-verify` (its callers) |
 | `coverity-verify` | an execution verdict on one finding (fuzzing under model stubs) with its tier and evidence; the fix check | injection, resource and concurrency claims (it suggests external verification); triaging a batch by reading | `coverity-function-slice` for the target |
 | `coverity-triage` | a lane per finding; a method and model per lane; records in Connect's fields plus Triage lane and Triage method | choosing the findings; writing to Connect; severity beyond "low"; exploitability; Connect's AI-Assisted Triage; demo-worthiness | `coverity-verify` for the execution method |

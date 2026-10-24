@@ -19,10 +19,24 @@ This applies to a model working in a zero-retention environment as much as
 to a person: the environment protects the idir, not the pull request it
 writes.
 
+## Nothing from the machine it was developed on, either
+
+The same goes for the environment a skill was built and measured in:
+usernames, home directories, host names, install paths, scratch and
+workspace directories, the network a run sat behind, and the names of other
+sessions or projects. They creep in through benchmark scripts, quoted logs,
+JSON samples and worked examples. Scripts take such paths as parameters or
+environment variables; prose uses neutral placeholders (`/home/build/proj`,
+`capture-host`, `<install-root>`). Where a measurement depends on a value's
+shape, such as a path's length in a hexdump, keep the shape and change the
+value. And a skill is used by its readers, not by the projects that tested
+it: nothing in it should need those projects explained.
+
 ## Before pushing
 
 - Grep the diff for any identifier you remember from the run, including the
-  mangled forms (`_Z...`).
+  mangled forms (`_Z...`), and for your username, host name and home
+  directory.
 - Prefer the fixture names in every example.
 - Measurements stay; names and literals go.
 
