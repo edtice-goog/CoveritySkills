@@ -414,229 +414,6 @@ class Printer:
 
 
 # ==========================================================================
-# expressions from the tree: the one construct the pretty-printer gets wrong
-#
-# `--print-definitions` prints a subscript `e[i]` (an E_deref of an E_binary
-# `+` with a pointer operand) with the base `e` bare, whatever it is. Every
-# other operator is parenthesized by precedence, but a subscript base that is
-# itself a dereference, a cast, a binary, a unary or a conditional comes out
-# without the parentheses the source had: `(*f())[c]` as `*f()[c]`, `(*p)[1]`
-# as `*p[1]`, `(p + 1)[c]` as `p + 1[c]`, `((T *)p)[i]` as `(T *)p[i]`. Those
-# type-check (as a different expression) more often than not, so the emit
-# accepts them and the slice computes something else. Measured on proftpd,
-# rockbox and the fixture.
-#
-# The `--print-debug` tree keeps the structure, so the base is rendered from
-# the tree the way the printer spells it, located in the body as `<base>[`,
-# and parenthesized. Where the text cannot be located, or occurs more often
-# than the tree needs it, the source lines are reported for a hand check.
-
-BINARY_PREC = {"||": 4, "&&": 5, "|": 6, "^": 7, "&": 8, "==": 9, "!=": 9,
-               "<": 10, ">": 10, "<=": 10, ">=": 10, "<<": 11, ">>": 11,
-               "+": 12, "-": 12, "*": 13, "/": 13, "%": 13}
-PREC_UNARY, PREC_POSTFIX, PREC_PRIMARY = 14, 15, 16
-
-INT_SUFFIX = {"int": "", "unsigned int": "U", "long": "L", "unsigned long": "UL",
-              "long long": "LL", "unsigned long long": "ULL", "short": "", "unsigned short": "",
-              "char": "", "unsigned char": "", "signed char": "", "bool": "", "_Bool": ""}
-
-
-def printer_type_text(t):
-    """A type as the pretty-printer spells it inside a cast: `unsigned char
-    const *`, `struct rec *`, `size_t`. None where the spelling is not known
-    (function and array types), which makes the caller give up on that site."""
-    tag = t.tag if isinstance(t, Node) else None
-    if tag == "scalar_type_t":
-        return t.get("kind", "int")
-    if tag == "cv_wrapper_type_t":
-        inner = printer_type_text(t.get("target"))
-        flags = (t.get("flags", "") or "").split()
-        return None if inner is None else " ".join([inner] + flags)
-    if tag == "pointer_type_t":
-        inner = printer_type_text(t.get("pointed_to"))
-        if inner is None:
-            return None
-        return inner + "*" if inner.endswith("*") else inner + " *"
-    if tag == "typedef_type_t":
-        nm = t.get("name", "?")
-        parts = nested_components(nm)
-        return "::".join(parts) if parts else nm
-    if tag in ("class_type_t", "internal_defined_class_type_t"):
-        return "%s %s" % (t.get("classKey", "struct"), t.get("name", "?"))
-    if tag in ("enum_type_t", "internal_defined_enum_type_t"):
-        return "enum %s" % t.get("name", "?")
-    return None
-
-
-def is_implicit(node):
-    return node.get("isImplicit", "PI_EXPLICIT") != "PI_EXPLICIT"
-
-
-def through_implicit_casts(node):
-    while isinstance(node, Node) and node.tag == "E_cast" and is_implicit(node) and isinstance(node.get("expr"), Node):
-        node = node.get("expr")
-    return node
-
-
-def subscript_parts(deref):
-    """If `deref` (an E_deref) is what the printer spells as `base[index]`,
-    return (base, index); else None."""
-    p = deref.get("ptr")
-    if not (isinstance(p, Node) and p.tag == "E_binary" and p.get("op") == "+"):
-        return None
-    e1, e2 = p.get("e1"), p.get("e2")
-    if not (isinstance(e1, Node) and isinstance(e2, Node)):
-        return None
-    t1 = e1.get("type")
-    t2 = e2.get("type")
-    p1 = isinstance(t1, Node) and t1.tag == "pointer_type_t"
-    p2 = isinstance(t2, Node) and t2.tag == "pointer_type_t"
-    if p1 and not p2:
-        return e1, e2
-    if p2 and not p1:
-        return e2, e1
-    return None
-
-
-def expr_text(node):
-    """(text, precedence) for an expression node, spelled as the pretty-printer
-    spells it -- except that a subscript base of lower-than-postfix precedence
-    is parenthesized, which is the repair. None where a node kind is not
-    handled; the caller then reports the site instead of repairing it."""
-    if not isinstance(node, Node):
-        return None
-    tag = node.tag
-    if tag == "E_variable":
-        v = node.get("var")
-        if not isinstance(v, Node):
-            return None
-        nm = (v.get("id") if v.tag == "function_t" else None) or v.get("name")
-        return (nm, PREC_PRIMARY) if nm else None
-    if tag == "E_intLit":
-        if isinstance(node.get("original_expr"), Node):
-            return None              # a folded sizeof or cast: spelled with a comment
-        t = node.get("type")
-        kind = t.get("kind", "int") if isinstance(t, Node) else "int"
-        if kind not in INT_SUFFIX:
-            return None
-        return (str(node.get("i", "0")) + INT_SUFFIX[kind], PREC_PRIMARY)
-    if tag == "E_funCall":
-        f = expr_text(node.get("func"))
-        if f is None:
-            return None
-        ftext = "(%s)" % f[0] if f[1] < PREC_POSTFIX else f[0]
-        args = []
-        for k, a in (node.get("args") or []):
-            r = expr_text(a)
-            if r is None:
-                return None
-            args.append(r[0])
-        return (ftext + "(" + ", ".join(args) + ")", PREC_POSTFIX)
-    if tag == "E_fieldAcc":
-        fld = node.get("field")
-        name = fld.get("name") if isinstance(fld, Node) else None
-        obj = node.get("obj")
-        if not (name and isinstance(obj, Node)):
-            return None
-        if obj.tag == "E_deref" and subscript_parts(obj) is None:
-            base = expr_text(obj.get("ptr"))
-            sep = "->"
-        else:
-            base = expr_text(obj)
-            sep = "."
-        if base is None:
-            return None
-        btext = "(%s)" % base[0] if base[1] < PREC_POSTFIX else base[0]
-        return (btext + sep + name, PREC_POSTFIX)
-    if tag == "E_deref":
-        sp = subscript_parts(node)
-        if sp is not None:
-            base, idx = sp
-            b = expr_text(through_implicit_casts(base))
-            i = expr_text(idx)
-            if b is None or i is None:
-                return None
-            btext = "(%s)" % b[0] if b[1] < PREC_POSTFIX else b[0]
-            return (btext + "[" + i[0] + "]", PREC_POSTFIX)
-        r = expr_text(node.get("ptr"))
-        if r is None:
-            return None
-        return ("*" + ("(%s)" % r[0] if r[1] < PREC_UNARY else r[0]), PREC_UNARY)
-    if tag == "E_addrOf":
-        r = expr_text(node.get("expr"))
-        if r is None:
-            return None
-        return ("&" + ("(%s)" % r[0] if r[1] < PREC_UNARY else r[0]), PREC_UNARY)
-    if tag == "E_unary":
-        op = node.get("op")
-        if op not in ("-", "+", "!", "~"):
-            return None
-        r = expr_text(node.get("expr"))
-        if r is None:
-            return None
-        return (op + ("(%s)" % r[0] if r[1] < PREC_UNARY else r[0]), PREC_UNARY)
-    if tag == "E_binary":
-        op = node.get("op")
-        prec = BINARY_PREC.get(op)
-        if prec is None:
-            return None
-        l, r = expr_text(node.get("e1")), expr_text(node.get("e2"))
-        if l is None or r is None:
-            return None
-        lt = "(%s)" % l[0] if l[1] < prec else l[0]
-        rt = "(%s)" % r[0] if r[1] <= prec else r[0]
-        return ("%s %s %s" % (lt, op, rt), prec)
-    if tag == "E_cast":
-        r = expr_text(node.get("expr"))
-        if r is None:
-            return None
-        if is_implicit(node):
-            return r
-        tt = printer_type_text(node.get("type"))
-        if tt is None:
-            return None
-        return ("(%s)%s" % (tt, "(%s)" % r[0] if r[1] < PREC_UNARY else r[0]), PREC_UNARY)
-    if tag == "E_cond":
-        c, a, b = expr_text(node.get("cond")), expr_text(node.get("th")), expr_text(node.get("el"))
-        if c is None or a is None or b is None:
-            return None
-        ct = "(%s)" % c[0] if c[1] <= 3 else c[0]
-        return ("%s ? %s : %s" % (ct, a[0], b[0]), 3)
-    return None
-
-
-def source_line(node):
-    loc = node.get("loc", "") if isinstance(node, Node) else ""
-    m = re.match(r"^(.*?):(\d+):\d+-", loc)
-    return int(m.group(2)) if m else None
-
-
-def subscript_repairs(root):
-    """Every subscript whose base the printer spells bare although it is not a
-    postfix expression: [(bare base text or None, source line)], innermost
-    first."""
-    found = []
-
-    def visit(node, path):
-        if node.tag != "E_deref":
-            return
-        sp = subscript_parts(node)
-        if sp is None:
-            return
-        base = through_implicit_casts(sp[0])
-        if base.tag in ("E_variable", "E_funCall", "E_fieldAcc", "E_stringLit") or \
-           (base.tag == "E_deref" and subscript_parts(base) is not None):
-            return
-        r = expr_text(base)
-        found.append((r[0] if r else None, source_line(node)))
-    walk(root, visit)
-    return found
-
-
-SIZEOF_FOLDED = re.compile(r"\b(\d+)(ULL|UL|LL|U|L)?[ \t]*/\*[ \t]*(sizeof\b.*?)[ \t]*\*/")
-
-
-# ==========================================================================
 # collection
 
 class Slice:
@@ -660,16 +437,9 @@ class Slice:
         self.locals = []         # local variable names, in tree order
         self.params = []         # parameter names, in tree order
         self.notes = []
-        self.root = None         # the --print-debug tree, for the subscript repair
-        self.fold_sizeof = False # keep the printer's folded sizeof constants
-        self.repaired = []       # (base text, [source lines]) parenthesized from the tree
-        self.unfolded = {}       # body line index -> the folded line it replaced
 
     # ---- walking a tree -------------------------------------------------
     def collect(self, root):
-        if self.root is None:
-            self.root = root     # the function's tree; close() re-enters for field types
-
         def visit(node, path):
             tag = node.tag
             if tag == "typedef_type_t":
@@ -1164,81 +934,7 @@ class Slice:
             else:
                 out.append(body[m.start():m.end()])
                 i = m.end()
-        body = "".join(out)
-        # 10. subscript bases the printer left bare, parenthesized from the tree
-        body = self.repair_subscripts(body)
-        # 11. folded sizeof constants, restored to the expression the comment keeps
-        if not self.fold_sizeof:
-            body = self.unfold_sizeof(body)
-        return body
-
-    def repair_subscripts(self, body):
-        """`(*f())[c]` printed as `*f()[c]` and its relatives: locate each base
-        the tree says is not a postfix expression, as `<base>[`, and
-        parenthesize it. Longest bases first, so a base containing another is
-        fixed before the shorter one is counted. Sites whose text cannot be
-        rendered or located, or whose text occurs more often than the tree
-        needs it, are reported by source line and left alone."""
-        if self.root is None:
-            return body
-        groups = {}
-        unrendered = []
-        for text, line in subscript_repairs(self.root):
-            if text is None:
-                unrendered.append(line)
-            else:
-                groups.setdefault(text, []).append(line)
-        for text in sorted(groups, key=len, reverse=True):
-            lines = groups[text]
-            needle = text + "["
-            count = body.count(needle)
-            where = ", ".join(str(l) for l in sorted(set(x for x in lines if x)))
-            if count == len(lines):
-                body = body.replace(needle, "(" + text + ")[")
-                self.repaired.append((text, lines))
-            elif count == 0:
-                self.notes.append("subscript base `%s` needs parentheses (source line%s %s) but was not "
-                                  "found in the printed body as `%s`; check that line by hand"
-                                  % (text, "s" if len(lines) > 1 else "", where, needle))
-            else:
-                self.notes.append("subscript base `%s` needs parentheses at %d site%s (source line%s %s) but "
-                                  "`%s` occurs %d times in the body and the others are a different "
-                                  "expression; left as printed, check them by hand"
-                                  % (text, len(lines), "s" if len(lines) > 1 else "",
-                                     "s" if len(lines) > 1 else "", where, needle, count))
-        if unrendered:
-            self.notes.append("subscript base needs parentheses at source line%s %s but its form is not one "
-                              "the slicer can spell; check by hand"
-                              % ("s" if len(unrendered) > 1 else "",
-                                 ", ".join(str(l) for l in sorted(set(x for x in unrendered if x)))))
-        return body
-
-    def unfold_sizeof(self, body):
-        """`8ULL /* sizeof (&r) */` back to `(sizeof (&r))`, so the slice carries
-        the expression and not the capture's answer to it: a BAD_SIZEOF or
-        SIZEOF_MISMATCH survives re-analysis, and a build with another pointer
-        size computes its own value. A struct named in the expression must be
-        complete in the slice, or the line stays folded; a line cov-emit then
-        rejects is folded back by the caller (self.unfolded)."""
-        lines = body.split("\n")
-        for k, line in enumerate(lines):
-            if "sizeof" not in line or "/*" not in line:
-                continue
-
-            def ok(m):
-                for key, tag in re.findall(r"\b(struct|union)\s+([A-Za-z_]\w*)", m.group(3)):
-                    if tag not in self.class_defs:
-                        return False
-                return True
-            if not all(ok(m) for m in SIZEOF_FOLDED.finditer(line)):
-                self.notes.append("line keeps a folded sizeof: its struct is not complete in the slice: %s"
-                                  % line.strip())
-                continue
-            new = SIZEOF_FOLDED.sub(lambda m: "(" + m.group(3) + ")", line)
-            if new != line:
-                self.unfolded[k] = line
-                lines[k] = new
-        return "\n".join(lines)
+        return "".join(out)
 
     UNNAMED_USE = re.compile(r"\b(struct|union|enum)\s+(?:[A-Za-z_]\w*)::\[unnamed type of '([A-Za-z_]\w*)'\]")
     UNNAMED_DECL = re.compile(r"^[ \t]*(struct|union|enum)\s+<anonymous>;[ \t]*$\n?", re.M)
@@ -2031,9 +1727,6 @@ def main():
     ap.add_argument("--obfuscate", action="store_true",
                     help="also write fn_0.obf.c: project identifiers renamed, string literals masked, "
                          "comments dropped, library names kept; with --analyze, verify both slices analyze alike")
-    ap.add_argument("--fold-sizeof", action="store_true",
-                    help="keep sizeof folded to the capture's constant (`8UL /* sizeof (x) */`) as the "
-                         "pretty-printer prints it; by default the expression is restored")
     a = ap.parse_args()
 
     out_dir = a.out or os.path.join(a.dir, "output", "pathout", "slice-" + re.sub(r"[^A-Za-z0-9_]", "_", a.name))
@@ -2057,7 +1750,6 @@ def main():
         sys.exit("could not parse --print-debug output")
     header, root = roots[0]
     sl = Slice(a.bin, a.dir, a.tu, a.name, cxx)
-    sl.fold_sizeof = a.fold_sizeof
     sl.collect(root)
     sl.close()
     text = sl.render(body, a.dir)
@@ -2070,15 +1762,6 @@ def main():
     print("contents: %d typedefs, %d struct definitions (+%d forward-declared only), %d enums, %d globals, %d prototypes"
           % (len([t for t in sl.typedefs if not t.startswith("__builtin_")]), len(sl.class_defs),
              len(sl.classes) - len(sl.class_defs), len(sl.enums), len(sl.globals), len(sl.functions)))
-    if sl.repaired:
-        print("repaired: %d subscript base%s the pretty-printer printed bare, parenthesized from the tree: %s"
-              % (sum(len(l) for _, l in sl.repaired), "s" if sum(len(l) for _, l in sl.repaired) > 1 else "",
-                 "; ".join("`(%s)[` at source line%s %s" % (t, "s" if len(l) > 1 else "",
-                                                           ", ".join(str(x) for x in sorted(set(y for y in l if y))))
-                           for t, l in sl.repaired)))
-    if sl.unfolded:
-        print("sizeof  : %d line%s carry the expression instead of the capture's folded constant (--fold-sizeof keeps the constant)"
-              % (len(sl.unfolded), "s" if len(sl.unfolded) > 1 else ""))
     for n in sl.notes:
         print("note    : " + n)
 
@@ -2146,12 +1829,6 @@ def main():
         for ln in diagnostic_lines(er):
             k = ln - sl.body_offset - 1
             if 0 <= k < len(blines):
-                if k in sl.unfolded:
-                    # the restored sizeof expression did not compile here (a
-                    # type the slice does not carry): back to the constant
-                    blines[k] = sl.unfolded.pop(k)
-                    applied.append((ln, "sizeof folded back to the capture's constant"))
-                    continue
                 new, rules = line_rewrites(blines[k])
                 if rules:
                     blines[k] = new
