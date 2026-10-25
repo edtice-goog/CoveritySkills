@@ -134,21 +134,16 @@ def body_snapshots(stream):
 STOPPED = 3
 
 
-def interactive():
-    try:
-        return sys.stdin.isatty() and sys.stderr.isatty()
-    except (AttributeError, ValueError):
-        return False
-
-
 def cmd_setup(assume_yes=False):
     """Create any of the four that are missing.  Safe to re-run.
 
     Creating an attribute is instance-wide configuration: the four appear in
     the triage pane of EVERY project on that Connect, not just yours, and the
-    generator requires these exact names so they cannot be scoped.  So this
-    asks when someone is there to answer, and otherwise says what it would
-    create and stops.  --yes pre-authorizes it for an unattended run.
+    generator requires these exact names so they cannot be scoped.  So under
+    rule 38 this reports what it would create and stops, and --yes is the
+    record of the user having agreed.  It does not test for a TTY: rule 38
+    says not to infer interactivity from signals like that, and unsure means
+    stop.
     """
     missing = []
     for name, kind, default, values, desc in REQUIRED:
@@ -163,27 +158,19 @@ def cmd_setup(assume_yes=False):
     action = ("create %d instance-wide triage attribute(s): %s"
               % (len(missing), ", ".join(missing)))
     if not assume_yes:
-        if not interactive():
-            print("")
-            print("STOPPING: nothing was created.")
-            print("  would do : %s" % action)
-            print("  effect   : they appear in the triage pane of every "
-                  "project on this Connect")
-            print("  to do it : re-run with `setup --yes`")
-            print("This run is not interactive, so the choice is yours to "
-                  "make rather than mine.")
-            return STOPPED
         print("")
-        print("About to %s" % action)
-        print("  effect: they appear in the triage pane of every project on "
-              "this Connect")
-        try:
-            answer = input("Proceed? [y/N] ").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            answer = ""
-        if answer not in ("y", "yes"):
-            print("Declined; nothing created.")
-            return STOPPED
+        print("STOPPING: nothing was created.")
+        print("  would do : %s" % action)
+        print("  effect   : they appear in the triage pane of every project "
+              "on this Connect")
+        print("  effect   : the generator requires these exact names, so "
+              "they cannot be scoped")
+        print("  kept     : the check above, which found what is missing")
+        print("  to do it : re-run with `setup --yes`")
+        print("This is a decision for you, not for me: rule 38 has the tool "
+              "stop rather")
+        print("than guess at it, whether or not anyone is watching.")
+        return STOPPED
     rc = 0
     for name, kind, default, values, desc in REQUIRED:
         if name not in missing:

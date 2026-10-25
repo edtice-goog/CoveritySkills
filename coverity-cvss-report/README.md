@@ -62,15 +62,14 @@ out, which is why this is a tool and not a table.
 `SKILL.md` has the detail, including the two consequences of marking
 `CVSS_Audited = Yes` and how to undo it.
 
-Every step that writes to Connect asks first when the run is interactive,
-and when it is not -- a scheduled job, CI, or anything it cannot tell about
--- it reports exactly what is needed and stops with exit status 3, having
-written nothing; `--yes` is how an unattended caller authorizes a specific
-run. So an unattended run yields the audit and the choice and no writes:
-`mark` still prints the (a)/(b)/(c) split and writes its CSV, then stops
-before touching Connect. That follows the standing rule that a skill asks
-only when interactive rather than defaulting into the expensive or
-hard-to-undo option.
+Every step that writes to Connect reports what it would do and stops with
+exit status 3 unless `--yes` is passed, per rule 38: the tools do not guess
+at whether anyone is watching, so the asking happens in the session with
+the user and `--yes` records the answer. An unattended run therefore yields
+the audit and the choice and no writes — `mark` still prints the
+(a)/(b)/(c) split and writes its CSV, then stops before touching Connect.
+`--yes` authorizes a write already asked for; it does not make an opt-in
+step automatic (rule 26).
 
 ## What a real run established
 

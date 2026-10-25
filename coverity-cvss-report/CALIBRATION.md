@@ -312,22 +312,37 @@ there came from Connect over REST in the first place.
 Also found: the PDF prints `CVSS Audited: No` for defects that were `Yes` in
 Connect, which is the same read failure as above surfacing in the output.
 
-## The interactive-only gate (2026-10-25)
+## Rule 38: ask only when interactive (2026-10-25)
 
-Every step that writes to Connect now routes through one `authorize()`
-helper: `scores`, `mark`, `infer --apply`, `reset`, `selftest`, and
-`cvss_attributes.py setup`. Interactive, it asks; unattended or unable to
-tell, it reports what is needed and returns exit status 3 having written
-nothing; `--yes` pre-authorizes and `--dry-run` never writes.
+Every step that writes to Connect routes through one `authorize()` helper:
+`scores`, `mark`, `infer --apply`, `reset`, `selftest`, and
+`cvss_attributes.py setup`. Each reports what it would do and returns exit
+status 3 unless `--yes` is passed; `--dry-run` never writes and wins over
+`--yes`.
+
+**The first implementation of this was wrong, and reading the rule rather
+than a summary of it is what caught it.** It tested `sys.stdin.isatty()`
+and prompted on the strength of that. Rule 38 says in as many words not to
+infer interactivity from weak signals -- "a TTY, an environment variable,
+the shape of the invocation" -- and that unsure means stop. A TTY is
+exactly such a signal: a scheduled job can own one, and a person can drive
+a tool without one. So the TTY check and the `input()` prompt are both
+gone. The asking belongs in the session, where someone can answer, and
+`--yes` is the record of that answer arriving. Rule 38 prices the extra
+command an interactive user then pays, and prefers it.
+
+The stop also reports what it kept, per the rule's requirement to leave the
+work resumable: for `mark`, the audit and the CSV; for `infer`, the
+proposals.
 
 Verified by execution:
 
-- The gate's four branches, called directly: default non-tty returns False,
-  `--yes` True, `--dry-run` False, and `--dry-run` wins over `--yes` -- the
-  safe precedence.
-- `scores` with no `--yes` in a non-interactive shell printed the stop
-  report and returned 3 **without invoking the generator** (the config path
-  it was given does not exist, and no error from the generator appeared).
+- The gate's branches, called directly: no `--yes` returns False, `--yes`
+  True, `--dry-run` False and winning over `--yes` -- the safe precedence.
+  No TTY logic remains in either tool (`grep -c isatty` is 0 in both).
+- `scores` with no `--yes` printed the stop report, named what it kept, and
+  returned 3 **without invoking the generator** -- the config path it was
+  given does not exist, and no error from the generator appeared.
   With `--yes` it passed the gate and reached the generator, which then
   failed on that missing config as expected.
 - `scores --dry-run` reported and wrote nothing.

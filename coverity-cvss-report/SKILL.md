@@ -35,33 +35,36 @@ cannot tell "we assessed this and it is not a vulnerability" from "this
 build of the report generator had never heard of this CWE". This skill
 makes that difference visible before anyone signs the report.
 
-Read `coverity/RULES.md` first (rules 3 and 26 carry the weight here).
+Read `coverity/RULES.md` first (rules 3, 26 and 38 carry the weight
+here).
 
-## Asking, and not asking
+## Asking, and not asking — rule 38
 
-Every step that writes to Connect is gated the same way, because the skill
-should ask only when somebody is there to answer:
+Every step that writes to Connect reports what it would do and **stops**,
+exit status **3**, unless `--yes` is passed. `--dry-run` reports and never
+writes, whatever else is passed.
 
-- **Interactive** — it says what it is about to do and what that affects,
-  and waits for a `y`.
-- **Unattended, or when it cannot tell** — it reports exactly what is
-  needed and **stops**, exit status **3**, having written nothing. An
-  unattended caller that genuinely wants the write passes `--yes`.
-- `--dry-run` reports and never writes, whatever else is passed.
+The tools do not try to detect whether anyone is watching. Rule 38 is
+explicit that interactivity must not be inferred from weak signals — "a
+TTY, an environment variable, the shape of the invocation" — and that
+unsure means stop. So **the asking happens here, in the session, where
+someone can actually answer**, and `--yes` is the record of that answer
+reaching the tool. An interactive user pays one extra command for this,
+which the rule prices deliberately: a needless stop costs a turn, a
+needless start can cost a commit to a stream.
 
-This follows the standing rule that a skill asks only when interactive and
-otherwise reports and stops rather than defaulting into the expensive or
-hard-to-undo option. Stopping costs an interactive session one more
-command; guessing wrong here writes triage attributes across a whole
-project.
+`--yes` authorizes the write that was already asked for. It does not answer
+a question the user has not been asked: **work that is opt-in stays opt-in**
+(rule 26), which is why `infer` needs `--apply` before `--yes` means
+anything, and why nothing here ever infers a score on its own.
 
-What that means in practice: a scheduled or CI run of this skill gets you
-**the audit and the choice, and no writes**. `mark` still prints the
-(a)/(b)/(c) split and still writes its CSV — the parts worth having — and
-stops before touching Connect. The gated steps are `scores`, `mark`,
-`infer --apply`, `reset`, `selftest`, and `cvss_attributes.py setup`.
-`status`, `report`, `config` and `infer` without `--apply` write nothing to
-Connect and are never gated.
+What this means in practice: an unattended run gets you **the audit and the
+choice, and no writes**. `mark` still prints the (a)/(b)/(c) split and
+still writes its CSV — the parts worth having — then stops before touching
+Connect, and says so, naming what it kept. The gated steps are `scores`,
+`mark`, `infer --apply`, `reset`, `selftest`, and `cvss_attributes.py
+setup`. `status`, `report`, `config` and `infer` without `--apply` write
+nothing to Connect and are never gated.
 
 ## The three cases
 

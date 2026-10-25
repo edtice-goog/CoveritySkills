@@ -167,25 +167,26 @@ def issues(project, snapshot):
 STOPPED = 3
 
 
-def interactive():
-    """True only when a person is actually there to answer."""
-    try:
-        return sys.stdin.isatty() and sys.stderr.isatty()
-    except (AttributeError, ValueError):
-        return False
+def authorize(args, action, effects, rerun, already_done=None):
+    """Gate for anything that writes.  Rule 38.
 
+    The tool does not try to work out whether anyone is there.  Rule 38 is
+    explicit that interactivity must not be inferred from weak signals --
+    "a TTY, an environment variable, the shape of the invocation" -- and
+    that unsure means stop.  A TTY check is exactly such a signal: a
+    scheduled job can own one and a person can be driving without one.
 
-def authorize(args, action, effects, rerun):
-    """Gate for anything that writes.  Ask when interactive; else stop.
+    So the asking happens where someone can actually answer, in the session
+    with the user, and `--yes` is the record of that answer reaching the
+    tool.  Without it this reports what is needed and stops, in both modes.
+    An interactive user pays one extra command for that, which rule 38
+    prices deliberately: "a needless stop costs a turn, and a needless
+    start can cost hours of compute ... or a commit to a stream."
 
-    A skill asks only when someone can answer.  Run unattended -- a
-    scheduled job, CI, an API task -- or when it cannot tell, it reports
-    exactly what is needed and stops, rather than defaulting into the
-    expensive or hard-to-undo option.  Stopping costs an interactive
-    session one more command; guessing wrong writes triage attributes
-    across a project.
-
-    --yes is how an unattended caller pre-authorizes a specific run.
+    `--yes` authorizes the write the caller already asked for.  It does not
+    answer a question the user has not been asked -- work that is opt-in
+    stays opt-in (rule 26), which is why `infer` still needs `--apply`
+    before `--yes` means anything.
     """
     if getattr(args, "dry_run", False):
         print("")
@@ -193,27 +194,19 @@ def authorize(args, action, effects, rerun):
         return False
     if getattr(args, "yes", False):
         return True
-    if not interactive():
-        print("")
-        print("STOPPING: nothing was written.")
-        print("  would do : %s" % action)
-        for e in effects:
-            print("  effect   : %s" % e)
-        print("  to do it : %s" % rerun)
-        print("This run is not interactive, so the choice is yours to make"
-              " rather than mine.")
-        return False
     print("")
-    print("About to %s" % action)
+    print("STOPPING: nothing was written.")
+    print("  would do : %s" % action)
     for e in effects:
-        print("  effect: %s" % e)
-    try:
-        answer = input("Proceed? [y/N] ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        answer = ""
-    if answer in ("y", "yes"):
-        return True
-    print("Declined; nothing written.")
+        print("  effect   : %s" % e)
+    #  Rule 38: leave the work resumable and say what is already done, so a
+    #  stop does not throw away the expensive part.
+    for d in (already_done or []):
+        print("  kept     : %s" % d)
+    print("  to do it : %s" % rerun)
+    print("This is a decision for you, not for me: rule 38 has the tool stop"
+          " rather than")
+    print("guess at it, whether or not anyone is watching.")
     return False
 
 
@@ -400,7 +393,8 @@ def cmd_scores(args):
              "there is no dry run in the generator, and no per-CWE opt-out",
              "it also resets CVSS_Audited to No, discarding earlier marks "
              "and any inferred vectors"],
-            "re-run with --yes"):
+            "re-run with --yes",
+            already_done=["nothing yet: this is the first write of the run"]):
         return STOPPED
     rc = generator(args, ["--scores"])
     if rc != 0:
@@ -494,7 +488,11 @@ def cmd_mark(args):
             ["changes triage state on those defects in Connect",
              "`reset` undoes it, and in Reports 2025.3.0 the next --scores "
              "run undoes it anyway"],
-            "re-run with --yes")
+            "re-run with --yes",
+            already_done=["the (a)/(b)/(c) audit above",
+                          ("the unjudged list in %s" % args.csv) if args.csv
+                          else "the unjudged list below (pass --csv to keep "
+                               "it)"])
         if marked:
             n = set_attributes(store, to_yes, {"CVSS_Audited": "Yes"})
             print("marked CVSS_Audited=Yes on %d issue(s) in triage store %r"
@@ -814,7 +812,10 @@ def cmd_infer(args):
              "defects",
              "keep the CSV: it is the only record of which numbers are "
              "inferred"],
-            "re-run with --apply --yes"):
+            "re-run with --apply --yes",
+            already_done=[("the proposals in %s" % args.csv) if args.csv
+                          else "the proposals above (pass --csv to keep "
+                               "them)"]):
         return STOPPED
     n = 0
     for r, vec, raw, spec, why in applied:
