@@ -346,6 +346,24 @@ Verified by execution:
   With `--yes` it passed the gate and reached the generator, which then
   failed on that missing config as expected.
 - `scores --dry-run` reported and wrote nothing.
+- The stop names the target instance and account, and marks them as
+  defaults when `COV_HOST` / `COV_USER` were not set.
+- `config` lists the defaults it chose: the issue cutoff, project-version,
+  organizational-unit-term and project-name.
+
+**Cheap defaults are decisions too**, which the rule says in its own words
+and which an audit of this skill's own defaults turned up three of:
+
+- `COV_HOST` and `COV_USER` default to `http://localhost:8080` and `admin`.
+  Nothing used to say so, and writing triage onto the wrong Connect is
+  exactly the mistake the gate exists to prevent, so every stop now names
+  the target and flags it as a default when it was not set.
+- `config` silently baked in `issue-cutoff-count: 200`, which bounds how
+  many issues the report shows, plus a `project-version` of 1.0 and an
+  organizational-unit term that both print on the title page of something
+  somebody signs. It now lists each one it chose and how to override it.
+- `mark` defaults to `--audited mapped`, which decides what gets written.
+  The gate now names the convention in force and its alternative.
 
 Not verified: the gates on `mark`, `infer --apply`, `reset`, `selftest` and
 `setup` were not exercised end to end, because those read from Connect

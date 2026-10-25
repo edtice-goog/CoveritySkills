@@ -196,6 +196,14 @@ def authorize(args, action, effects, rerun, already_done=None):
         return True
     print("")
     print("STOPPING: nothing was written.")
+    #  Which instance, and as whom, are both defaults unless the caller set
+    #  COV_HOST / COV_USER -- and a default is still a choice the user has
+    #  not made (rule 38).  Writing triage onto the wrong Connect is the
+    #  mistake this line exists to prevent.
+    print("  target   : %s as %s%s"
+          % (HOST, os.environ.get("COV_USER", "admin"),
+             "" if os.environ.get("COV_HOST") and os.environ.get("COV_USER")
+             else "   <- default, not your choice; set COV_HOST / COV_USER"))
     print("  would do : %s" % action)
     for e in effects:
         print("  effect   : %s" % e)
@@ -361,9 +369,33 @@ def cmd_config(args):
         f.write(text)
     print("wrote %s" % args.out)
     print(text)
+    #  Rule 38: a default that looks safe is still a choice the user has not
+    #  made.  These three land on a compliance deliverable or bound what it
+    #  shows, so say which ones this run picked rather than letting them
+    #  pass as if they had been decided.
+    chosen = []
+    if args.cutoff == 200:
+        chosen.append("issue-cutoff-count 200 -- the report shows at most "
+                      "200 issues; raise with --cutoff")
+    if args.project_version == "1.0":
+        chosen.append("project-version 1.0 -- this prints on the title page; "
+                      "set --project-version")
+    if args.org_term == "Team":
+        chosen.append("organizational-unit-term Team -- also the title page; "
+                      "set --org-term")
+    if not args.project_name:
+        chosen.append("project-name taken from --project (%r); set "
+                      "--project-name if the software has another name"
+                      % args.project)
+    if chosen:
+        print("Defaults this run chose for you, none of them your decision:")
+        for c in chosen:
+            print("  * %s" % c)
     if not snapshot:
-        print("Consider --snapshot: without it this report is not "
-              "reproducible.")
+        print("No snapshot-id: the report will follow each stream's latest "
+              "snapshot, so")
+        print("the same command gives a different report later.  Pass "
+              "--snapshot to pin it.")
     return 0
 
 
@@ -487,7 +519,12 @@ def cmd_mark(args):
             % (len(to_yes), len(rows), store),
             ["changes triage state on those defects in Connect",
              "`reset` undoes it, and in Reports 2025.3.0 the next --scores "
-             "run undoes it anyway"],
+             "run undoes it anyway",
+             "--audited %s%s" % (args.audited,
+                                 " (the default: Yes wherever a mapping "
+                                 "judged the CWE; --audited inferred-only "
+                                 "marks nothing here instead)"
+                                 if args.audited == "mapped" else "")],
             "re-run with --yes",
             already_done=["the (a)/(b)/(c) audit above",
                           ("the unjudged list in %s" % args.csv) if args.csv
