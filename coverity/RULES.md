@@ -1344,6 +1344,17 @@ asymmetry is the whole point: a needless stop costs a turn, and a needless
 start can cost hours of compute, a mutated intermediate directory, or a
 commit to a stream.
 
+**The irreversible step is often not the obvious one.** A reader checking for
+destructive operations finds the ones that announce themselves and skips the
+routine-looking recovery procedure whose blast radius is wider than the
+problem it repairs. `coverity-demo-data`'s database restore is the worked
+case: it is the documented way out of a bad commit sweep, so it reads as a
+repair rather than a decision, and it replaces the whole target instance
+rather than the one dataset being restored, so anything unrelated sharing
+that instance goes with it. In testing it was caught because someone looked
+first; unattended, nobody looks. Judge a step by what it can destroy, not by
+what it is for.
+
 **Do not infer interactivity from weak signals** — a TTY, an environment
 variable, the shape of the invocation. Unsure means stop.
 
@@ -1357,4 +1368,5 @@ work that is opt-in stays opt-in in both modes (rule 26), and a decision the
 user has not made is not made.
 
 Source: project convention — the repository owner's decision, 2026-10-25.
-Each skill applies it at its own decision points.
+Each skill applies it at its own decision points. The database-restore example
+is `coverity-demo-data`'s, established there and not re-verified here.
