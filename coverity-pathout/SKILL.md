@@ -291,6 +291,18 @@ reason, and the triage records name the method that produced each
 verdict. Triage costs per candidate, so the choice of how many to send is
 the user's (see *Budget*).
 
+**Writing the two files is the hand-off; running the triage is a
+decision.** Each candidate that goes through `coverity-triage` costs a
+lane assignment and then a build and a run in `coverity-verify`, and a
+plan that did not say so has not chosen it, however few candidates there
+are and however cheap the route looks (rule 26, rule 38). So after the
+filter: say how many survivors there are, in how many functions, and what
+the triage of each costs; in an interactive session ask whether to run it
+on all of them, on some, or on none; unattended, or unsure, report that
+and stop, leaving `survivors.json` and `run.json` in place -- the command
+that continues is the `bundle.py` line above, and nothing done so far is
+lost. Never start the triage because it seemed small enough not to ask.
+
 Why no reading here: reading is inference, and it is what this skill
 exists to replace where inference cannot reach a verdict. On subversion
 all 27 survivors were refuted by reading (preconditions, allocate-if-null
@@ -357,7 +369,15 @@ So, whenever the PATHOUT count is more than a couple of dozen:
    an interactive session can be prompted to continue, an unattended one
    cannot be asked, and the one thing never to do is default into the
    expensive option (rule 38). Not interactive means report and stop,
-   never "go ahead on the default"; the choice stays the user's.
+   never "go ahead on the default"; the choice stays the user's. Do not
+   infer that someone is there from a TTY, an environment variable or
+   the shape of the invocation; unsure means stop. **Stop resumably:**
+   everything up to the pilot is done and stays on disk (the report
+   tool's table, the catalogue's `candidates.json`, `survivors.json`,
+   `run.json`, the pilot's slice and its triage record), and the report
+   ends with the three answers that continue it -- *survivors only*,
+   *all*, or a named list of functions -- and the command each one
+   runs (the per-function steps from Step 4 for that set).
 4. **At scale, skip what does not scale.** Restructure experiments (Step
    6) and reading every dropped candidate are pilot-only unless asked.
    The cost-of-the-limit measurement (`--paths N` on the whole project) is
@@ -514,7 +534,7 @@ user chose to spend (rule 22).
 | A survivor the lane check puts outside value or path | the user: verify it anyway where realistic, run that lane's reader, or leave it; recorded as an override in `run.json` |
 | "Was the function even captured?" / the file is not in the emit | `coverity` (capture fidelity, rule 34) |
 | "Would checker X have found the bug the cut-off hid?" | `coverity-defect-detectability` |
-| The idir is from a version you do not have installed | stop and ask (interactive), or report the version needed and stop (unattended); rule 38. This skill is for current development, where the version that wrote the idir (`emit/version`, line 1) is installable; say which version is needed and let the user install it or re-run the capture. `coverity-recreate-from-emit` rebuilds an analyzable idir without the toolchain and is expensive; it is a last resort the user must ask for, not a step to take on your own |
+| The idir is from a version you do not have installed | stop and ask (interactive), or report and stop (unattended); rule 38. The report names the version `emit/version` requires and the installations found, keeps whatever Step 1 read from the log, and says that installing that version and re-running the same command continues from Step 0. This skill is for current development, where the version that wrote the idir (`emit/version`, line 1) is installable; say which version is needed and let the user install it or re-run the capture. `coverity-recreate-from-emit` rebuilds an analyzable idir without the toolchain and is expensive; it is a last resort the user must ask for, not a step to take on your own |
 
 The skills are meant to sit side by side under the same skills directory;
 the relative paths above assume that.
