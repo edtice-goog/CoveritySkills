@@ -33,15 +33,34 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from fz_harness import compiler_flags  # noqa: E402
+from fz_harness import compiler_flags, manifest_invocation, manifest_cwd, files_flags, external_has_model, external_is_library  # noqa: E402
 
 
 def try_compile(man, mdir):
+    """Two attempts: from the source tree with the recorded flags, then, when
+    the manifest carries the capture's files, against those (the build's
+    include paths relocated under files/). Returns (ok, outcome, command,
+    mode)."""
+    ok, why, cmd = compile_once(man, mdir, from_files=False)
+    if ok:
+        return ok, why, cmd, "source_tree"
+    if (man.get("files") or {}).get("dir"):
+        ok2, why2, cmd2 = compile_once(man, mdir, from_files=True)
+        if ok2:
+            return ok2, "from the source tree: %s; from the capture's files: compiles" % why, cmd2, "capture_files"
+        return False, "from the source tree: %s; from the capture's files: %s" % (why, why2), cmd2, None
+    return ok, why, cmd, None
+
+
+def compile_once(man, mdir, from_files):
     lang = man.get("language", "c")
     tu = os.path.join(mdir, "tu.cpp" if lang == "c++" else "tu.c")
     source = man.get("source", "")
-    cwd = man.get("cwd") or (os.path.dirname(source) if source else ".")
-    flags = compiler_flags(man.get("compiler_invocation") or man.get("flags") or [])
+    cwd = manifest_cwd(man)
+    flags = compiler_flags(manifest_invocation(man))
+    if from_files:
+        flags = flags + files_flags(man, mdir)
+        cwd = os.path.abspath(mdir)
     posix = source.startswith("/")
     if posix and os.name == "nt":
         tup = re.sub(r"^([A-Za-z]):[\\/]", lambda m: "/mnt/%s/" % m.group(1).lower(), os.path.abspath(tu)).replace("\\", "/")
@@ -78,8 +97,8 @@ def main():
     man = json.load(open(os.path.join(a.manifest, "manifest.json"), encoding="utf-8"))
     externals = man.get("externals", [])
     n_ext = len(externals)
-    n_mod = sum(1 for e in externals if isinstance(e, dict) and e.get("has_model"))
-    n_libc = sum(1 for e in externals if isinstance(e, dict) and e.get("libc"))
+    n_mod = sum(1 for e in externals if external_has_model(e))
+    n_libc = sum(1 for e in externals if external_is_library(e))
     target = man.get("target") or {}
     notes = list(man.get("notes", []))
     rec = {"preferred": a.route, "tu": man.get("tu"), "target": target.get("name"), "target_static": bool(target.get("static")),
@@ -95,8 +114,9 @@ def main():
             blockers.append("C++ construction the driver cannot reproduce: " + "; ".join(n for n in notes if "construct" in n.lower()))
         compiled = None
         if a.compile:
-            ok, why, cmd = try_compile(man, a.manifest)
-            rec["compile_attempt"] = {"ok": ok, "outcome": why, "command": cmd}
+            ok, why, cmd, mode = try_compile(man, a.manifest)
+            rec["compile_attempt"] = {"ok": ok, "outcome": why, "command": cmd, "mode": mode}
+            rec["compile_mode"] = mode
             compiled = ok
             if not ok:
                 blockers.append("the TU does not compile with the recovered flags: " + why)
@@ -120,7 +140,8 @@ def main():
     print("route     : %s" % (rec["route"] if rec.get("applicable") else "NONE -- the preferred route does not apply; stopping here is the default"))
     print("reason    : %s" % rec["reason"])
     if rec.get("compile_attempt"):
-        print("compile   : %s" % rec["compile_attempt"]["outcome"])
+        print("compile   : %s%s" % (rec["compile_attempt"]["outcome"],
+                                   "  [%s]" % rec["compile_mode"] if rec.get("compile_mode") else ""))
     if rec.get("note"):
         print("note      : %s" % rec["note"])
     if not rec.get("applicable"):

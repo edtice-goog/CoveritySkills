@@ -166,8 +166,15 @@ and records the reason; it does not pick a route. For harness, in order:
    the driver cannot reproduce, means harness does not apply.
 2. **A compile attempt.** `clang -fsyntax-only` on the TU with the
    recovered flags, from the TU's own directory so relative `-I` paths
-   resolve (under WSL for a Linux capture). A failure is recorded in the
-   compiler's words and means harness does not apply. Measured on
+   resolve (under WSL for a Linux capture); when that fails and the
+   manifest extracted the capture's files (`files/`, every header the TU
+   read, in the layout the capture saw), a second attempt against those.
+   The record says which compiled (`compile_mode`: source tree, or the
+   capture's files), and `fz_harness.py --from-files` builds the same way.
+   A failure of both is recorded in the compiler's words and means
+   harness does not apply. The manifest's note that a static target
+   cannot be called by a linked driver does not apply here: the TU is
+   included. Measured on
    proftpd: the TUs compile this way from the source tree the capture was
    built in.
 3. **Externals without a model** are a count in the record, never a
@@ -598,5 +605,5 @@ coverity-verify/                         # formerly coverity-fuzz-triage; that d
     ├── harness.c                        # the harness pattern
     ├── fixcheck/                        # use_fixed.c (a fix), use_silenced.c + rec_id.c (the dereference moved out of the capture), harness.c
     ├── sliceset/                        # pair.c (get_value and pick both carry a primary event), harness.c
-    └── harness/                         # app.c + cfg.c (the TU and its one external), driver.c, declined/ (a header the manifest cannot supply), manifest_stub.py (stands in for tu_manifest.py)
+    └── harness/                         # app.c + cfg.c (the TU and its one external), driver.c, declined/ (a header the manifest cannot supply)
 ```

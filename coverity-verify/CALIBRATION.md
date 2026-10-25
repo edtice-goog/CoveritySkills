@@ -195,7 +195,7 @@ the 12 chosen not taken (`tpl_map_va`, `tpl_peek`: variadic targets).
   A: `evals/harness/app.c` (handle copies `lookup_cfg`'s result without a
   test; a static helper and a real `<string.h>` in the TU) beside
   `cfg.c` (`lookup_cfg` returns NULL for an unknown key) in one idir. The
-  TU manifest (the eval's stand-in for `tu_manifest.py`): 2 functions
+  TU manifest (`coverity-function-slice`'s `tu_manifest.py`): 2 functions
   defined, 3 externals (`lookup_cfg` with a model; `strlen`, `strncpy`
   libc), no notes. Router, preferred harness (the default), with a
   compile attempt: **applies**. `fz_harness.py`: the TU included with one inserted line
@@ -203,10 +203,16 @@ the 12 chosen not taken (`tpl_map_va`, `tpl_peek`: variadic targets).
   model stub, libc real; built with clang-cl against the real header; the
   claim failed on the first inputs through `lookup_cfg=0`
   (`returnsnull`), which the real `lookup_cfg` has: confirmed, route
-  harness, record `as_code [trim, handle] / stubbed [lookup_cfg]`.
+  harness, compile mode source tree, record `as_code [trim, handle] /
+  stubbed [lookup_cfg]`. The manifest tool's externals carry `kind`
+  (`library`/`project`) and `model`; the prototypes for the stubs come
+  from the emit (`fz_harness.py --dir --bin`), the manifest's `signature`
+  being filled for the target.
   B: `evals/harness/declined/app2.c` includes a header found only
-  through `-I` at capture time, and its target is static. The manifest
-  cannot supply the header; the compile attempt fails with `fatal error:
+  through `-I` at capture time, and its target is static. The manifest is
+  built with `--no-files` (as when `extract-files` is unavailable; with
+  the files the header is under `files/` and the second compile attempt
+  would find it), so it cannot supply the header; the compile attempt fails with `fatal error:
   'local.h' file not found`; the router finds harness **does not apply**, with that diagnostic
   as the reason, notes that the static target alone would not have (the
   TU is included, not linked), and the run **stops**: `route null`,

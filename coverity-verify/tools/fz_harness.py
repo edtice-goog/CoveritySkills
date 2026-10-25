@@ -8,8 +8,7 @@ externals the TU does not define.
                   [--dir <idir> --bin <install>/bin] [--keep a,b] [--semantic ..] [--pin-normal --free ..]
 
 <dir>/manifest.json and <dir>/tu.c (or tu.cpp) come from the TU manifest
-(coverity-function-slice/tools/tu_manifest.py; evals/harness/manifest_stub.py
-stands in until it lands). The route is extraction widened to the whole TU
+(coverity-function-slice/tools/tu_manifest.py). The route is extraction widened to the whole TU
 without the pretty-printer: every function the TU defines runs as real code,
 and the slice-set rule holds unchanged -- nothing on the finding's path is a
 stub, and a stub list naming a function the finding's events touch is
@@ -42,11 +41,53 @@ KEEP_FLAG_PREFIXES = ("-D", "-U", "-I", "-std=", "-m32", "-m64", "-fshort-enums"
 FLAGS_WITH_ARG = ("-I", "-D", "-U", "-isystem", "-include", "-o", "-MF", "-MT", "-MQ", "-x", "-idirafter", "-iquote")
 
 
+def manifest_invocation(man):
+    """The recorded native compiler invocation (gcc/clang/cl), as the manifest
+    carries it: `compiler.invocation` from tu_manifest.py, or a flat
+    `compiler_invocation`. Never the cov-emit flags (`flags`): those are the
+    front end's, not a compiler's."""
+    return man.get("compiler_invocation") or (man.get("compiler") or {}).get("invocation") or ""
+
+
+def manifest_cwd(man):
+    src = man.get("source", "")
+    return man.get("cwd") or man.get("working_directory") or (os.path.dirname(src) if src else ".")
+
+
+def files_flags(man, mdir):
+    """Include flags for compiling from the capture's own files (`files/`,
+    which tu_manifest.py extracts in the layout the capture saw): the build's
+    -I paths and system include directories, relocated under the manifest
+    directory. Empty when the manifest carries no files."""
+    files = man.get("files") or {}
+    if not files.get("dir"):
+        return []
+    base = os.path.abspath(mdir)
+    out = []
+    for p in files.get("include_paths_local") or []:
+        out.append("-I" + os.path.join(base, p))
+    for p in files.get("sys_includes_local") or []:
+        out += ["-isystem", os.path.join(base, p)]
+    for p in files.get("pre_preinclude_local") or []:
+        out += ["-include", os.path.join(base, p)]
+    return out
+
+
+def external_has_model(e):
+    return bool(isinstance(e, dict) and (e.get("has_model") or e.get("model")))
+
+
+def external_is_library(e):
+    return bool(isinstance(e, dict) and (e.get("libc") or e.get("kind") == "library"))
+
+
 def compiler_flags(invocation):
     """The preprocessor- and ABI-relevant part of a recorded compiler invocation:
     -D/-U/-I/-isystem/-include/-std/-m32/-m64 and the char/enum ABI flags. Code
     generation, warnings, debug, dependency and output flags are dropped; the
     compiler name and the source file are dropped."""
+    if not invocation:
+        return []
     toks = shlex.split(invocation) if isinstance(invocation, str) else list(invocation)
     out = []
     i = 1                                   # toks[0] is the compiler
@@ -134,6 +175,9 @@ def main():
     ap.add_argument("--semantic", default="", help="comma-separated externals given real copy/alloc semantics")
     ap.add_argument("--pin-normal", action="store_true", help="focused mode: pin every stub to its normal behaviour except --free")
     ap.add_argument("--free", default="")
+    ap.add_argument("--from-files", action="store_true",
+                    help="compile against the capture's own files (the manifest's files/ directory) instead of the "
+                         "source tree: use what the router recorded as compile_mode")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
 
@@ -182,9 +226,10 @@ def main():
         if name in defined:
             report.append("%-28s listed as external but defined in the TU: real code" % name)
             continue
+        ext = next((e for e in externals if isinstance(e, dict) and e.get("name") == name), {})
         if name in keep:
             report.append("%-28s driver" % name); by_driver.append(name); continue
-        if name in LIBC:
+        if name in LIBC or external_is_library(ext):
             report.append("%-28s real libc" % name); real_libc.append(name); continue
         proto = ext_sig.get(name)
         if proto is None and a.dir and a.bin:
@@ -235,9 +280,12 @@ def main():
         f.write("\n".join(out))
 
     # 4. the build command, from the TU's directory
-    flags = compiler_flags(man.get("compiler_invocation") or man.get("flags") or [])
+    flags = compiler_flags(manifest_invocation(man))
     source = man.get("source", "")
-    cwd = man.get("cwd") or (os.path.dirname(source) if source else ".")
+    cwd = manifest_cwd(man)
+    if a.from_files:
+        flags = flags + files_flags(man, mdir)
+        cwd = os.path.abspath(mdir)
     posix = source.startswith("/")
     tools = HERE
     if posix:
@@ -262,6 +310,7 @@ def main():
               "stubbed": [{"name": n, "kind": k} for n, k in stubbed], "real_libc": real_libc,
               "defined_by_driver": by_driver, "externals_without_prototype": unsigned_ext,
               "externals_data_for_driver": data_ext, "compiler_flags_used": flags, "cwd": cwd,
+              "compile_mode": "capture_files" if a.from_files else "source_tree",
               "manifest_notes": man.get("notes", [])}
     with open(os.path.join(a.out, "route.json"), "w", encoding="utf-8", newline="\n") as f:
         json.dump(record, f, indent=1)

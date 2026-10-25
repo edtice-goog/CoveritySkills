@@ -16,14 +16,15 @@
 #   Then the caller's preference for extraction is shown honoured on A.
 #
 #   usage: run_harness.sh <coverity-install>/bin [workdir]
-#   MANIFEST=<path to tu_manifest.py> overrides the stand-in in evals/harness/.
+#   MANIFEST=<path to tu_manifest.py> overrides the one beside this skill.
 set -euo pipefail
 BIN="${1:?usage: run_harness.sh <install>/bin [workdir]}"
 WORK="${2:-$(mktemp -d)}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 TOOLS="$HERE/../tools"
 SLICER="${SLICER:-$HERE/../../coverity-function-slice/tools/slice_function.py}"
-MANIFEST="${MANIFEST:-$HERE/harness/manifest_stub.py}"
+MANIFEST="${MANIFEST:-$HERE/../../coverity-function-slice/tools/tu_manifest.py}"
+[ -f "$MANIFEST" ] || { echo "tu_manifest.py not found beside this skill ($MANIFEST); set MANIFEST"; exit 1; }
 CLANG="${CLANG_CL:-C:/Program Files/LLVM/bin/clang-cl.exe}"
 [ -x "$CLANG" ] || { echo "clang-cl not found at $CLANG; set CLANG_CL"; exit 1; }
 LLVM_ROOT="$(dirname "$(dirname "$CLANG")")"
@@ -47,7 +48,7 @@ BASE="$(echo "$OUT" | grep -o 'File name base: .*' | head -1 | sed 's/File name 
 echo "lookup_cfg $BASE defs=1" > "$WORK/models/index.txt"
 
 echo "== A. the manifest of app.c's TU, the router, the harness route"
-python3 "$MANIFEST" --dir "$IDIR" --bin "$BIN" --tu 2 --name handle --out "$WORK/manA" --models "$WORK/models"
+python3 "$MANIFEST" --dir "$IDIR" --bin "$BIN" --tu 2 --name handle --out "$WORK/manA" --models "$WORK/models" | grep "capture\|externs\|target"
 python3 "$TOOLS/verify_route.py" --manifest "$WORK/manA" --compile --out "$WORK/manA/route.json"
 grep -q '"route": "harness"' "$WORK/manA/route.json" || { echo "   FAIL: expected the harness route for A"; exit 1; }
 python3 "$TOOLS/fz_harness.py" --manifest "$WORK/manA" --models "$WORK/models" --driver "$HERE/harness/driver.c" \
@@ -62,7 +63,10 @@ echo "   exit $rc; $(grep -m1 -o 'fz: CLAIM HOLDS.*' "$WORK/outA/run.log" | cut 
 echo "   record: $(python3 -c "import json,sys; r=json.load(open(sys.argv[1])); print('route', r['route'], '| as code', r['as_code'], '| stubbed', [s['name'] for s in r['stubbed']], '| real libc', r['real_libc'], '| TU included', r['tu_included_not_linked'])" "$WORK/outA/route.json")"
 
 echo "== B. the manifest of app2.c's TU; the preferred route does not apply; the run STOPS (no fallback unasked)"
-python3 "$MANIFEST" --dir "$IDIR" --bin "$BIN" --tu 3 --name handle2 --out "$WORK/manB" --models "$WORK/models"
+# --no-files: the manifest without the capture's files, as when extract-files
+# is unavailable; the header app2.c found through -I at capture time is then
+# missing, and bare cov-emit recorded no compiler invocation to find it with
+python3 "$MANIFEST" --dir "$IDIR" --bin "$BIN" --tu 3 --name handle2 --out "$WORK/manB" --models "$WORK/models" --no-files | grep "note\|externs"
 python3 "$TOOLS/verify_route.py" --manifest "$WORK/manB" --compile --out "$WORK/manB/route.json"
 grep -q '"applicable": false' "$WORK/manB/route.json" || { echo "   FAIL: expected the router to find harness not applicable for B"; exit 1; }
 grep -q '"route": null' "$WORK/manB/route.json" || { echo "   FAIL: the router chose a route on its own"; exit 1; }
