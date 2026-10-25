@@ -280,8 +280,14 @@ iteration tool. When the answer matters, capture fresh.
 
 ## Three applicability gates, checked before anything else
 
-All are pass/fail. If any fails, the technique does not apply -- say so
-and use a fresh idir. Knowing when it does not apply is half of this skill.
+All are pass/fail. If any fails, the technique does not apply. Knowing when it
+does not apply is half of this skill.
+
+**Report which gate failed and why, then stop.** A fresh capture is the right
+answer, but it is a different and far more expensive job -- hours rather than
+minutes -- and one the caller may not want spent right now. Interactive: offer
+it. Unattended: report, and let them ask for it. Never start it unprompted
+because a gate said no.
 
 ### Gate 0: the analyzing platform must match
 
