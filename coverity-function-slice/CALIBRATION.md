@@ -306,6 +306,56 @@ All dates 2026-09-09.
     + `ngx_http_upstream_finalize_request@79`, emits clean with no conflict
     and reproduces the parser's `DEADCODE_pass2` 10001 PATHOUT.
 
+- **The whole TU for the harness route (`tools/tu_manifest.py`,
+  2026-10-25).** What the emit supplies, measured on nginx TU 79
+  (`ngx_http_upstream.c`, Linux/gcc 13.3.0 capture) with win64-2026.6.0 and
+  on the `slice_set.c` fixture (bare `cov-emit --c` on Windows):
+  - `print-source-files --tu 79` lists 290 files: the primary, 69 project
+    headers, 214 system headers (`/usr/include`, `/usr/lib/gcc`), the two
+    configuration compat headers. `extract-files --tu 79 --regex .` writes
+    all 290 under the output dir with drive letter and leading slash
+    removed (`/home/x/...` -> `files/home/x/...`, `/mnt/c/...` ->
+    `files/mnt/c/...`, `C:/Data/...` -> `files/Data/...`).
+  - `print-source` is **not** byte-exact on Windows: its stdout is in text
+    mode, so a CRLF source came back as CR CR LF (2,229 bytes for a 2,170
+    byte fixture). The extracted copy is identical to the original file
+    (`cmp`); `tu.c` is written from it, and `print-source` only when
+    extraction was skipped.
+  - One `find . --kind f --print-definitions` dump (136 KB, 93 functions)
+    gives every definition's signature; `static` is read off it (85 of 93
+    static; 4 defined in headers, `ngx_array_init` and the like). One
+    `find . --kind f --print-callees` dump (76 KB, 301 callee entries, 152
+    with a `defined in TU` line) gives the externals: 85 functions called
+    and not defined, 8 of them library by declaring path, 77 project; with
+    `--models` pointing at a `cov-find-function --save` directory holding
+    one model, that one (`ngx_pnalloc`) is marked. Model `.dot` files name
+    their function in `digraph "name:module"`.
+  - `print-compilation-info --detailed` replaces the invocation lines with
+    the process records (working directory, platform, exit code); the tool
+    reads both forms. Working directory `/home/<user>/campaign/nginx`
+    resolves the relative `-I` paths.
+  - **Compiling from `files/` alone**: the recorded `cov-emit` flags with
+    `-I`, `--sys_include` and `--pre_preinclude` remapped under `files/`
+    re-emit the TU on Windows (exit 0, 93 functions). The real gcc 13.3.0 on
+    the capture platform: `-fsyntax-only` exit 0 (55 s across the `/mnt/c`
+    mount); `-c -O0 -nostdinc` with `files/` includes exit 0, object with 93
+    defined and 104 undefined symbols; `-c -O -D__OPTIMIZE__` from `files/`
+    alone **fails** on `bits/select2.h`, a glibc header opened only under
+    optimization that the capture's front end never requested; with the
+    platform's real system include directories appended after `files/`, or
+    with `files/` for project headers and the platform for system headers,
+    `-c -O` exits 0 (76 defined symbols: the optimizer inlined 17 statics).
+    Recorded as `compile_hints` in the manifest.
+  - A long `--out` on Windows: one compat header's extracted path exceeded
+    260 characters and `os.path.exists` said it was missing although
+    `extract-files` had written it; the tool now uses the long-path prefix
+    and warns when the layout is within reach of the limit.
+  - Fixture (`slice_set.c`, TU 1): 6 functions (4 static), 2 externals
+    (`lookup`, `log_missing`, both project), target `set_callee` static ->
+    the `static` note; `tu.c` identical to the fixture source; exit 0.
+    A non-static target (`ngx_http_upstream_init`, `--no-files`) produced
+    no failure note beyond the platform one.
+
 ## Reasoned, not measured
 
 - That a slice whose callees are unmodeled prototypes can only *lose*
