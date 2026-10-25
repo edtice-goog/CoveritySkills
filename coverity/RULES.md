@@ -1354,10 +1354,12 @@ routine-looking recovery procedure whose blast radius is wider than the
 problem it repairs. `coverity-demo-data`'s database restore is the worked
 case: it is the documented way out of a bad commit sweep, so it reads as a
 repair rather than a decision. Its unit is a whole Coverity Connect
-database — there is no per-dataset restore — so projects, streams, every
-snapshot and the authentication keys go, including keys the recovery itself
-needs: a backup taken before a key existed could not be used to recover work
-that depended on it. Anything unrelated sharing that instance goes too.
+database — there is no per-dataset restore — so projects, streams and every
+snapshot go. The authentication key is in that database too, and comes back
+only with a backup that postdates it, which puts the recovery procedure's own
+credential inside its blast radius: a backup taken before a key existed cannot
+be used to recover work that depended on that key. Anything unrelated sharing
+the instance goes too.
 
 **And the gap is judgement, not detection.** In testing, four unrelated
 snapshots were found *before* restoring, because the procedure says to look;
@@ -1381,9 +1383,16 @@ work that is opt-in stays opt-in in both modes (rule 26), and a decision the
 user has not made is not made.
 
 Source: project convention — the repository owner's decision, 2026-10-25.
-Each skill applies it at its own decision points. The database-restore example
-is `coverity-demo-data`'s: the database scope, the lost authentication key and
-the recreated streams are measured there and not re-verified here; triage
-history is in that database by construction but was not tested, so it is not
-claimed; the judgement-versus-detection point is an argument, not a
-measurement.
+Each skill applies it at its own decision points.
+
+The database-restore example is `coverity-demo-data`'s, and none of it was
+re-verified here. **Measured there:** a restore leaves no snapshots and no
+CIDs; the project and its streams must be recreated by hand; the
+authentication key lives in the database and returns with a backup that
+postdates it; and the procedure did find the unrelated snapshots before
+restoring. **Inferred, not run:** that a backup predating the key therefore
+cannot recover work needing it — the pre-key backup was set aside rather than
+tested on that point. **Reasoned:** that a restore spares the installed
+software and its configuration, from Connect coming back up unreconfigured;
+and that detection was never the missing piece. Triage history is in that
+database by construction but was not tested, so it is not claimed.
