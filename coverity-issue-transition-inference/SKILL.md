@@ -57,6 +57,29 @@ Everything else in this skill is making that extra run trustworthy.
 
 ## Procedure
 
+### Ask only when interactive
+
+Several steps below need a decision that is the user's to make. Ask for it only
+in an interactive session. In an API task, a scheduled job, a CI run, or any
+session where you cannot tell, **report exactly what is needed and stop** --
+an interactive session can always be prompted to continue, whereas an
+unattended run that guessed has already spent the money or written to a live
+instance.
+
+Never resolve one of these by taking the more expensive branch. The decision
+points in this skill:
+
+| Step | Needs a decision | Unattended |
+|---|---|---|
+| 1 | build instructions, and which existing result is the anchor | report what is missing; capture nothing |
+| 2 | the build does not run -- hand off to `coverity-recreate-from-emit`? | report that the build fails and what the hand-off would cost; do not start it |
+| 3 | the original run's analysis options are not recoverable | report it; do not guess options, which silently redefines what you measured |
+| 6 | the annotation scheme | report the labels and the choices; write nothing |
+| -- | three cells or four | run three; never add the fourth capture on your own initiative |
+
+A reported-and-stopped run is a useful result. State the labels you could
+derive, name the decision that blocked the rest, and say what a follow-up needs.
+
 ### Step 0. Rules, and pin two installations
 
 Read `coverity/RULES.md`. Pin **two** installs and name both in every artifact:
@@ -170,6 +193,11 @@ classification and comment, some have a **custom attribute** for exactly this,
 some want the write left to them. Do not assume a scheme, and do not write to
 their triage store before they have chosen one.
 
+**Unattended, annotate nothing.** Report the labels and the annotation choices
+and stop. Triage state is shared, outward-facing, and read by people who were
+not in the room: a scheme guessed by an unattended run is worse than no
+annotation at all, because it looks deliberate.
+
 When experimenting rather than servicing a real instance, create your own triage
 store and project so nothing lands in theirs.
 
@@ -218,7 +246,10 @@ The **four-cell** form adds `(C2,A1)`, the old analyzer on the new code. It buys
 two things and is worth the extra capture when either matters: it confirms the
 code-side labels independently, and it is the only way to detect
 `CONTROL_FAILURE`, whose patterns both involve `c`. Run it when calibrating the
-method, or when the code delta itself is under dispute.
+method, or when the code delta itself is under dispute -- and only when someone
+has asked for it. It is a whole extra capture and analysis, so it is never the
+unattended default; report that three cells cannot detect `CONTROL_FAILURE` and
+let the user decide whether that matters to them.
 
 ### `CONTROL_FAILURE` must be empty
 
