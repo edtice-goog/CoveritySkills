@@ -57,7 +57,7 @@ Everything else in this skill is making that extra run trustworthy.
 
 ## Procedure
 
-### Ask only when interactive
+### Ask only when interactive (rule 38)
 
 Several steps below need a decision that is the user's to make. Ask for it only
 in an interactive session. In an API task, a scheduled job, a CI run, or any
@@ -66,8 +66,10 @@ an interactive session can always be prompted to continue, whereas an
 unattended run that guessed has already spent the money or written to a live
 instance.
 
-Never resolve one of these by taking the more expensive branch. The decision
-points in this skill:
+The rule decides *when to ask*, never that an answer may be assumed. "Not
+interactive" means report and stop; it does not mean proceed on whichever
+branch looks safe or cheap. Do not resolve one of these yourself in either
+direction. The decision points in this skill:
 
 | Step | Needs a decision | Unattended |
 |---|---|---|
@@ -75,7 +77,7 @@ points in this skill:
 | 2 | the build does not run -- hand off to `coverity-recreate-from-emit`? | report that the build fails and what the hand-off would cost; do not start it |
 | 3 | the original run's analysis options are not recoverable | report it; do not guess options, which silently redefines what you measured |
 | 6 | the annotation scheme | report the labels and the choices; write nothing |
-| -- | three cells or four | run three; never add the fourth capture on your own initiative |
+| -- | whether anyone wants the fourth cell | three cells is the baseline procedure, not a choice you made; the fourth is an extra capture and analysis, and is only ever run on request |
 
 A reported-and-stopped run is a useful result. State the labels you could
 derive, name the decision that blocked the rest, and say what a follow-up needs.
