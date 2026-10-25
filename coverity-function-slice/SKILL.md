@@ -344,7 +344,7 @@ measured vs reasoned (rule 23). If `--obfuscate` was run, quote the
 | "Why did this function exceed the path limit, and what did it cost?" | `coverity-pathout` (it calls this skill for the body) |
 | "Is this finding real? Run it." | `coverity-verify` (the slice is its target; the callee models come back as stubs) |
 | "Was the function even captured?" / the file is not in the emit | `coverity` (capture fidelity, rule 34) |
-| The idir is from a version you do not have installed | stop: name the version `emit/version` requires, what it is needed for, and the command that continues once it is installed. In an interactive session ask the user to install it or re-capture; unattended (an API task, a scheduled or CI run) or when unsure, report that and stop (rule 38). `coverity-recreate-from-emit` is expensive and is a last resort the user must ask for |
+| The idir is from a version you do not have installed | stop: name the version `emit/version` requires, what it is needed for, and the command that continues once it is installed. In an interactive session ask the user to install it or re-capture; not interactive, or unsure: report that and stop (rule 38). `coverity-recreate-from-emit` is expensive and is a last resort the user must ask for |
 
 ## Layout
 
