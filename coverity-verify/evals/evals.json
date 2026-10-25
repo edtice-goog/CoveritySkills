@@ -78,6 +78,30 @@
         "Does not present a crash through a stub of a slice-set member as a confirmation",
         "Reports the reach count with the verdict"
       ]
+    },
+    {
+      "id": 6,
+      "eval_name": "route-harness-native-finding",
+      "prompt": "Verify this FORWARD_NULL from our nightly run: handle() in C:\\work\\src\\app.c passes lookup_cfg()'s result to strncpy without a test, and the events say lookup_cfg() can return NULL. The idir is at C:\\work\\idir (Coverity 2026.6.0), TU 2.",
+      "expected_output": "Decides the method (a fuzz candidate), then the route: a native checker's finding, so it builds the TU manifest, tries compiling the TU with the recovered flags, and takes the harness route when it compiles; runs fz_harness.py with a driver calling handle(), with lookup_cfg stubbed from its model and the TU's own functions as code; reports the claim failing through lookup_cfg's returnsnull, checks that the real lookup_cfg has that behaviour, and gives the verdict with the route, the compile attempt's outcome, what ran as code and what was stubbed in the record.",
+      "assertions": [
+        "Decides the route after the method, and records the reason and the compile attempt's outcome",
+        "On the harness route, the TU's own functions run as code and only its externals are stubbed",
+        "The record names the route, what ran as code and what was stubbed, as disjoint lists",
+        "Reports the same Step 4 tier it would report on the extraction route; no new tier"
+      ]
+    },
+    {
+      "id": 7,
+      "eval_name": "route-declined-falls-back",
+      "prompt": "Same run, another FORWARD_NULL: handle2() in C:\\work\\src\\app2.c, which includes a header our build generates into the build tree; the idir is at C:\\work\\idir (Coverity 2026.6.0), TU 3. Verify it.",
+      "expected_output": "Tries the harness route first (a native finding), finds that the TU does not compile from the manifest because the generated header is not supplied, records the compiler's diagnostic as the reason, falls back to extraction (slice handle2, models for its callees, fz_target.py), and reports the verdict with route 'extraction' and the decline reason in the record; does not treat the static target as the reason, since the harness route includes the TU rather than linking it.",
+      "assertions": [
+        "Declines the harness route with the compiler's diagnostic as the reason, not a guess",
+        "Falls back to extraction and says so in the record",
+        "Does not give 'the target is static' as the decline reason",
+        "Reaches a Step 4 tier on the fallback route"
+      ]
     }
   ]
 }

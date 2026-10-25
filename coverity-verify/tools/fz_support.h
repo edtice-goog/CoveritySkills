@@ -23,6 +23,19 @@
 #ifndef FZ_SUPPORT_H
 #define FZ_SUPPORT_H
 typedef unsigned char fz_u8;
+#ifdef FZ_HARNESS
+/* the harness route: the real TU, with its real system headers, is included
+   before this file, so the libc declarations come from the headers */
+#include <stdlib.h>
+#include <string.h>
+#ifdef _WIN32
+#include <io.h>
+#define fz_write(b, n) _write(2, (b), (unsigned int)(n))
+#else
+#include <unistd.h>
+#define fz_write(b, n) write(2, (b), (n))
+#endif
+#else
 void *calloc(unsigned long, unsigned long);
 void abort(void);
 int atexit(void (*)(void));
@@ -35,6 +48,7 @@ int _write(int, const void *, unsigned int);
 #else
 long write(int, const void *, unsigned long);
 #define fz_write(b, n) write(2, (b), (n))
+#endif
 #endif
 void __sanitizer_set_death_callback(void (*)(void));
 
@@ -145,7 +159,17 @@ static void fz_dump_trace(void) {
   fz_msg("\n== fz: finding line reached %llu times over %llu inputs before this\n", fz_reached, fz_inputs);
 }
 /* the finding's claim, checked where the finding is: false => abort (confirmed) */
+#ifndef __fz_claim
 #define __fz_claim(cond) do { fz_reached++; if (!(cond)) { fz_msg("== fz: CLAIM HOLDS at line %d: !(%s)\n", __LINE__, #cond); fz_dump_trace(); abort(); } } while (0)
+#endif
+#ifdef FZ_HARNESS
+/* on the harness route the claim sits inside the TU, which is compiled before
+   this file is seen; fz_harness.py defines __fz_claim there as a call to this */
+void fz_claim_hook(int cond, int line, const char *text) {
+  fz_reached++;
+  if (!cond) { fz_msg("== fz: CLAIM HOLDS at line %d: !(%s)\n", line, text); fz_dump_trace(); abort(); }
+}
+#endif
 static void fz_summary(void) { fz_msg("== fz: summary: %llu inputs, finding line reached %llu times, claim never false\n", fz_inputs, fz_reached); }
 static void fz_init(void) { static int done; if (!done) { done = 1; __sanitizer_set_death_callback(fz_dump_trace); atexit(fz_summary); } }
 #define FZ_BEGIN(data, size) do { fz_init(); fz_cur = (data); fz_left = (size); fz_trace_n = 0; fz_arena_used = 0; fz_inputs++; } while (0)

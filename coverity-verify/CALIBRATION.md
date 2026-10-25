@@ -189,6 +189,50 @@ the 12 chosen not taken (`tpl_map_va`, `tpl_peek`: variadic targets).
   five-function "set" for every one, which is why the resolution step in
   Step 0 excludes them.
 
+### The router and the harness route (2026-10-25)
+
+- **The fixtures** (`evals/run_harness.sh`, 2026.6.0 win64, clang-cl).
+  A: `evals/harness/app.c` (handle copies `lookup_cfg`'s result without a
+  test; a static helper and a real `<string.h>` in the TU) beside
+  `cfg.c` (`lookup_cfg` returns NULL for an unknown key) in one idir. The
+  TU manifest (the eval's stand-in for `tu_manifest.py`): 2 functions
+  defined, 3 externals (`lookup_cfg` with a model; `strlen`, `strncpy`
+  libc), no notes. Router, origin native, with a compile attempt:
+  **harness**. `fz_harness.py`: the TU included with one inserted line
+  (the claim), `trim` and `handle` as code, `lookup_cfg` a 2-behaviour
+  model stub, libc real; built with clang-cl against the real header; the
+  claim failed on the first inputs through `lookup_cfg=0`
+  (`returnsnull`), which the real `lookup_cfg` has: confirmed, route
+  harness, record `as_code [trim, handle] / stubbed [lookup_cfg]`.
+  B: `evals/harness/declined/app2.c` includes a header found only
+  through `-I` at capture time, and its target is static. The manifest
+  cannot supply the header; the compile attempt fails with `fatal error:
+  'local.h' file not found`; the router **declines** with that diagnostic
+  as the reason and notes that the static target alone would not have
+  declined it (the TU is included, not linked); the extraction fallback
+  slices `handle2` (the slicer prints the declarations from the emit),
+  stubs `lookup_cfg` and reaches the same confirmation. The three earlier
+  evals pass unchanged with the changed support header.
+- **proftpd, public code, the route is open.** The capture's own
+  compiler invocation is recorded per TU (`print-compilation-info`:
+  `gcc -DHAVE_CONFIG_H -DLINUX -I.. -I../include ... -c data.c`), the
+  working directory is not, and it is the source file's directory here.
+  From that directory, with the source tree the capture was built in
+  still present (its `config.h` is a build product), four TUs compiled
+  under WSL clang 18 with `-fsyntax-only` and the recovered flags: data.c,
+  mod_core.c, hanson-tpl.c, glibc-glob.c. The manifest of data.c (TU 44,
+  home of the batch's `pr_data_open` FORWARD_NULL): 22 functions defined,
+  77 externals (19 with a model in the batch's saved set, 11 libc, the
+  rest project functions whose models the batch had not saved; `fcntl`,
+  `recv`, `select`, `sendfile` are libc the LIBC list does not yet name),
+  5 data externals the driver would define (`session`, `main_server`,
+  `resp_list`, `resp_err_list`, `ServerUseReverseDNS`), no notes; the
+  router, origin native with a compile attempt: harness; origin pathout:
+  extraction. **Not done**: a driver for `pr_data_open` and the run
+  itself; the route's cost on a TU of this size is the driver's state
+  (five globals of the server's types) and the models for 40-odd
+  externals, each `cov-find-function --save` at a few seconds.
+
 ## Reasoned, not measured
 
 - That the slice set is the right target in general. The rule follows
