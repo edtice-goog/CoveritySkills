@@ -60,27 +60,37 @@ Everything else in this skill is making that extra run trustworthy.
 ### Ask only when interactive (rule 38)
 
 Several steps below need a decision that is the user's to make. Ask for it only
-in an interactive session. In an API task, a scheduled job, a CI run, or any
-session where you cannot tell, **report exactly what is needed and stop** --
-an interactive session can always be prompted to continue, whereas an
-unattended run that guessed has already spent the money or written to a live
-instance.
+in an interactive session. Otherwise -- and when you cannot tell -- **report
+exactly what is needed to continue, and stop.**
 
-The rule decides *when to ask*, never that an answer may be assumed. "Not
-interactive" means report and stop; it does not mean proceed on whichever
-branch looks safe or cheap. Do not resolve one of these yourself in either
-direction. The decision points in this skill:
+**Do not infer interactivity from weak signals:** not a TTY, not an
+environment variable, not the shape of the invocation. Unsure means stop.
 
-| Step | Needs a decision | Unattended |
-|---|---|---|
-| 1 | build instructions, and which existing result is the anchor | report what is missing; capture nothing |
-| 2 | the build does not run -- hand off to `coverity-recreate-from-emit`? | report that the build fails and what the hand-off would cost; do not start it |
-| 3 | the original run's analysis options are not recoverable | report it; do not guess options, which silently redefines what you measured |
-| 6 | the annotation scheme | report the labels and the choices; write nothing |
-| -- | whether anyone wants the fourth cell | three cells is the baseline procedure, not a choice you made; the fourth is an extra capture and analysis, and is only ever run on request |
+Never default into the more expensive *or* the less reversible option. In this
+skill those are different branches: the expensive one is a capture and
+analysis, the irreversible one is a write to someone's triage store. The rule
+decides *when to ask*, never that an answer may be assumed, so "not
+interactive" does not license proceeding on whichever branch looks cheap or
+safe either.
 
-A reported-and-stopped run is a useful result. State the labels you could
-derive, name the decision that blocked the rest, and say what a follow-up needs.
+| Step | Needs a decision | Unattended | Resumes with |
+|---|---|---|---|
+| 1 | build instructions, and which existing result is the anchor | report what is missing; capture nothing | the build command, and the stream and snapshot that is the anchor |
+| 2 | the build does not run -- hand off to `coverity-recreate-from-emit`? | report that the build fails and what the hand-off would cost; do not start it | a working build command, or an explicit OK to replay from the old idir |
+| 3 | the original run's analysis options are not recoverable | report it; do not guess options, which silently redefines what you measured | the option set to use on both sides, or the snapshot to read it from |
+| 6 | the annotation scheme | report the labels and the choices; write nothing | the scheme: classification and comment, a named custom attribute, or "we will write it ourselves" |
+| -- | whether anyone wants the fourth cell | three cells is the baseline procedure, not a choice you made; the fourth is an extra capture and analysis, and is only ever run on request | an explicit yes, at the cost of one more capture and analysis |
+
+**Stop without discarding the expensive part.** In this skill the costly
+artifacts are produced early and the decisions come late, so a stop that throws
+them away converts a one-line question into hours of recompute. Keep the
+intermediate directories and the per-cell exports, name their paths in the
+report, and say plainly what will *not* be redone: resuming at Step 6 re-reads
+the exports and writes annotations -- it captures nothing.
+
+A reported-and-stopped run is a useful result. Give the labels you could
+derive, name the decision that blocked the rest, and state the answer or
+command that continues it.
 
 ### Step 0. Rules, and pin two installations
 
