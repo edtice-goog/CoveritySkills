@@ -1321,3 +1321,40 @@ compilation-unit counts to establish that ccache hits still emit. They do, by
 design; the check was noise.
 
 Source: project convention.
+
+### 38. Ask only when the session is interactive; otherwise report and stop
+
+Some decisions belong to the user: anything that spends real time or compute,
+anything irreversible, and any scope choice the skill cannot settle from its
+own inputs. What to do at one of those points depends on whether there is
+anyone there to answer.
+
+- **Interactive** — ask, and say what each answer costs. A question is cheap
+  when someone is reading it.
+- **Not interactive** — an API call, a scheduled or CI run, a print-mode
+  invocation — **report exactly what is needed to continue, and stop.** There
+  is nobody to answer, so asking either hangs the run or tempts the skill into
+  deciding for the user.
+- **Cannot tell** — report and stop. That is safe in both directions: an
+  interactive user reads the report and says continue, which costs one turn,
+  while a guess at an unattended decision point starts work nobody asked for.
+
+**Never default into the more expensive or the less reversible option.** The
+asymmetry is the whole point: a needless stop costs a turn, and a needless
+start can cost hours of compute, a mutated intermediate directory, or a
+commit to a stream.
+
+**Do not infer interactivity from weak signals** — a TTY, an environment
+variable, the shape of the invocation. Unsure means stop.
+
+When you do stop, leave the work resumable and say how to resume it: what is
+already done, what is needed, and the answer or command that continues it. A
+stop that discards completed work turns a cheap question into an expensive
+one.
+
+This rule says when to ask, not whether the user's answer can be assumed:
+work that is opt-in stays opt-in in both modes (rule 26), and a decision the
+user has not made is not made.
+
+Source: project convention — the repository owner's decision, 2026-10-25.
+Each skill applies it at its own decision points.
