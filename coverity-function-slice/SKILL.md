@@ -47,7 +47,10 @@ git clone https://github.com/edtice-goog/CoveritySkills
 Line 1 of `<idir>/emit/version` names the version that wrote the idir.
 **Use that version's `bin/`** for every command here; another version
 refuses the emit outright (`Expected version number is 355, but this
-directory has version 350`). Rule 3. Nothing in this skill writes into the
+directory has version 350`). Rule 3. If that version is not installed,
+nothing below can run: name the version and stop. Interactive, ask the
+user to install it or re-capture; unattended or unsure, report that and
+stop (the row at the end, *Where other skills take over*). Nothing in this skill writes into the
 idir except under `<idir>/output/pathout/` (or wherever `--out` points), so
 no copy is needed.
 
@@ -236,7 +239,11 @@ shown outside the project. Do not run it unasked.
 
 Use this step only when the user **asks** for the function to be seen by
 someone who must not see the source: another model, a vendor, a colleague
-outside the project. The request may be phrased as "obfuscate",
+outside the project. Unattended, nobody can ask: if the task did not
+request obfuscation, do not run it, and say in the report that the slice
+was not obfuscated and what the command would be; if it did, run it and
+let the `verify` line decide, as below (`coverity/RULES.md`, the rule on
+asking only when interactive). The request may be phrased as "obfuscate",
 "anonymize", "rename the variables", "strip the identifying parts", or
 "make a version I can send". The case it exists for: a function that
 must be discussed outside the environment that holds the source, for
@@ -330,7 +337,7 @@ measured vs reasoned (rule 23). If `--obfuscate` was run, quote the
 | "Why did this function exceed the path limit, and what did it cost?" | `coverity-pathout` (it calls this skill for the body) |
 | "Is this finding real? Run it." | `coverity-verify` (the slice is its target; the callee models come back as stubs) |
 | "Was the function even captured?" / the file is not in the emit | `coverity` (capture fidelity, rule 34) |
-| The idir is from a version you do not have installed | stop and ask: name the version `emit/version` requires and let the user install it or re-capture. `coverity-recreate-from-emit` is expensive and is a last resort the user must ask for |
+| The idir is from a version you do not have installed | stop: name the version `emit/version` requires and what it is needed for. In an interactive session ask the user to install it or re-capture; unattended (an API task, a scheduled or CI run) or when unsure, report that and stop (`coverity/RULES.md`, the rule on asking only when interactive). `coverity-recreate-from-emit` is expensive and is a last resort the user must ask for |
 
 ## Layout
 
