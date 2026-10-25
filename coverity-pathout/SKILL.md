@@ -356,7 +356,8 @@ So, whenever the PATHOUT count is more than a couple of dozen:
    cannot tell, report the pilot's result and the two prices and stop:
    an interactive session can be prompted to continue, an unattended one
    cannot be asked, and the one thing never to do is default into the
-   expensive option (the interactive-only rule in `coverity/RULES.md`).
+   expensive option (rule 38). Not interactive means report and stop,
+   never "go ahead on the default"; the choice stays the user's.
 4. **At scale, skip what does not scale.** Restructure experiments (Step
    6) and reading every dropped candidate are pilot-only unless asked.
    The cost-of-the-limit measurement (`--paths N` on the whole project) is
@@ -513,7 +514,7 @@ user chose to spend (rule 22).
 | A survivor the lane check puts outside value or path | the user: verify it anyway where realistic, run that lane's reader, or leave it; recorded as an override in `run.json` |
 | "Was the function even captured?" / the file is not in the emit | `coverity` (capture fidelity, rule 34) |
 | "Would checker X have found the bug the cut-off hid?" | `coverity-defect-detectability` |
-| The idir is from a version you do not have installed | stop and ask (interactive), or report the version needed and stop (unattended). This skill is for current development, where the version that wrote the idir (`emit/version`, line 1) is installable; say which version is needed and let the user install it or re-run the capture. `coverity-recreate-from-emit` rebuilds an analyzable idir without the toolchain and is expensive; it is a last resort the user must ask for, not a step to take on your own |
+| The idir is from a version you do not have installed | stop and ask (interactive), or report the version needed and stop (unattended); rule 38. This skill is for current development, where the version that wrote the idir (`emit/version`, line 1) is installable; say which version is needed and let the user install it or re-run the capture. `coverity-recreate-from-emit` rebuilds an analyzable idir without the toolchain and is expensive; it is a last resort the user must ask for, not a step to take on your own |
 
 The skills are meant to sit side by side under the same skills directory;
 the relative paths above assume that.
