@@ -364,14 +364,15 @@ So, whenever the PATHOUT count is more than a couple of dozen:
    all 4,000 about 240 M."* Then wait. Do not continue past the pilot
    without an answer, and do not silently take the cheaper option either;
    the choice is the user's. Ask only when the session is interactive.
-   Run unattended (an API task, a scheduled or CI run), or when you
-   cannot tell, report the pilot's result and the two prices and stop:
-   an interactive session can be prompted to continue, an unattended one
-   cannot be asked, and the one thing never to do is default into the
-   expensive option (rule 38). Not interactive means report and stop,
-   never "go ahead on the default"; the choice stays the user's. Do not
-   infer that someone is there from a TTY, an environment variable or
-   the shape of the invocation; unsure means stop. **Stop resumably:**
+   Not interactive, or unsure, report the pilot's result and the two
+   prices and stop: an interactive session can be prompted to continue,
+   an unattended one cannot be asked, and the one thing never to do is
+   default into the expensive option (rule 38). Not interactive means
+   report and stop, never "go ahead on the default"; the choice stays the
+   user's. Nothing a skill can observe tells it reliably that nobody is
+   there, so do not test for it -- a TTY, an environment variable or the
+   shape of the invocation decides nothing; unsure means stop. **Stop
+   resumably:**
    everything up to the pilot is done and stays on disk (the report
    tool's table, the catalogue's `candidates.json`, `survivors.json`,
    `run.json`, the pilot's slice and its triage record), and the report
