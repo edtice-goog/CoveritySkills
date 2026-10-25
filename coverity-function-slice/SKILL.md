@@ -242,8 +242,8 @@ someone who must not see the source: another model, a vendor, a colleague
 outside the project. Unattended, nobody can ask: if the task did not
 request obfuscation, do not run it, and say in the report that the slice
 was not obfuscated and what the command would be; if it did, run it and
-let the `verify` line decide, as below (`coverity/RULES.md`, the rule on
-asking only when interactive). The request may be phrased as "obfuscate",
+let the `verify` line decide, as below. Rule 38 decides when to ask,
+never what the answer is: an opt-in step stays opt-in. The request may be phrased as "obfuscate",
 "anonymize", "rename the variables", "strip the identifying parts", or
 "make a version I can send". The case it exists for: a function that
 must be discussed outside the environment that holds the source, for
@@ -337,7 +337,7 @@ measured vs reasoned (rule 23). If `--obfuscate` was run, quote the
 | "Why did this function exceed the path limit, and what did it cost?" | `coverity-pathout` (it calls this skill for the body) |
 | "Is this finding real? Run it." | `coverity-verify` (the slice is its target; the callee models come back as stubs) |
 | "Was the function even captured?" / the file is not in the emit | `coverity` (capture fidelity, rule 34) |
-| The idir is from a version you do not have installed | stop: name the version `emit/version` requires and what it is needed for. In an interactive session ask the user to install it or re-capture; unattended (an API task, a scheduled or CI run) or when unsure, report that and stop (`coverity/RULES.md`, the rule on asking only when interactive). `coverity-recreate-from-emit` is expensive and is a last resort the user must ask for |
+| The idir is from a version you do not have installed | stop: name the version `emit/version` requires and what it is needed for. In an interactive session ask the user to install it or re-capture; unattended (an API task, a scheduled or CI run) or when unsure, report that and stop (rule 38). `coverity-recreate-from-emit` is expensive and is a last resort the user must ask for |
 
 ## Layout
 
