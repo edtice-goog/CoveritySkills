@@ -1334,15 +1334,19 @@ anyone there to answer.
 - **Not interactive** — an API call, a scheduled or CI run, a print-mode
   invocation — **report exactly what is needed to continue, and stop.** There
   is nobody to answer, so asking either hangs the run or tempts the skill into
-  deciding for the user.
+  deciding for the user. Those three are what "not interactive" *means*; they
+  are not a test to run. **Nothing a skill can observe tells it reliably that
+  nobody is there**, which is why the third case below is not a rare edge.
 - **Cannot tell** — report and stop. That is safe in both directions: an
   interactive user reads the report and says continue, which costs one turn,
   while a guess at an unattended decision point starts work nobody asked for.
 
-**Never default into the more expensive or the less reversible option.** The
-asymmetry is the whole point: a needless stop costs a turn, and a needless
-start can cost hours of compute, a mutated intermediate directory, or a
-commit to a stream.
+**Never default into the more expensive or the less reversible option.** Those
+are two axes, and the second is the sharper one. Compute can be bought back
+with more compute; a step that leaves the machine cannot be withdrawn — a
+commit to a stream, a triage-store annotation, a restore that resets a shared
+instance all reach other people. Weigh a needless stop, which costs a turn,
+against that.
 
 **The irreversible step is often not the obvious one.** A reader checking for
 destructive operations finds the ones that announce themselves and skips the
