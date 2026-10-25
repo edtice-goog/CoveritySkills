@@ -37,6 +37,18 @@
       ]
     },
     {
+      "id": 5,
+      "eval_name": "describe-the-tu-for-a-harness",
+      "prompt": "For set_caller in the fixture idir built from evals/fixtures/slice_set.c (TU 1, Coverity 2026.6.0), I want to compile the real translation unit as-is, link a driver and run the function unchanged, stubbing only what the TU does not define. What does the emit give me, and what will get in the way?",
+      "expected_output": "Runs tools/tu_manifest.py and reads manifest.json: the recorded flags, tu.c as the stored bytes, files/ with every file the TU read, functions_defined with their static flags, the two externals (lookup, log_missing) as project functions to stub, the target as non-static; reports the notes verbatim (none predicting failure here; for set_callee the static note would appear); does not slice or rewrite anything on this route.",
+      "assertions": [
+        "Uses tu_manifest.py rather than hand-collecting flags and headers",
+        "Names the externals as what a driver must supply or stub, and nothing defined in the TU",
+        "Repeats the notes as facts for the router rather than deciding the route itself",
+        "Does not treat exit 0 with notes as a failure, or notes as a reason to slice instead"
+      ]
+    },
+    {
       "id": 4,
       "eval_name": "slice-the-set-not-the-function",
       "prompt": "A FORWARD_NULL in set_caller (the fixture idir built from evals/fixtures/slice_set.c, TU 1, Coverity 2026.6.0) has its last event inside set_callee, a static function in the same file. I want one file I can re-analyze and run that reproduces the finding without a stub for either function.",

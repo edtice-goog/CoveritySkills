@@ -216,6 +216,45 @@ in one file and 3/2 in its twin, 5 in both); when the per-member counts
 differ but the set's multiset matches, `verify` says `preserved up to
 analysis order within the set` rather than `DIFFERS`.
 
+## The whole TU as the container
+
+For executing a function the slice has a sibling: compile the translation
+unit's real source as-is, link a driver, run the target unchanged, and stub
+only what the TU does not define. `tools/tu_manifest.py` supplies what that
+route needs, all of it from the emit, and decides nothing:
+
+| the emit holds | how it is read | what it gives the route |
+|---|---|---|
+| the `cov-emit` invocation, the compiler invocation, the working directory and platform of the capture | `print-compilation-info`, plain and `--detailed` | `flags` (everything but `--dir`/`--ignore_path`), `include_paths`, `sys_includes`, `pre_preinclude` (the configuration's compat headers), `defines_from_build`, `working_directory` (the `-I` paths are relative to it), `platform`, `compiler` |
+| every file the TU read, as stored | `print-source-files` lists them (290 for an nginx TU: the primary, 69 project headers, 214 system headers, the gcc headers, the two compat headers); `extract-files --tu N --regex .` writes them under `files/`, drive letter and leading slash removed | `files/`, `files.layout`, and the recorded paths remapped: `source_local`, `include_paths_local`, `sys_includes_local`, `pre_preinclude_local` |
+| the primary source | the extracted copy is the stored bytes; `print-source` is the fallback, and on Windows its stdout is text-mode (CRLF comes back as CR CR LF) | `tu.c` / `tu.cpp`, with `tu_file.bytes_from` saying which |
+| every function the TU defines | one `find . --kind f --print-definitions` dump; `static` read off each signature line | `functions_defined` (name, display, static, inline, file, line, in_primary), `target` with its `signature` |
+| every function the TU calls | one `find . --kind f --print-callees` dump; a callee without a `defined in TU` line is external | `externals` (name, declared_at, `library` or `project` by declaring path; with `--models`, whether a `.dot` saved by `cov-find-function` names it) |
+| the globals the TU defines | `find . --kind g` | `globals_defined`; globals the TU *reads* are not indexed by the emit and are not listed, which `notes` says |
+
+`notes` are the facts a router decides on: a `static` target (a driver
+cannot name it; it needs a non-static caller in the TU or a wrapper), a
+target defined in a header, a C++ member target, a capture platform other
+than the one running, project externals without a saved model. Exit is 0
+with notes; non-zero only when the TU or the function does not exist.
+
+Measured on nginx TU 79 (`ngx_http_upstream.c`, captured under Linux with
+gcc 13.3.0, read on Windows with 2026.6.0): the extracted tree is complete
+(290 of 290), the recorded `cov-emit` flags with every path remapped under
+`files/` re-emit the TU from `files/` alone (93 functions, as the
+original), and the real gcc on the capture platform compiles it from
+`files/` alone at `-O0` (an object with 93 defined and 104 undefined
+symbols: the externals). At `-O` it does not: glibc opens
+`bits/select2.h` under optimization, a header the capture's front end
+never asked for and the emit therefore never stored; appending the
+platform's own system include directories after the `files/` ones makes
+`-O` compile too. That is the one thing the emit cannot supply for this
+route, and `compile_hints` in the manifest says so beside the two compile
+lines that were measured. Paths under `files/` reproduce the capture's
+paths in full, so a long `--out` runs into Windows's 260-character limit;
+the tool opens them with the long-path prefix and `notes` says when the
+limit is near.
+
 ## What is different from the original, and why it does not matter here
 
 - **Callees have no bodies.** In the original analysis every callee had a

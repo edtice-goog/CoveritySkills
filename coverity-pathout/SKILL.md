@@ -272,7 +272,17 @@ elsewhere, with its lane and reason, **before any method runs**, and the
 user chooses for each: run `coverity-verify` anyway where that is
 realistic, run that lane's reader, or leave it untriaged. Any of those is
 fine; what must not happen is a candidate taking a different method, or
-none, by surprise. The choice goes into `run.json` as an override with its
+none, by surprise. The method itself is execution through
+`coverity-verify`, and `coverity-verify` has a routing step of its own:
+per finding it chooses between extraction-verification (the function
+sliced out of the emit, callees outside the slice stubbed from the
+derived models, then fuzzed) and harness-verification (the translation
+unit's real source compiled as it is, driven by a real driver, with only
+the externals stubbed). This skill's candidates usually route to
+extraction, because they sit in large functions whose state depends on
+values earlier calls produced, but the choice is verify's, not this
+skill's: hand the candidate over and report the route it took. The
+user's choice goes into `run.json` as an override with its
 reason, and the triage records name the method that produced each
 verdict. Triage costs per candidate, so the choice of how many to send is
 the user's (see *Budget*).
@@ -310,8 +320,8 @@ run, one catalogue run, one filter. Everything from here on is per
 function and paid in tokens and minutes: extracting a body and reading it
 (a 900-line function is about 20 KB, roughly 5,000 tokens, read at least
 once), slicing and re-analyzing it (20 s of tool time, few tokens), the
-triage of its survivors (a slice, a harness and a fuzz run per candidate
-in `coverity-verify`: minutes of build and run each), restructure
+triage of its survivors (per candidate, `coverity-verify` builds and
+runs it, by extraction or by harness: minutes each), restructure
 experiments (many re-reads of the body; the most expensive thing in this
 skill). On a log with 4,000 PATHOUT functions that is a bill the user did
 not ask for.
@@ -490,7 +500,7 @@ user chose to spend (rule 22).
 | Question | Skill |
 |---|---|
 | The function's body, a file that compiles alone, an obfuscated twin | `coverity-function-slice` |
-| A verdict on a survivor | `coverity-triage`, with `run.json` expecting value or path and `Execution: coverity-verify`; it runs `coverity-verify` for that lane and reports anything that lands elsewhere before a method runs |
+| A verdict on a survivor | `coverity-triage`, with `run.json` expecting value or path and `Execution: coverity-verify`; it reports anything that lands elsewhere before a method runs, then hands each candidate to `coverity-verify`, whose routing step chooses extraction-verification or harness-verification |
 | A survivor the lane check puts outside value or path | the user: verify it anyway where realistic, run that lane's reader, or leave it; recorded as an override in `run.json` |
 | "Was the function even captured?" / the file is not in the emit | `coverity` (capture fidelity, rule 34) |
 | "Would checker X have found the bug the cut-off hid?" | `coverity-defect-detectability` |

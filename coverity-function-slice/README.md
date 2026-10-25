@@ -80,7 +80,8 @@ skill: this is the piece that belongs in the product.
 | `SKILL.md` | the procedure: extract -> make it compile -> (on request) obfuscate |
 | `references/function-extraction.md` | `cov-manage-emit find` for C and C++, duplicates, reading the pretty-print, the metrics join, the other `find` outputs |
 | `references/standalone-reproducer.md` | how the slice is built from the tree, the five rewrites, what differs from the original and why that is fine, the obfuscation mechanism, the C++ boundary and the preprocessed-TU route |
-| `tools/slice_function.py` | one function as a standalone `.c`/`.cpp` file; `--emit`, `--analyze`, `--obfuscate`; exit 2 when there is no result |
+| `tools/slice_function.py` | one function, or a set of them, as a standalone `.c`/`.cpp` file; `--emit`, `--analyze`, `--obfuscate`; exit 2 when there is no result |
+| `tools/tu_manifest.py` | the whole translation unit for the harness route of verification: the recorded compile line and its parts, every file the TU read (headers included, from the emit), the functions it defines, the externals it calls, the target, and the notes a router decides on |
 | `evals/` | six fixtures (a C function with `for(;;)` and function-local unnamed types; the pretty-printer forms that need repair, bare subscript bases and folded `sizeof` among them; a slice set with a static callee, mutual recursion and a non-member callee, plus a second TU that conflicts with it; C++ overloads; a C++ free function calling a static member) and a script that emits, extracts, slices and verifies them on your installation |
 | `CALIBRATION.md` | what was measured, on what, and what was not |
 

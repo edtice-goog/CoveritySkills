@@ -194,6 +194,39 @@ python3 tools/slice_function.py --dir <idir> --bin $BIN --tu <N> \
 One `--name` behaves exactly as before: same filenames, same lines, same
 exit codes, same map, plus the line-1 comment.
 
+### Two routes to a verification, both from the emit
+
+The slice is one container for executing a function: the pretty-printed
+body with declarations printed back from the tree, and model stubs for
+every callee outside the slice set (`coverity-verify` calls this
+**extraction-verification**). The other container is the translation unit
+itself: its **real source compiled as-is with the recorded flags**, a
+driver linked in, the target run unchanged, every function the TU defines
+being real code and only the externals stubbed (**harness-verification**).
+The router in `coverity-verify` chooses between them; this skill supplies
+the facts it decides on:
+
+```bash
+python3 tools/tu_manifest.py --dir <idir> --bin $BIN --tu <N> --name <fn> --out <dir> [--models <saved models>]
+```
+
+It writes `manifest.json`, `tu.c` (the primary source, the stored bytes),
+and `files/`, every file the TU read, system and compat headers included,
+in the layout the capture saw (`files/<path without drive letter and
+leading slash>`). The manifest carries the recorded compile line and its
+parts (`flags`, `include_paths`, `sys_includes`, `pre_preinclude`,
+`defines_from_build`), the capture's working directory and platform, every
+function the TU defines with `static` and location, the externals (called,
+not defined; `library` or `project` by declaring path; with `--models`,
+whether a saved derived model exists), the target, and `notes`: the facts
+that predict the route will fail (a `static` target a driver cannot name,
+a target defined in a header, a C++ member, a capture platform that is
+not this one, project externals without a model). It never slices or
+rewrites, and it exits 0 with notes rather than deciding; `references/
+standalone-reproducer.md`, *The whole TU as the container*, records what
+the emit can and cannot supply for this (the headers it holds are the
+ones its own front end opened; a real compiler at `-O` may want one more).
+
 **This is where most requests end.** Report the slice path, the line
 counts, the `cov-emit: emitted` line, and the `wur:` line if `--analyze`
 was run. Step 3 is only for the uncommon case where the file has to be
@@ -310,7 +343,8 @@ coverity-function-slice/
 │   ├── function-extraction.md           # cov-manage-emit find: C, C++, duplicates, output shape
 │   └── standalone-reproducer.md         # the slice: declarations from the tree, re-emit, rewrites, obfuscation, C++ boundary
 ├── tools/
-│   └── slice_function.py                # one function as a file that compiles; --emit --analyze --obfuscate
+│   ├── slice_function.py                # one function (or a set) as a file that compiles; --emit --analyze --obfuscate
+│   └── tu_manifest.py                   # the whole TU for harness-verification: manifest.json, tu.c, files/
 └── evals/
     ├── fixture.sh                       # emits the fixtures, extracts by mangled name, slices and verifies
     ├── evals.json
