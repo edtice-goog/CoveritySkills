@@ -62,6 +62,16 @@ out, which is why this is a tool and not a table.
 `SKILL.md` has the detail, including the two consequences of marking
 `CVSS_Audited = Yes` and how to undo it.
 
+Every step that writes to Connect asks first when the run is interactive,
+and when it is not -- a scheduled job, CI, or anything it cannot tell about
+-- it reports exactly what is needed and stops with exit status 3, having
+written nothing; `--yes` is how an unattended caller authorizes a specific
+run. So an unattended run yields the audit and the choice and no writes:
+`mark` still prints the (a)/(b)/(c) split and writes its CSV, then stops
+before touching Connect. That follows the standing rule that a skill asks
+only when interactive rather than defaulting into the expensive or
+hard-to-undo option.
+
 ## What a real run established
 
 Two snapshots of the same C fixtures against Connect 2025.12.0 with Reports

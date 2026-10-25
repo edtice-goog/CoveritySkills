@@ -16,7 +16,9 @@ description: >
   Connect, and only then produces the PDF. Needs Coverity Connect, the
   Coverity Reports package, and four custom triage attributes that must
   exist before the first run. Note that --scores WRITES triage attributes
-  onto every matching defect in the project.
+  onto every matching defect in the project; every step that writes asks
+  first when the run is interactive, and when it is not it reports what is
+  needed and stops without writing.
 ---
 
 # Coverity CVSS report
@@ -34,6 +36,32 @@ build of the report generator had never heard of this CWE". This skill
 makes that difference visible before anyone signs the report.
 
 Read `coverity/RULES.md` first (rules 3 and 26 carry the weight here).
+
+## Asking, and not asking
+
+Every step that writes to Connect is gated the same way, because the skill
+should ask only when somebody is there to answer:
+
+- **Interactive** — it says what it is about to do and what that affects,
+  and waits for a `y`.
+- **Unattended, or when it cannot tell** — it reports exactly what is
+  needed and **stops**, exit status **3**, having written nothing. An
+  unattended caller that genuinely wants the write passes `--yes`.
+- `--dry-run` reports and never writes, whatever else is passed.
+
+This follows the standing rule that a skill asks only when interactive and
+otherwise reports and stops rather than defaulting into the expensive or
+hard-to-undo option. Stopping costs an interactive session one more
+command; guessing wrong here writes triage attributes across a whole
+project.
+
+What that means in practice: a scheduled or CI run of this skill gets you
+**the audit and the choice, and no writes**. `mark` still prints the
+(a)/(b)/(c) split and still writes its CSV — the parts worth having — and
+stops before touching Connect. The gated steps are `scores`, `mark`,
+`infer --apply`, `reset`, `selftest`, and `cvss_attributes.py setup`.
+`status`, `report`, `config` and `infer` without `--apply` write nothing to
+Connect and are never gated.
 
 ## The three cases
 
@@ -75,10 +103,13 @@ They must exist in Connect before the first run, spelled exactly:
 `CVSS_Audited`, `CVSS_Score`, `CVSS_Severity`, `CVSS_Vector`.
 
 ```bash
-python3 tools/cvss_attributes.py setup
+python3 tools/cvss_attributes.py setup          # add --yes when unattended
 ```
 
 Idempotent, so it is safe against an instance that already has some. It
+asks first, because these four are **instance-wide**: they appear in the
+triage pane of every project on that Connect, not just yours, and the
+generator requires these exact names so they cannot be scoped or renamed. It
 uses `createAttribute` on the v9 SOAP configuration service, because
 nothing else can: `cov-manage-im` sets attribute *values* on defects, not
 definitions, and REST exposes only the built-in checker attributes. The
@@ -129,9 +160,11 @@ python3 tools/cvss_run.py scores --project <p> --config cvss_config.yaml \
 ```
 
 This is `cov-generate-cvss-report --scores`. It **writes** `CVSS_Vector`,
-`CVSS_Score` and `CVSS_Severity` onto every defect in the project whose
-`CVSS_Audited` is not `Yes`. There is no dry run. Keep its stdout: it names
-each defect it could not score and says which of the two reasons applied.
+`CVSS_Score` and `CVSS_Severity` onto every defect in the project. The
+generator has no dry run of its own, so this is the step the gate matters
+most for: unattended it stops and tells you what it would do. Keep its
+stdout: it names each defect it could not score and says which of the two
+reasons applied.
 
 ## Step 3: mark what was actually judged
 
@@ -148,7 +181,10 @@ documented lookup against the installed mapping, and sets **`CVSS_Audited`
 That is the whole point: afterwards, a reader in Connect can sort on
 `CVSS_Audited` and see immediately which scores were assessed and which
 were not. It prints the (a)/(b)/(c) split with issue counts, and `--csv`
-lists every case (c) defect with its CWE and checker.
+lists every unjudged defect with its CWE, its checker and its case.
+
+The split and the CSV are produced before the gate, so an unattended run
+still gives you both and simply does not write the attributes.
 
 **Order matters, because the marks are fragile.**
 
@@ -199,7 +235,7 @@ Reports release is coming, since it will map some of them for you.
 ```bash
 python3 tools/cvss_run.py infer --project <p> --snapshot <id> \
     --graph cwe_childof.json --csv inferred.csv        # review first
-python3 tools/cvss_run.py infer ... --apply            # then write
+python3 tools/cvss_run.py infer ... --apply --yes      # then write
 ```
 
 The rule is deliberately narrow and stays inside Coverity's own frame of
@@ -232,7 +268,9 @@ That diff is the most useful artifact this skill produces, and it is why the
 CSVs matter more than the attributes.
 
 Run `selftest` first: if the new build honours `CVSS_Audited`, inferred
-vectors survive and the ordering constraint above relaxes.
+vectors survive and the ordering constraint above relaxes. `selftest`
+writes, so it is gated too: unattended it reports the probe it would make
+and stops.
 
 ## Step 5: the report
 

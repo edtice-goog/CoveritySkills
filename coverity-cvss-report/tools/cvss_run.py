@@ -162,6 +162,61 @@ def issues(project, snapshot):
     return out
 
 
+#  Exit status for "I did not do it, here is what it needs".  Distinct from
+#  0 (done) and 1 (failed), so a wrapper can tell the three apart.
+STOPPED = 3
+
+
+def interactive():
+    """True only when a person is actually there to answer."""
+    try:
+        return sys.stdin.isatty() and sys.stderr.isatty()
+    except (AttributeError, ValueError):
+        return False
+
+
+def authorize(args, action, effects, rerun):
+    """Gate for anything that writes.  Ask when interactive; else stop.
+
+    A skill asks only when someone can answer.  Run unattended -- a
+    scheduled job, CI, an API task -- or when it cannot tell, it reports
+    exactly what is needed and stops, rather than defaulting into the
+    expensive or hard-to-undo option.  Stopping costs an interactive
+    session one more command; guessing wrong writes triage attributes
+    across a project.
+
+    --yes is how an unattended caller pre-authorizes a specific run.
+    """
+    if getattr(args, "dry_run", False):
+        print("")
+        print("--dry-run: not writing.  Would %s" % action)
+        return False
+    if getattr(args, "yes", False):
+        return True
+    if not interactive():
+        print("")
+        print("STOPPING: nothing was written.")
+        print("  would do : %s" % action)
+        for e in effects:
+            print("  effect   : %s" % e)
+        print("  to do it : %s" % rerun)
+        print("This run is not interactive, so the choice is yours to make"
+              " rather than mine.")
+        return False
+    print("")
+    print("About to %s" % action)
+    for e in effects:
+        print("  effect: %s" % e)
+    try:
+        answer = input("Proceed? [y/N] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        answer = ""
+    if answer in ("y", "yes"):
+        return True
+    print("Declined; nothing written.")
+    return False
+
+
 def triage_store_for(project):
     status, doc = rest("GET", "/api/v2/streams")
     if status != 200:
@@ -336,6 +391,17 @@ def generator(args, extra):
 
 def cmd_scores(args):
     """Step 2: the calculation phase."""
+    if not authorize(
+            args,
+            "run cov-generate-cvss-report --scores on project %r"
+            % args.project,
+            ["writes CVSS_Vector, CVSS_Score and CVSS_Severity onto EVERY "
+             "defect in the project",
+             "there is no dry run in the generator, and no per-CWE opt-out",
+             "it also resets CVSS_Audited to No, discarding earlier marks "
+             "and any inferred vectors"],
+            "re-run with --yes"):
+        return STOPPED
     rc = generator(args, ["--scores"])
     if rc != 0:
         return rc
@@ -415,25 +481,36 @@ def cmd_mark(args):
         print("writes in step 4 will be marked Yes.")
         to_yes = []
     store = args.triage_store or triage_store_for(args.project)
-    if to_yes and not args.dry_run:
-        n = set_attributes(store, to_yes, {"CVSS_Audited": "Yes"})
-        print("marked CVSS_Audited=Yes on %d issue(s) in triage store %r"
-              % (n, store))
-        print("NOTE: in Reports 2025.3.0 the next --scores run resets these "
-              "to No and")
-        print("discards any vector written by hand -- run `selftest` to check "
-              "your build.")
-        print("Treat the CSV as the durable record, not the attribute.")
-    elif to_yes:
-        print("would mark CVSS_Audited=Yes on %d issue(s) (dry run)"
-              % len(to_yes))
+    #  The audit above and the CSV below are the valuable part and are
+    #  produced either way.  Only the write into Connect is gated, and the
+    #  rest of the report still prints when it is declined, so an
+    #  unattended run hands back everything a person needs to decide.
+    marked = False
+    if to_yes:
+        marked = authorize(
+            args,
+            "mark CVSS_Audited=Yes on %d of %d issue(s) in triage store %r"
+            % (len(to_yes), len(rows), store),
+            ["changes triage state on those defects in Connect",
+             "`reset` undoes it, and in Reports 2025.3.0 the next --scores "
+             "run undoes it anyway"],
+            "re-run with --yes")
+        if marked:
+            n = set_attributes(store, to_yes, {"CVSS_Audited": "Yes"})
+            print("marked CVSS_Audited=Yes on %d issue(s) in triage store %r"
+                  % (n, store))
+            print("NOTE: in Reports 2025.3.0 the next --scores run resets "
+                  "these to No and")
+            print("discards any vector written by hand -- run `selftest` to "
+                  "check your build.")
+            print("Treat the CSV as the durable record, not the attribute.")
 
     print("")
     if not unaudited:
         print("Nothing left No: every score in this snapshot came from a "
               "mapping that")
         print("judged the CWE.  Go to step 5 and run the report.")
-        return 0
+        return STOPPED if (to_yes and not marked) else 0
     unmapped = [r for r in unaudited if r["_case"] == CASE_C]
     nocwe = [r for r in unaudited if r["_case"] == CASE_NOCWE]
     print("%d issue(s) are left No." % len(unaudited))
@@ -479,14 +556,17 @@ def cmd_mark(args):
         print("unscored issues are ones Coverity gave no CWE.")
     if args.csv:
         with open(args.csv, "w", encoding="utf-8", newline="") as f:
-            f.write("cid,checker,cwe,category,impact,class,score\n")
+            f.write("cid,checker,cwe,category,impact,case,class,score\n")
             for r in unaudited:
-                f.write('%s,"%s",%s,"%s",%s,"%s",%s\n'
+                f.write('%s,"%s",%s,"%s",%s,"%s","%s",%s\n'
                         % (r["cid"], r.get("checker"), r.get("cwe") or "",
                            r.get("displayCategory"), r.get("displayImpact"),
-                           r["_class"], r.get("CVSS_Score")))
+                           r["_case"], r["_class"], r.get("CVSS_Score")))
         print("")
         print("wrote %s" % args.csv)
+    #  Report in full, then say plainly that the write did not happen.
+    if to_yes and not marked:
+        return STOPPED
     return 0
 
 
@@ -516,6 +596,16 @@ def cmd_selftest(args):
               "CVSS_Severity": pick.get("CVSS_Severity") or "None",
               "CVSS_Audited": pick.get("CVSS_Audited") or "No"}
     probe = "CVSS:3.0/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+    if not authorize(
+            args,
+            "probe CID %s and then run --scores on project %r"
+            % (cid, args.project),
+            ["writes a distinctive vector on that one defect, then restores "
+             "its previous values",
+             "the --scores run it needs rewrites CVSS_* on EVERY defect in "
+             "the project"],
+            "re-run with --yes"):
+        return STOPPED
     print("probing with CID %s in triage store %r" % (cid, store))
     print("  before : %s / %s / %s"
           % (before["CVSS_Score"], before["CVSS_Severity"],
@@ -564,9 +654,16 @@ def cmd_reset(args):
         print("nothing is marked Yes")
         return 0
     store = args.triage_store or triage_store_for(args.project)
-    if args.dry_run:
-        print("would set CVSS_Audited=No on %d issue(s)" % len(cids))
-        return 0
+    if not authorize(
+            args,
+            "set CVSS_Audited=No on %d issue(s) in triage store %r"
+            % (len(cids), store),
+            ["clears the marking, including on any defect carrying an "
+             "inferred vector",
+             "an inferred vector itself is not removed, but the next "
+             "--scores run will overwrite it"],
+            "re-run with --yes"):
+        return STOPPED
     n = set_attributes(store, cids, {"CVSS_Audited": "No"})
     print("set CVSS_Audited=No on %d issue(s); the next --scores run will "
           "recompute their vectors" % n)
@@ -702,10 +799,23 @@ def cmd_infer(args):
         print("")
         print("Nothing was written.  Re-run with --apply to write these "
               "vectors and mark")
-        print("them CVSS_Audited=Yes so the next --scores run does not "
-              "revert them.")
+        print("them CVSS_Audited=Yes.  Do that after your FINAL --scores "
+              "run: in Reports")
+        print("2025.3.0 a later one discards them -- `selftest` checks your "
+              "build.")
         return 0
     store = args.triage_store or triage_store_for(args.project)
+    if not authorize(
+            args,
+            "write %d INFERRED vector(s) into Connect and mark them "
+            "CVSS_Audited=Yes" % len(applied),
+            ["these are this tool's inference, not a Coverity mapping",
+             "they overwrite whatever the generator computed for those "
+             "defects",
+             "keep the CSV: it is the only record of which numbers are "
+             "inferred"],
+            "re-run with --apply --yes"):
+        return STOPPED
     n = 0
     for r, vec, raw, spec, why in applied:
         n += set_attributes(store, [r["cid"]], {
@@ -744,7 +854,13 @@ def main():
     common.add_argument("--issues-json",
                         help="set WRITE_ISSUES_JSON for the run")
     common.add_argument("--csv")
-    common.add_argument("--dry-run", action="store_true")
+    common.add_argument("--dry-run", action="store_true",
+                        help="report what would be written and write nothing")
+    common.add_argument("--yes", action="store_true",
+                        help="pre-authorize this run's writes.  Needed for "
+                             "any write when the run is not interactive: "
+                             "unattended, the tool reports what it needs and "
+                             "stops (exit %d) rather than guessing." % 3)
 
     p = argparse.ArgumentParser(
         description=__doc__, parents=[common],

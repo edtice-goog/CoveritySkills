@@ -312,6 +312,41 @@ there came from Connect over REST in the first place.
 Also found: the PDF prints `CVSS Audited: No` for defects that were `Yes` in
 Connect, which is the same read failure as above surfacing in the output.
 
+## The interactive-only gate (2026-10-25)
+
+Every step that writes to Connect now routes through one `authorize()`
+helper: `scores`, `mark`, `infer --apply`, `reset`, `selftest`, and
+`cvss_attributes.py setup`. Interactive, it asks; unattended or unable to
+tell, it reports what is needed and returns exit status 3 having written
+nothing; `--yes` pre-authorizes and `--dry-run` never writes.
+
+Verified by execution:
+
+- The gate's four branches, called directly: default non-tty returns False,
+  `--yes` True, `--dry-run` False, and `--dry-run` wins over `--yes` -- the
+  safe precedence.
+- `scores` with no `--yes` in a non-interactive shell printed the stop
+  report and returned 3 **without invoking the generator** (the config path
+  it was given does not exist, and no error from the generator appeared).
+  With `--yes` it passed the gate and reached the generator, which then
+  failed on that missing config as expected.
+- `scores --dry-run` reported and wrote nothing.
+
+Not verified: the gates on `mark`, `infer --apply`, `reset`, `selftest` and
+`setup` were not exercised end to end, because those read from Connect
+before reaching the gate and the instance was down (HTTP 000) when this was
+written. They share the one helper that was tested, and the ordering is
+deliberate -- the report comes before the question -- but the Connect-side
+path is untested for them.
+
+Found while making this change: two earlier edits to `cvss_run.py` had
+silently not applied, because `str.replace` is a no-op when its target does
+not match and that batch was not verified line by line. The CSV was still
+writing the internal six-bucket class instead of the (a)/(b)/(c) case, and
+the `infer` output still told the reader that marking `CVSS_Audited=Yes`
+stops the next `--scores` run reverting it -- the claim the experiment above
+disproved. Both are fixed.
+
 ## Reasoned, not yet measured
 
 - **A user `<security-profile>.json` overriding the master.** The lookup's
