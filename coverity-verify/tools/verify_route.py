@@ -22,11 +22,12 @@ TU instead of linking it, so the driver can call the function.
 When the preferred route does not apply the router NEVER falls back on its
 own (rule 38): `applicable` is false, `route` is null, the record names the
 other route and the exact command that runs it, what was built is kept, and
-the caller decides. Interactive: say why and what it costs, ask.
-Non-interactive (an API call, a scheduled task) or unsure: report the
-reason, record the finding as not verified for that reason, stop. This
-tool does not try to tell which it is: no TTY test, no environment
-variable, no guess from the invocation. Exit 0 either way.
+the caller decides. Interactive: say why and what it costs, ask. Not
+interactive, or unsure: report the reason, record the finding as not
+verified for that reason, stop. This tool does not try to tell which it
+is: nothing it can observe says reliably that nobody is there, so there is
+no TTY test, no environment variable, no guess from the invocation. Exit 0
+either way.
 """
 import argparse
 import json
