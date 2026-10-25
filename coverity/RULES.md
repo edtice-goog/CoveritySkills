@@ -1353,11 +1353,20 @@ destructive operations finds the ones that announce themselves and skips the
 routine-looking recovery procedure whose blast radius is wider than the
 problem it repairs. `coverity-demo-data`'s database restore is the worked
 case: it is the documented way out of a bad commit sweep, so it reads as a
-repair rather than a decision, and it replaces the whole target instance
-rather than the one dataset being restored, so anything unrelated sharing
-that instance goes with it. In testing it was caught because someone looked
-first; unattended, nobody looks. Judge a step by what it can destroy, not by
-what it is for.
+repair rather than a decision. Its unit is a whole Coverity Connect
+database — there is no per-dataset restore — so projects, streams, every
+snapshot and the authentication keys go, including keys the recovery itself
+needs: a backup taken before a key existed could not be used to recover work
+that depended on it. Anything unrelated sharing that instance goes too.
+
+**And the gap is judgement, not detection.** In testing, four unrelated
+snapshots were found *before* restoring, because the procedure says to look;
+detection is automatable and was automated. What an unattended run lacks is
+anyone to decide whether what it found matters — whether those snapshots are
+someone's afternoon or yesterday's scratch work. That decision is exactly
+what a stop-and-report hands over, and it is why automating the check does
+not remove the need to stop. Judge a step by what it can destroy, not by what
+it is for.
 
 **Do not infer interactivity from weak signals** — a TTY, an environment
 variable, the shape of the invocation. Unsure means stop.
@@ -1373,4 +1382,8 @@ user has not made is not made.
 
 Source: project convention — the repository owner's decision, 2026-10-25.
 Each skill applies it at its own decision points. The database-restore example
-is `coverity-demo-data`'s, established there and not re-verified here.
+is `coverity-demo-data`'s: the database scope, the lost authentication key and
+the recreated streams are measured there and not re-verified here; triage
+history is in that database by construction but was not tested, so it is not
+claimed; the judgement-versus-detection point is an argument, not a
+measurement.
