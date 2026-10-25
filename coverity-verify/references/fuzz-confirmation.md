@@ -148,10 +148,13 @@ only for the externals the TU does not define. The claim is still inserted
 at the finding's line (the one edit to the TU's text), the stub choices
 are still traced, the tiers are the same. What changes is which functions
 are code: every function the TU defines, so the real callees in the same
-file carry their own semantics instead of their models'. The router
-(`tools/verify_route.py`) picks it for a native checker's finding or a
-bycatch when the TU compiles outside its build, and records why it
-declined otherwise. `evals/run_harness.sh` runs both outcomes.
+file carry their own semantics instead of their models'. It is the cheaper
+route and the default preference; the router (`tools/verify_route.py`)
+checks that it applies to the program (the manifest's notes, a compile
+attempt with the recovered flags) and records why when it does not. The
+skill never switches to extraction on its own: that is a question in an
+interactive session and a report-and-stop otherwise.
+`evals/run_harness.sh` runs both outcomes.
 
 ## The same run, twice: the fix check
 

@@ -197,8 +197,8 @@ the 12 chosen not taken (`tpl_map_va`, `tpl_peek`: variadic targets).
   `cfg.c` (`lookup_cfg` returns NULL for an unknown key) in one idir. The
   TU manifest (the eval's stand-in for `tu_manifest.py`): 2 functions
   defined, 3 externals (`lookup_cfg` with a model; `strlen`, `strncpy`
-  libc), no notes. Router, origin native, with a compile attempt:
-  **harness**. `fz_harness.py`: the TU included with one inserted line
+  libc), no notes. Router, preferred harness (the default), with a
+  compile attempt: **applies**. `fz_harness.py`: the TU included with one inserted line
   (the claim), `trim` and `handle` as code, `lookup_cfg` a 2-behaviour
   model stub, libc real; built with clang-cl against the real header; the
   claim failed on the first inputs through `lookup_cfg=0`
@@ -207,12 +207,15 @@ the 12 chosen not taken (`tpl_map_va`, `tpl_peek`: variadic targets).
   B: `evals/harness/declined/app2.c` includes a header found only
   through `-I` at capture time, and its target is static. The manifest
   cannot supply the header; the compile attempt fails with `fatal error:
-  'local.h' file not found`; the router **declines** with that diagnostic
-  as the reason and notes that the static target alone would not have
-  declined it (the TU is included, not linked); the extraction fallback
-  slices `handle2` (the slicer prints the declarations from the emit),
-  stubs `lookup_cfg` and reaches the same confirmation. The three earlier
-  evals pass unchanged with the changed support header.
+  'local.h' file not found`; the router finds harness **does not apply**, with that diagnostic
+  as the reason, notes that the static target alone would not have (the
+  TU is included, not linked), and the run **stops**: `route null`,
+  `applicable false`, the blocker in the record, no extraction run; the
+  eval checks that nothing ran unasked. Preferred extraction on A's
+  manifest is honoured as given. The three earlier evals pass unchanged
+  with the changed support header. **Harness sufficed** for A, the one
+  public-fixture finding tried on it so far.
+
 - **proftpd, public code, the route is open.** The capture's own
   compiler invocation is recorded per TU (`print-compilation-info`:
   `gcc -DHAVE_CONFIG_H -DLINUX -I.. -I../include ... -c data.c`), the
@@ -227,8 +230,8 @@ the 12 chosen not taken (`tpl_map_va`, `tpl_peek`: variadic targets).
   `recv`, `select`, `sendfile` are libc the LIBC list does not yet name),
   5 data externals the driver would define (`session`, `main_server`,
   `resp_list`, `resp_err_list`, `ServerUseReverseDNS`), no notes; the
-  router, origin native with a compile attempt: harness; origin pathout:
-  extraction. **Not done**: a driver for `pr_data_open` and the run
+  router, preferred harness with a compile attempt: applies; preferred
+  extraction: honoured. **Not done**: a driver for `pr_data_open` and the run
   itself; the route's cost on a TU of this size is the driver's state
   (five globals of the server's types) and the models for 40-odd
   externals, each `cov-find-function --save` at a few seconds.

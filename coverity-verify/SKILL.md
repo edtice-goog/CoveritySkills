@@ -11,14 +11,15 @@ description: >
   function -- and reports the rest (injection classes, anything a clang
   harness cannot instrument) as "not a fuzz-triage candidate; suggest
   external verification", with the reason, instead of attempting them.
-  The method runs on one of two routes, chosen by a router after the
-  method decision: extraction-verification (the slice set from the emit,
-  model stubs outside it; the default for a candidate from a
-  path-insensitive shape) or harness-verification (the TU's real source
-  compiled as-is with its recorded flags, a driver, model stubs only for the
-  externals the TU does not define; tried first for a native checker's
-  finding or a bycatch, declined with the reason when the TU will not
-  compile outside its build). Formerly coverity-fuzz-triage, which remains
+  The method runs on one of two routes: harness-verification (the TU's
+  real source compiled as-is with its recorded flags, a driver, model stubs
+  only for the externals the TU does not define; the default, being the
+  less expensive) or extraction-verification (the slice set from the emit,
+  model stubs outside it). The caller names the route it prefers; the
+  router checks whether it applies to the program and, when it does not,
+  asks in an interactive session and reports and stops in a
+  non-interactive one, never switching route on its own. Formerly
+  coverity-fuzz-triage, which remains
   as an alias. The finding
   may be a Connect CID ("verify CID 12345"), an entry in a
   cov-format-errors findings file, or a candidate from a path-insensitive
@@ -86,9 +87,15 @@ a finding that is still open is verified (Steps 0-4); a proposed fix in
 hand (a patch, a pull request, a commit, a second version of the code or
 a second idir) means the fix check (Step 5). The Coverity version is in
 the idir, the platform follows the capture, the claim comes from the
-events, the budget has a default. Ask when a run cannot start without the
-answer (which idir, when none was named and none is findable), and
-otherwise decide, state the decision in the report, and run.
+events, the budget has a default. Decide those, state the decision in the report,
+and run. What the skill cannot decide -- which idir, when none was named
+and none is findable; whether to pay for the other route when the
+preferred one does not apply -- is a question **only in an interactive
+session**. Non-interactive (an API call, a scheduled or CI run), or unsure
+which: report exactly what is needed, record the finding as not verified
+for that reason, and stop; never default into the more expensive option.
+An interactive session can always be prompted to continue; an unattended
+one cannot be asked, so it is told.
 
 This skill was `coverity-fuzz-triage`; that directory is now an alias
 pointing here.
@@ -126,44 +133,62 @@ verifications are suggested, named, or wired in is under discussion and
 not designed; nothing in this skill should be read as a plan for it. Until
 that is settled the output for such a finding is the verdict tier above.
 
-### Then decide the route
+### Then the route: the caller's preference, and whether it applies
 
 The one method runs on one of two routes. Both end in the same Step 4
-tiers; the verdict record names the route and what ran as code against
-what was stubbed.
+tiers; the verdict record names the route, what ran as code and what was
+stubbed.
 
-| route | what runs as code | what is stubbed | fits |
+| route | what runs as code | what is stubbed | cost and fit |
 |---|---|---|---|
-| **extraction-verification** (Steps 1-3 as written) | the slice set, printed from the emit by `coverity-function-slice` | every callee outside the set, from its derived model | a candidate from a path-insensitive shape: a large function whose behaviour depends on values earlier calls produced, where the stubs' choices are the point. The default for anything `coverity-pathout` sends |
-| **harness-verification** (`tools/fz_harness.py`) | the whole TU, its real source compiled as-is with the compiler flags the capture recorded, a driver linked in, the original function run unchanged | only the externals the TU does not define, from their derived models (libc stays real) | a native checker's finding, or a bycatch of a run: the function is ordinary, its TU is self-contained, and the real callees in the same file are worth more than their models. It is extraction with the slice set widened to the whole TU and the pretty-printer taken out, so the slice-set rule holds unchanged: nothing on the finding's path is a stub, and a stub list naming a function the finding's events touch is malformed on this route too |
+| **harness-verification** (`tools/fz_harness.py`; the default) | the whole TU, its real source compiled as-is with the compiler flags the capture recorded, a driver linked in, the original function run unchanged | only the externals the TU does not define, from their derived models (libc stays real) | the less expensive route: no slicing, one compile, and the real callees in the same file carry their own semantics instead of their models'. It is extraction with the slice set widened to the whole TU and the pretty-printer taken out, so the slice-set rule holds unchanged: nothing on the finding's path is a stub, and a stub list naming a function the finding's events touch is malformed here too |
+| **extraction-verification** (Steps 1-3 as written) | the slice set, printed from the emit by `coverity-function-slice` | every callee outside the set, from its derived model | the route for a program the harness route cannot take, or a defect class the table has learned needs it: the function alone, with the stubs' choices as the point |
 
-`tools/verify_route.py --manifest <dir> --origin pathout|native|bycatch
---compile` decides, in this order, and records the reason:
+**The caller names the route it prefers.** A batch from `coverity-triage`
+carries it in the table row behind the method `Execution:
+coverity-verify`; a CID or a findings-file entry given directly takes it
+as `--route harness|extraction`. **The shipped default is harness**, for
+every caller including `coverity-pathout`'s shapes, because the cheaper
+route is preferred until evidence says a defect type needs the other; the
+table moves on that evidence, and `CALIBRATION.md` records, per public
+finding tried, whether harness sufficed. A user whose program is not
+amenable overrides the preference for that program.
 
-1. **Origin.** A pathout candidate takes extraction. A native finding or a
-   bycatch tries harness first.
-2. **The TU manifest's notes** (`coverity-function-slice`'s
+`tools/verify_route.py --manifest <dir> [--route harness|extraction]
+--compile` checks whether the preferred route **applies** to this program
+and records the reason; it does not pick a route. For harness, in order:
+
+1. **The TU manifest's notes** (`coverity-function-slice`'s
    `tu_manifest.py`: the TU's source from `print-source`, its recorded
    compiler invocation, the functions it defines, its externals and
-   whether each has a model, the target and whether it is static). A
-   note about captured headers the emit could not supply, or C++
-   construction the driver cannot reproduce, declines harness.
-3. **A compile attempt.** `clang -fsyntax-only` on the TU with the
+   whether each has a model, the target and whether it is static). A note
+   about captured headers the emit could not supply, or C++ construction
+   the driver cannot reproduce, means harness does not apply.
+2. **A compile attempt.** `clang -fsyntax-only` on the TU with the
    recovered flags, from the TU's own directory so relative `-I` paths
-   resolve (under WSL for a Linux capture). A failure is a legitimate
-   routing input and is recorded in the compiler's words; it declines
-   harness. Measured on proftpd: the TUs compile this way from the
-   source tree the capture was built in.
-4. **Externals without a model** are a count in the record, not a
-   decline: they get generic stubs, which weakens a verdict that leans on
+   resolve (under WSL for a Linux capture). A failure is recorded in the
+   compiler's words and means harness does not apply. Measured on
+   proftpd: the TUs compile this way from the source tree the capture was
+   built in.
+3. **Externals without a model** are a count in the record, never a
+   reason: they get generic stubs, which weakens a verdict that leans on
    them, and the record says so.
 
-A static target does not decline the route: the harness route `#include`s
-the TU into the target file instead of linking it, so the driver can call
-the function, and the record says the TU was included. When harness is
-declined the run falls back to extraction and the record carries the
-reason; "the harness route was not tried" is not a reason, "the TU does
-not compile outside its build: <diagnostic>" is.
+A static target does not stop the harness route: `fz_harness.py`
+`#include`s the TU into the target file instead of linking it, so the
+driver can call the function, and the record says the TU was included.
+
+**When the preferred route does not apply, the skill never switches route
+on its own.** The other route costs more, and whether to pay is the
+caller's call:
+
+- **Interactive session** (a person is at the prompt): state why the
+  preferred route does not apply, in the compiler's or the manifest's
+  words, and ask whether to run the other route. Run it only on a yes.
+- **Non-interactive** (an API call, a scheduled or CI run, a batch nobody
+  is watching), **or unsure which**: report the reason, record the
+  finding as *not verified: <preferred route> does not apply: <reason>*,
+  and stop. A later interactive session can continue from the record.
 
 On the harness route the only edit to the TU's text is the inserted claim
 line (`tu.fz.c`, one line, recorded with its line number), and the driver
@@ -503,10 +528,13 @@ not this change, not checked with the reason.
 - Stubbing a function that carries one of the finding's primary events.
   Its model can make the stub do exactly what the finding claims, so the
   confirmation is the analyzer agreeing with itself. It is slice-set code.
-- Taking the harness route on a pathout candidate because the TU happens
-  to compile, or declining it on a native finding without a compile
-  attempt. The router's inputs are the origin, the manifest's notes and
-  the compile attempt, and the record says which decided.
+- Switching route on your own when the preferred one does not apply, or
+  running extraction "while we are at it" after harness confirmed. The
+  caller's preference is honoured; a route it did not ask for is a
+  question in an interactive session and a report-and-stop otherwise.
+- Declaring harness inapplicable without a compile attempt, or because
+  the target is static. The record carries the manifest's note or the
+  compiler's diagnostic, and a static target is reached by including the TU.
 - Guarding a stub's dereference (`if (a0) *a0`). It makes the callee look
   null-safe to the analyzer and hides the finding's consequence from the
   fuzzer; measured to make a real finding vanish.
