@@ -20,10 +20,13 @@ A static target does not stop the harness route: fz_harness.py includes the
 TU instead of linking it, so the driver can call the function.
 
 When the preferred route does not apply the router NEVER falls back on its
-own: `applicable` is false, `route` is null, and the caller decides.
-Interactive: say why, ask whether to run the other route. Non-interactive
-(an API call, a scheduled task) or unsure: report the reason, record the
-finding as not verified for that reason, stop. Exit 0 either way.
+own (rule 38): `applicable` is false, `route` is null, the record names the
+other route and the exact command that runs it, what was built is kept, and
+the caller decides. Interactive: say why and what it costs, ask.
+Non-interactive (an API call, a scheduled task) or unsure: report the
+reason, record the finding as not verified for that reason, stop. This
+tool does not try to tell which it is: no TTY test, no environment
+variable, no guess from the invocation. Exit 0 either way.
 """
 import argparse
 import json
@@ -124,10 +127,19 @@ def main():
         if hdr:
             blockers.append("; ".join(hdr))
         if blockers:
+            tname = target.get("name") or "<fn>"
+            resume = ("python3 ../coverity-function-slice/tools/slice_function.py --dir <idir> --bin <bin> --tu %s --name %s "
+                      "[--name <other primary-event function>] --out <work>/%s --emit; then Steps 2-3 (models for the "
+                      "callees outside the set, fz_target.py)" % (man.get("tu"), tname, tname))
             rec.update(route=None, applicable=False, blockers=blockers,
                        reason="the preferred route, harness, does not apply to this program: " + "; ".join(blockers),
-                       next_step="not decided here. Interactive session: ask whether to run extraction instead. "
-                                 "Non-interactive, or unsure: record the finding as not verified for this reason and stop.")
+                       kept="the manifest and tu.c in %s, and any models already saved; nothing is discarded" % os.path.abspath(a.manifest),
+                       other_route="extraction", other_route_command=resume,
+                       next_step="not decided here (rule 38: this tool does not infer whether anyone is at the prompt). "
+                                 "Interactive session: say why, say what extraction costs (a slice, models for its callees, "
+                                 "a build and a run), and ask; on a yes, run: " + resume + ". "
+                                 "Non-interactive, or unsure: record the finding as 'not verified: harness does not apply: "
+                                 "<reason>' with this record, and stop; a later session resumes from it.")
         else:
             rec.update(route="harness", applicable=True,
                        reason="the preferred route applies: the TU compiles as-is%s; %d external%s (%d with a model, %d libc%s)"

@@ -91,16 +91,19 @@ events, the budget has a default. Decide those, state the decision in the report
 and run. What the skill cannot decide -- which idir, when none was named
 and none is findable; whether to pay for the other route when the
 preferred one does not apply -- is a question **only in an interactive
-session**. Non-interactive (an API call, a scheduled or CI run), or unsure
-which: report exactly what is needed, record the finding as not verified
-for that reason, and stop; never default into the more expensive option.
-An interactive session can always be prompted to continue; an unattended
-one cannot be asked, so it is told.
+session** (rule 38). Non-interactive (an API call, a scheduled or CI run),
+or unsure which: report exactly what is needed, record the finding as not
+verified for that reason, and stop; never default into the more expensive
+option. Do not infer interactivity from a TTY, an environment variable or
+the shape of the invocation: unsure means stop. A stop leaves the work
+resumable and says how: what is done, what is needed, and the command or
+answer that continues it. An interactive session can always be prompted
+to continue; an unattended one cannot be asked, so it is told.
 
 This skill was `coverity-fuzz-triage`; that directory is now an alias
 pointing here.
 
-Read `coverity/RULES.md` first (rules 3, 21-23, 35).
+Read `coverity/RULES.md` first (rules 3, 21-23, 35, 38).
 
 **This skill is one of a bundle of three** in the CoveritySkills
 repository. It needs `coverity-function-slice` beside it (Step 1 calls its
@@ -186,16 +189,24 @@ A static target does not stop the harness route: `fz_harness.py`
 driver can call the function, and the record says the TU was included.
 
 **When the preferred route does not apply, the skill never switches route
-on its own.** The other route costs more, and whether to pay is the
-caller's call:
+on its own** (rule 38). The other route costs more, and whether to pay is
+the caller's call; that harness is the cheap default does not make
+extraction a default too, it is a decision the caller has not made:
 
 - **Interactive session** (a person is at the prompt): state why the
   preferred route does not apply, in the compiler's or the manifest's
-  words, and ask whether to run the other route. Run it only on a yes.
+  words, say what the other route costs (a slice, the models for its
+  callees, a build and a run), and ask. Run it only on a yes.
 - **Non-interactive** (an API call, a scheduled or CI run, a batch nobody
   is watching), **or unsure which**: report the reason, record the
   finding as *not verified: <preferred route> does not apply: <reason>*,
-  and stop. A later interactive session can continue from the record.
+  and stop. Do not infer interactivity from a TTY, an environment
+  variable or the shape of the invocation; `verify_route.py` does not
+  try to, it reports and leaves the question to the session.
+- **The stop is resumable.** What was built stays (the TU manifest, the
+  models, a slice), the record names the other route and the exact
+  invocation that runs it, and a later interactive session continues from
+  there with one answer.
 
 On the harness route the only edit to the TU's text is the inserted claim
 line (`tu.fz.c`, one line, recorded with its line number), and the driver
