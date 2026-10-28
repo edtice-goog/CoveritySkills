@@ -312,6 +312,74 @@ there came from Connect over REST in the first place.
 Also found: the PDF prints `CVSS Audited: No` for defects that were `Yes` in
 Connect, which is the same read failure as above surfacing in the output.
 
+## Rule 38: ask only when interactive (2026-10-25)
+
+Every step that writes to Connect routes through one `authorize()` helper:
+`scores`, `mark`, `infer --apply`, `reset`, `selftest`, and
+`cvss_attributes.py setup`. Each reports what it would do and returns exit
+status 3 unless `--yes` is passed; `--dry-run` never writes and wins over
+`--yes`.
+
+**The first implementation of this was wrong, and reading the rule rather
+than a summary of it is what caught it.** It tested `sys.stdin.isatty()`
+and prompted on the strength of that. Rule 38 says in as many words not to
+infer interactivity from weak signals -- "a TTY, an environment variable,
+the shape of the invocation" -- and that unsure means stop. A TTY is
+exactly such a signal: a scheduled job can own one, and a person can drive
+a tool without one. So the TTY check and the `input()` prompt are both
+gone. The asking belongs in the session, where someone can answer, and
+`--yes` is the record of that answer arriving. Rule 38 prices the extra
+command an interactive user then pays, and prefers it.
+
+The stop also reports what it kept, per the rule's requirement to leave the
+work resumable: for `mark`, the audit and the CSV; for `infer`, the
+proposals.
+
+Verified by execution:
+
+- The gate's branches, called directly: no `--yes` returns False, `--yes`
+  True, `--dry-run` False and winning over `--yes` -- the safe precedence.
+  No TTY logic remains in either tool (`grep -c isatty` is 0 in both).
+- `scores` with no `--yes` printed the stop report, named what it kept, and
+  returned 3 **without invoking the generator** -- the config path it was
+  given does not exist, and no error from the generator appeared.
+  With `--yes` it passed the gate and reached the generator, which then
+  failed on that missing config as expected.
+- `scores --dry-run` reported and wrote nothing.
+- The stop names the target instance and account, and marks them as
+  defaults when `COV_HOST` / `COV_USER` were not set.
+- `config` lists the defaults it chose: the issue cutoff, project-version,
+  organizational-unit-term and project-name.
+
+**Cheap defaults are decisions too**, which the rule says in its own words
+and which an audit of this skill's own defaults turned up three of:
+
+- `COV_HOST` and `COV_USER` default to `http://localhost:8080` and `admin`.
+  Nothing used to say so, and writing triage onto the wrong Connect is
+  exactly the mistake the gate exists to prevent, so every stop now names
+  the target and flags it as a default when it was not set.
+- `config` silently baked in `issue-cutoff-count: 200`, which bounds how
+  many issues the report shows, plus a `project-version` of 1.0 and an
+  organizational-unit term that both print on the title page of something
+  somebody signs. It now lists each one it chose and how to override it.
+- `mark` defaults to `--audited mapped`, which decides what gets written.
+  The gate now names the convention in force and its alternative.
+
+Not verified: the gates on `mark`, `infer --apply`, `reset`, `selftest` and
+`setup` were not exercised end to end, because those read from Connect
+before reaching the gate and the instance was down (HTTP 000) when this was
+written. They share the one helper that was tested, and the ordering is
+deliberate -- the report comes before the question -- but the Connect-side
+path is untested for them.
+
+Found while making this change: two earlier edits to `cvss_run.py` had
+silently not applied, because `str.replace` is a no-op when its target does
+not match and that batch was not verified line by line. The CSV was still
+writing the internal six-bucket class instead of the (a)/(b)/(c) case, and
+the `infer` output still told the reader that marking `CVSS_Audited=Yes`
+stops the next `--scores` run reverting it -- the claim the experiment above
+disproved. Both are fixed.
+
 ## Reasoned, not yet measured
 
 - **A user `<security-profile>.json` overriding the master.** The lookup's
