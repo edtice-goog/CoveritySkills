@@ -54,9 +54,9 @@ findings they chose (Step 4).
 **This skill assumes the `coverity` skill and its `RULES.md`.** Read the rules
 before running any Coverity command; the numbers cited here are stable. Rules
 9-11 (build verification and capture percentages), 26 (triage a sample), 29
-(one stream per branch), 30 (name the global invariant) and 31 (`--strip-path`,
-verified) carry most of the weight; this skill adds the demo-data-specific
-consequences rather than restating them.
+(one stream per branch), 30 (name the global invariant), 31 (`--strip-path`,
+verified) and 38 (ask only when interactive) carry most of the weight; this
+skill adds the demo-data-specific consequences rather than restating them.
 
 ## The architecture follows from the constraint
 
@@ -77,6 +77,62 @@ it as a faithful preview, not an estimate.
 
 Phases 1 and 2 touch no database at all, so a corpus can be taken all the way
 to the population table before anyone commits to anything.
+
+## Ask only when interactive (rule 38)
+
+Several steps here need a decision that only the user can make. **Ask for it
+when the session is interactive. When it is not, or when you cannot tell,
+report exactly what is needed and stop.** Never pick the more expensive or the
+irreversible option on the user's behalf; an interactive session can always be
+handed a prompt to continue, while an unattended one cannot be handed back a
+database.
+
+Rule 38 says *when to ask*, not that an answer may be assumed. A decision
+counts as already made only if the invocation supplies it: "publish untriaged",
+a tags file that names the stream for every version, or an instruction to commit
+to a named target each settle their question. Absence of an instruction settles
+nothing -- **packaging untriaged is a choice too**, not the quiet default, and
+what is opt-in stays opt-in in both modes (rule 26).
+
+**Do not infer interactivity from weak signals** -- not a TTY, an environment
+variable, or the shape of the invocation. An API task, a scheduled or CI run
+and a print-mode invocation are what "not interactive" *means*; they are not a
+test to run. Nothing a skill can observe tells it reliably that nobody is
+there, so "cannot tell" is the ordinary case rather than a rare edge, and it
+stops.
+
+Nothing in `tools/` prompts or inspects a terminal, by design: every tool is
+non-interactive and either runs or fails with a message, so the asking happens
+in the conversation and never inside a tool.
+
+**When you stop, say what survives and what continues.** Stopping is cheap at
+every point here, but for different reasons, so report the right one:
+
+- Before Phase 3, nothing has been written to a database at all. The corpus can
+  sit captured, analyzed and validated indefinitely.
+- At Step 4, Phase 3 is already done and its snapshots stay committed with
+  their backdated dates. The idirs, the analyses and the commits all persist;
+  what is outstanding is triage, which is optional, and publication.
+
+Either way the report names what is done, what is needed, and the answer or
+command that continues -- for Step 4, "package untriaged" or the triage steps
+and their methods.
+
+Where this bites, in rising order of regret:
+
+| Step | Decision | Unattended, unsettled |
+|---|---|---|
+| 4 | which findings go to triage, if any | report and stop; nothing is lost -- the commits stand and only triage and publish remain |
+| 2 | which release line each version belongs to | state the mapping you would use, and stop |
+| 3 | commit the corpus to a Connect instance | **report and stop** -- first-detected dates are global and write-once |
+| 0 | restore a database to re-run Phase 3 | **report and stop** -- this destroys whatever else is on that instance |
+
+The last one is easy to underrate. A restore is the documented way to recover
+from a bad commit sweep, which makes it feel routine, but it discards
+everything on the target instance and not only this dataset. In testing this
+skill a restore was about to destroy four snapshots that a different piece of
+work had put on the same instance; they were spotted only because a person
+looked first. Unattended, nobody looks.
 
 ## Step 0: Establish the reset point
 
@@ -114,6 +170,11 @@ cov-admin-db backup --dir <ABSOLUTE path that does NOT yet exist>
   pipeline. This is the most common self-inflicted wound in this workflow.
 - Never use `pg_dump`. Use `cov-admin-db`, the supported path for the embedded
   database.
+
+**Restoring is destructive beyond this dataset.** It replaces everything on
+the target instance, not just what this skill put there, so confirm with the
+user what else lives on it before restoring -- and unattended, do not restore
+at all; report that a restore is required and stop.
 
 Many installs ship an `empty.bak` in the Platform directory as a factory-clean
 baseline. It is a fine starting point but predates every key you create.
@@ -269,8 +330,10 @@ wrong on the projects it was not written for, in a way nothing downstream
 detects. `commit_sweep.py` validates dates and merge keys; it cannot tell you
 that a branch topology is nonsense.
 
-Do this step by reading the project's actual history and reasoning about it.
-Useful signals:
+Do this step by reading the project's actual history and reasoning about it,
+and **state the mapping before acting on it** -- unattended, state it and stop
+unless the tags file already names a stream for every version. Useful
+signals:
 
 - `git for-each-ref --sort=creatordate --format='%(refname:short) %(creatordate:short)' refs/tags`
 - **Two releases tagged on the same day** almost always means concurrent lines
@@ -307,6 +370,12 @@ the next dates every shared defect to whichever stream went first, and no later
 backdate can move it. **Interleave by date; assign by branch.** `commit_sweep.py`
 takes an optional third column in the tags file for the destination stream and
 sorts globally by date regardless of stream.
+
+**Unattended, stop here.** This is the irreversible step, and two of its
+preconditions cannot be checked from inside the process: that the target is the
+instance the user meant, and that a usable backup of it exists. Report the
+plan -- the target, the stream map, the dates -- and let a person start it,
+unless the invocation named the target and said the backup is in place.
 
 One commit per selected version, in global chronological order:
 
@@ -373,7 +442,13 @@ Never point at a defect on stage without having checked it. But triage spends
 model time on every finding it reads, and a dataset is often published to be
 triaged later, by someone else, for a story not yet chosen. So **this skill
 never triages on its own, and never on a default.** Ask the user, once, which
-of these to do:
+of these to do -- and unattended, report the options with their counts and
+stop (rule 38), because triage spends model time on every finding it reads.
+Stopping is not the same as choosing the first option: packaging untriaged is
+itself a decision, and the user makes it. Say what survives -- the idirs, the
+analyses and the backdated snapshots already committed, none of which a stop
+disturbs -- and name the answer that continues: package untriaged, or which
+findings and which method per lane.
 
 - **Package without triage.** Publish the dataset untriaged (Step 5). The
   hand-off says so plainly: nothing in it has been checked, and anything
