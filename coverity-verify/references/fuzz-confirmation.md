@@ -138,6 +138,24 @@ all **focused mode**: with every stub free, each run ended on a bycatch
 `returnsnull` of some pool allocator before the finding's line, three in a
 row on one function.
 
+## The second route: the TU as the slice set
+
+Harness-verification is the same confirmation with the slice set widened
+to the whole translation unit and the pretty-printer taken out: the TU's
+real source, compiled as-is with the compiler flags the capture recorded,
+a driver linked in, the original function run unchanged, and model stubs
+only for the externals the TU does not define. The claim is still inserted
+at the finding's line (the one edit to the TU's text), the stub choices
+are still traced, the tiers are the same. What changes is which functions
+are code: every function the TU defines, so the real callees in the same
+file carry their own semantics instead of their models'. It is the cheaper
+route and the default preference; the router (`tools/verify_route.py`)
+checks that it applies to the program (the manifest's notes, a compile
+attempt with the recovered flags) and records why when it does not. The
+skill never switches to extraction on its own: that is a question in an
+interactive session and a report-and-stop otherwise.
+`evals/run_harness.sh` runs both outcomes.
+
 ## The same run, twice: the fix check
 
 A finding that is present in one version and absent in the next gets the

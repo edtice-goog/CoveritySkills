@@ -72,6 +72,24 @@ real one-byte stack overflow found next to a false OVERRUN. Every
 "confirmation" on that batch fell to reading the stub choices behind it,
 which is why the trace exists and why "confirmed" always lists them.
 
+## Two routes, one router
+
+The method runs on one of two routes. **Harness-verification**, the
+default because it is the less expensive, compiles the TU's real source
+as-is with the compiler flags the capture recorded, links a driver, runs
+the original function unchanged, and stubs only the externals the TU does
+not define. **Extraction-verification** is the chain above: the slice set
+from the emit, model stubs outside it. Harness is extraction with the slice
+set widened to the whole TU, so the same rule holds: nothing on the
+finding's path is a stub. The caller names the route it prefers (a triage
+table row, or `--route`), and the router checks whether it applies to the
+program: a header the emit could not supply, or a TU that does not compile
+outside its build with the recovered flags, means it does not. The skill
+then never switches route on its own: in an interactive session it says why
+and asks; in a non-interactive one it reports the reason, records the
+finding as not verified, and stops. Both routes end in the same tiers; the
+record names the route, what ran as code and what was stubbed.
+
 ## Fixed, or silenced?
 
 A finding that is present in one version and gone in the next was either
@@ -105,7 +123,9 @@ execution in about four minutes).
 | `tools/fz_support.h` | the byte stream, the per-stub choice trace printed on a crash, pins, the per-input arena, pointer-filled objects, the claim counter; builds with clang and clang-cl |
 | `tools/cid_lookup.py` | a Connect CID to its stream, checker, file, function and merge key over REST, then the matching issue and its events out of the idir's findings |
 | `tools/model_stubs.py` | a callee stub from its `cov-find-function --save` model |
-| `evals/` | `lookup.c` (a callee with a model), `use.c` (a caller with an unguarded dereference), `harness.c`, and `run.sh`, which runs the chain end to end; `run_fixcheck.sh` with `fixcheck/` (a fix and a silencer of the same finding) runs the fix check end to end; `run_sliceset.sh` with `sliceset/` (a caller and a callee that both carry a primary event) shows the callee as code refuting what the same callee as a stub would have "confirmed" |
+| `tools/verify_route.py` | the router: does the caller's preferred route (default harness) apply to this program? The manifest's notes and a compile attempt say, and the reason is recorded; it never picks the other route itself |
+| `tools/fz_harness.py` | the harness route: the TU included as-is (one inserted claim line), a driver, model stubs for the externals only, the build command from the TU's directory, `route.json` |
+| `evals/` | `lookup.c` (a callee with a model), `use.c` (a caller with an unguarded dereference), `harness.c`, and `run.sh`, which runs the chain end to end; `run_fixcheck.sh` with `fixcheck/` (a fix and a silencer of the same finding) runs the fix check end to end; `run_sliceset.sh` with `sliceset/` (a caller and a callee that both carry a primary event) shows the callee as code refuting what the same callee as a stub would have "confirmed"; `run_harness.sh` with `harness/` runs the router and the harness route on a TU that compiles, and shows the run stopping, reason recorded, on one that cannot |
 | `CALIBRATION.md` | what was measured, on what, and what was not |
 
 ## Requirements
