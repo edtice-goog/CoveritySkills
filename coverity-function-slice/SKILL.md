@@ -47,7 +47,14 @@ git clone https://github.com/edtice-goog/CoveritySkills
 Line 1 of `<idir>/emit/version` names the version that wrote the idir.
 **Use that version's `bin/`** for every command here; another version
 refuses the emit outright (`Expected version number is 355, but this
-directory has version 350`). Rule 3. Nothing in this skill writes into the
+directory has version 350`). Rule 3. If that version is not installed,
+nothing below can run: name the version and stop. Interactive, ask the
+user to install it or re-capture; unattended or unsure, report that and
+stop, and make the stop resumable: the exact version string from
+`emit/version`, what it is needed for, and the command that continues
+(the same command with `--bin` pointing at that version's `bin/`). The
+tools never prompt and never read a TTY or an environment variable to
+decide whether anyone is there; that judgment is the caller's (rule 38). Nothing in this skill writes into the
 idir except under `<idir>/output/pathout/` (or wherever `--out` points), so
 no copy is needed.
 
@@ -236,7 +243,14 @@ shown outside the project. Do not run it unasked.
 
 Use this step only when the user **asks** for the function to be seen by
 someone who must not see the source: another model, a vendor, a colleague
-outside the project. The request may be phrased as "obfuscate",
+outside the project. Unattended, nobody can ask: if the task did not
+request obfuscation, do not run it, keep the slice and the re-emit that
+were made, and say in the report that the slice was not obfuscated and
+what the command would be (the Step 2 command with `--obfuscate` added);
+if it did, run it and let the `verify` line decide, as below. Rule 38
+decides when to ask, never what the answer is: skipping the twin looks
+cheap and safe, and is still a choice the user has not made, so an
+opt-in step stays opt-in. The request may be phrased as "obfuscate",
 "anonymize", "rename the variables", "strip the identifying parts", or
 "make a version I can send". The case it exists for: a function that
 must be discussed outside the environment that holds the source, for
@@ -330,7 +344,7 @@ measured vs reasoned (rule 23). If `--obfuscate` was run, quote the
 | "Why did this function exceed the path limit, and what did it cost?" | `coverity-pathout` (it calls this skill for the body) |
 | "Is this finding real? Run it." | `coverity-verify` (the slice is its target; the callee models come back as stubs) |
 | "Was the function even captured?" / the file is not in the emit | `coverity` (capture fidelity, rule 34) |
-| The idir is from a version you do not have installed | stop and ask: name the version `emit/version` requires and let the user install it or re-capture. `coverity-recreate-from-emit` is expensive and is a last resort the user must ask for |
+| The idir is from a version you do not have installed | stop: name the version `emit/version` requires, what it is needed for, and the command that continues once it is installed. In an interactive session ask the user to install it or re-capture; not interactive, or unsure: report that and stop (rule 38). `coverity-recreate-from-emit` is expensive and is a last resort the user must ask for |
 
 ## Layout
 
