@@ -1321,3 +1321,78 @@ compilation-unit counts to establish that ccache hits still emit. They do, by
 design; the check was noise.
 
 Source: project convention.
+
+### 38. Ask only when the session is interactive; otherwise report and stop
+
+Some decisions belong to the user: anything that spends real time or compute,
+anything irreversible, and any scope choice the skill cannot settle from its
+own inputs. What to do at one of those points depends on whether there is
+anyone there to answer.
+
+- **Interactive** — ask, and say what each answer costs. A question is cheap
+  when someone is reading it.
+- **Not interactive** — an API call, a scheduled or CI run, a print-mode
+  invocation — **report exactly what is needed to continue, and stop.** There
+  is nobody to answer, so asking either hangs the run or tempts the skill into
+  deciding for the user. Those three are what "not interactive" *means*; they
+  are not a test to run. **Nothing a skill can observe tells it reliably that
+  nobody is there**, which is why the third case below is not a rare edge.
+- **Cannot tell** — report and stop. That is safe in both directions: an
+  interactive user reads the report and says continue, which costs one turn,
+  while a guess at an unattended decision point starts work nobody asked for.
+
+**Never default into the more expensive or the less reversible option.** Those
+are two axes, and the second is the sharper one. Compute can be bought back
+with more compute; a step that leaves the machine cannot be withdrawn — a
+commit to a stream, a triage-store annotation, a restore that resets a shared
+instance all reach other people. Weigh a needless stop, which costs a turn,
+against that.
+
+**The irreversible step is often not the obvious one.** A reader checking for
+destructive operations finds the ones that announce themselves and skips the
+routine-looking recovery procedure whose blast radius is wider than the
+problem it repairs. `coverity-demo-data`'s database restore is the worked
+case: it is the documented way out of a bad commit sweep, so it reads as a
+repair rather than a decision. Its unit is a whole Coverity Connect
+database — there is no per-dataset restore — so projects, streams and every
+snapshot go. The authentication key is in that database too, and comes back
+only with a backup that postdates it, which puts the recovery procedure's own
+credential inside its blast radius: a backup taken before a key existed cannot
+be used to recover work that depended on that key. Anything unrelated sharing
+the instance goes too.
+
+**And the gap is judgement, not detection.** In testing, four unrelated
+snapshots were found *before* restoring, because the procedure says to look;
+detection is automatable and was automated. What an unattended run lacks is
+anyone to decide whether what it found matters — whether those snapshots are
+someone's afternoon or yesterday's scratch work. That decision is exactly
+what a stop-and-report hands over, and it is why automating the check does
+not remove the need to stop. Judge a step by what it can destroy, not by what
+it is for.
+
+**Do not infer interactivity from weak signals** — a TTY, an environment
+variable, the shape of the invocation. Unsure means stop.
+
+When you do stop, leave the work resumable and say how to resume it: what is
+already done, what is needed, and the answer or command that continues it. A
+stop that discards completed work turns a cheap question into an expensive
+one.
+
+This rule says when to ask, not whether the user's answer can be assumed:
+work that is opt-in stays opt-in in both modes (rule 26), and a decision the
+user has not made is not made.
+
+Source: project convention — the repository owner's decision, 2026-10-25.
+Each skill applies it at its own decision points.
+
+The database-restore example is `coverity-demo-data`'s, and none of it was
+re-verified here. **Measured there:** a restore leaves no snapshots and no
+CIDs; the project and its streams must be recreated by hand; the
+authentication key lives in the database and returns with a backup that
+postdates it; and the procedure did find the unrelated snapshots before
+restoring. **Inferred, not run:** that a backup predating the key therefore
+cannot recover work needing it — the pre-key backup was set aside rather than
+tested on that point. **Reasoned:** that a restore spares the installed
+software and its configuration, from Connect coming back up unreconfigured;
+and that detection was never the missing piece. Triage history is in that
+database by construction but was not tested, so it is not claimed.
