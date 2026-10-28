@@ -22,15 +22,30 @@ writes.
 ## Nothing from the machine it was developed on, either
 
 The same goes for the environment a skill was built and measured in:
-usernames, home directories, host names, install paths, scratch and
-workspace directories, the network a run sat behind, and the names of other
-sessions or projects. They creep in through benchmark scripts, quoted logs,
-JSON samples and worked examples. Scripts take such paths as parameters or
-environment variables; prose uses neutral placeholders (`/home/build/proj`,
-`capture-host`, `<install-root>`). Where a measurement depends on a value's
-shape, such as a path's length in a hexdump, keep the shape and change the
-value. And a skill is used by its readers, not by the projects that tested
-it: nothing in it should need those projects explained.
+usernames, home directories, host names, install paths hard-coded into
+scripts, scratch and workspace directories, the network a run sat behind,
+and the names of other sessions or projects. They creep in through benchmark
+scripts, quoted logs, JSON samples and worked examples. Scripts take such
+paths as parameters or environment variables; prose uses neutral
+placeholders (`/home/build/proj`, `capture-host`, `<install-root>`). Where a
+measurement depends on a value's shape, such as a path's length in a
+hexdump, keep the shape and change the value. And a skill is used by its
+readers, not by the projects that tested it: nothing in it should need those
+projects explained.
+
+The Coverity version a measurement ran on is provenance, not environment:
+keep it (`cov-analysis-win64-2026.6.0`, "2025.9.0 linux64"), as the
+measured-versus-reasoned rule requires.
+
+## Someone else's finding: credit it, then have them check it
+
+When you carry another contributor's finding into shared text, such as a rule,
+a skill or a calibration note, ask them to check your wording before it lands.
+Only they know which part they measured and which part they reasoned. A
+plausible mechanism written down beside a measurement borrows its confidence,
+and nothing in the text shows the difference. Crediting the source keeps the
+provenance; their check keeps the claim accurate. A finding can be credited
+correctly and still be stated wrongly.
 
 ## Before pushing
 

@@ -9,7 +9,7 @@ versions were used, each against an idir it wrote:
 
 | idir | written by | size | analyzed with |
 |---|---|---|---|
-| proftpd 1.3.9 (`coverity-demo-data-workspace/idirs/v1.3.9`), 149 C files, 2102 functions | 2025.9.0 (cov-build, gcc, WSL) | 2 GB | 2025.9.0 win64, scratch copy |
+| proftpd 1.3.9 (a cov-build capture under WSL), 149 C files, 2102 functions | 2025.9.0 (cov-build, gcc, WSL) | 2 GB | 2025.9.0 win64, scratch copy |
 | subversion 1.14 + sqlite amalgamation, 9533 functions (an MSVC capture) | 2026.3.0 | 185 MB | 2026.3.0 win64, scratch copy |
 | fixtures (`evals/fixtures/*`), emitted with bare `cov-emit --c` / `--c++` | 2026.6.0 | -- | 2026.6.0 win64 |
 
@@ -275,6 +275,86 @@ All dates 2026-09-09.
   and `(*opt)[1]`, both of which had emitted as the wrong expression). The
   numbers are in the fixture run's transcript; nothing from a non-public
   codebase was used.
+
+- **A set of functions in one file (2026-10-24).** `--name` repeated;
+  `evals/fixtures/slice_set.c` (+ `slice_set_tu2.c` as TU 2), 2026.6.0,
+  bare `cov-emit --c`:
+  - caller + `static` callee (`set_caller`, `set_callee`): both defined,
+    the callee's `static` dropped from prototype and definition; the
+    one-file idir reports **FORWARD_NULL** in the caller (the null-tested
+    pointer passed to the callee that dereferences it), which the caller
+    sliced alone does not report (the callee is a prototype there, `0`
+    FORWARD_NULL files). Twin verifies identical per member (4 and 1 paths).
+  - mutual recursion (`set_odd`, `set_even`, both `static`): emits clean
+    from the prototype block; per-member path counts came out 2/3 in the
+    slice and 3/2 in the twin, 5 in both -- the analyzer's order within the
+    pair decides the split, and `verify` reports `preserved up to analysis
+    order within the set`.
+  - one member + a non-member callee (`set_caller` alone): `set_callee` and
+    `set_helper` stay prototypes; same filenames and lines as before the
+    change, plus the line-1 comment.
+  - two TUs defining `struct rec` differently (`set_caller`,
+    `set_other@2`): `conflict: struct rec: defined differently in TU 1 and
+    TU 2`, `COULD NOT VERIFY`, exit 2, the slice written with TU 1's shape
+    for a reader.
+  - nginx 1.26.0 (WSL capture, 2026.6.0, analyzed on win64): the static
+    pair `ngx_http_upstream_send_response` + `ngx_http_upstream_finalize_
+    request` (TU 79) slices to 1,449 lines (130 typedefs, 36 structs, 28
+    prototypes) and emits and analyzes in 38 s end to end; the caller alone
+    is 1,301 lines in 33 s (1443 vs 433 paths for the caller: the callee's
+    code is now walked). A two-TU set, `ngx_http_parse_complex_uri` (TU 73)
+    + `ngx_http_upstream_finalize_request@79`, emits clean with no conflict
+    and reproduces the parser's `DEADCODE_pass2` 10001 PATHOUT.
+
+- **The whole TU for the harness route (`tools/tu_manifest.py`,
+  2026-10-25).** What the emit supplies, measured on nginx TU 79
+  (`ngx_http_upstream.c`, Linux/gcc 13.3.0 capture) with win64-2026.6.0 and
+  on the `slice_set.c` fixture (bare `cov-emit --c` on Windows):
+  - `print-source-files --tu 79` lists 290 files: the primary, 69 project
+    headers, 214 system headers (`/usr/include`, `/usr/lib/gcc`), the two
+    configuration compat headers. `extract-files --tu 79 --regex .` writes
+    all 290 under the output dir with drive letter and leading slash
+    removed (`/home/x/...` -> `files/home/x/...`, `/mnt/c/...` ->
+    `files/mnt/c/...`, `C:/Data/...` -> `files/Data/...`).
+  - `print-source` is **not** byte-exact on Windows: its stdout is in text
+    mode, so a CRLF source came back as CR CR LF (2,229 bytes for a 2,170
+    byte fixture). The extracted copy is identical to the original file
+    (`cmp`); `tu.c` is written from it, and `print-source` only when
+    extraction was skipped.
+  - One `find . --kind f --print-definitions` dump (136 KB, 93 functions)
+    gives every definition's signature; `static` is read off it (85 of 93
+    static; 4 defined in headers, `ngx_array_init` and the like). One
+    `find . --kind f --print-callees` dump (76 KB, 301 callee entries, 152
+    with a `defined in TU` line) gives the externals: 85 functions called
+    and not defined, 8 of them library by declaring path, 77 project; with
+    `--models` pointing at a `cov-find-function --save` directory holding
+    one model, that one (`ngx_pnalloc`) is marked. Model `.dot` files name
+    their function in `digraph "name:module"`.
+  - `print-compilation-info --detailed` replaces the invocation lines with
+    the process records (working directory, platform, exit code); the tool
+    reads both forms. Working directory `/home/<user>/campaign/nginx`
+    resolves the relative `-I` paths.
+  - **Compiling from `files/` alone**: the recorded `cov-emit` flags with
+    `-I`, `--sys_include` and `--pre_preinclude` remapped under `files/`
+    re-emit the TU on Windows (exit 0, 93 functions). The real gcc 13.3.0 on
+    the capture platform: `-fsyntax-only` exit 0 (55 s across the `/mnt/c`
+    mount); `-c -O0 -nostdinc` with `files/` includes exit 0, object with 93
+    defined and 104 undefined symbols; `-c -O -D__OPTIMIZE__` from `files/`
+    alone **fails** on `bits/select2.h`, a glibc header opened only under
+    optimization that the capture's front end never requested; with the
+    platform's real system include directories appended after `files/`, or
+    with `files/` for project headers and the platform for system headers,
+    `-c -O` exits 0 (76 defined symbols: the optimizer inlined 17 statics).
+    Recorded as `compile_hints` in the manifest.
+  - A long `--out` on Windows: one compat header's extracted path exceeded
+    260 characters and `os.path.exists` said it was missing although
+    `extract-files` had written it; the tool now uses the long-path prefix
+    and warns when the layout is within reach of the limit.
+  - Fixture (`slice_set.c`, TU 1): 6 functions (4 static), 2 externals
+    (`lookup`, `log_missing`, both project), target `set_callee` static ->
+    the `static` note; `tu.c` identical to the fixture source; exit 0.
+    A non-static target (`ngx_http_upstream_init`, `--no-files`) produced
+    no failure note beyond the platform one.
 
 ## Reasoned, not measured
 
