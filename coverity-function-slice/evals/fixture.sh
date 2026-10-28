@@ -72,15 +72,16 @@ echo "   exit: ${PIPESTATUS[0]}  (expect 2)"
 set -e
 
 echo "== the TU manifest for the harness route (slice_set.c, TU 1): the static target is a note, not an error"
-python3 "$HERE/../tools/tu_manifest.py" --dir "$SDIR" --bin "$BIN" --tu 1 --name set_callee --out "$WORK/manifest-set" | grep -v 'externals lists functions only'
+python3 "$HERE/../tools/tu_manifest.py" --dir "$SDIR" --bin "$BIN" --tu 1 --name set_callee --out "$WORK/manifest-set"
 echo "   exit: $?  (expect 0)"
 echo "   tu.c identical to the fixture source: $(cmp -s "$WORK/manifest-set/tu.c" "$HERE/fixtures/slice_set.c" && echo yes || echo NO)"
 python3 - "$WORK/manifest-set/manifest.json" <<'EOF'
 import json, sys
 d = json.load(open(sys.argv[1]))
 print("   keys:", ", ".join(sorted(d)))
-print("   externals:", [e["name"] for e in d["externals"]], " target static:", d["target"]["static"],
-      " functions:", len(d["functions_defined"]), " files:", d["files"]["count_extracted"])
+print("   externals:", [(e["name"], e["signature"]) for e in d["externals"]])
+print("   externals_data:", [(g["name"], g["declaration"]) for g in d["externals_data"]], "(expect none: slice_set.c reads no global)")
+print("   target static:", d["target"]["static"], " functions:", len(d["functions_defined"]), " files:", d["files"]["count_extracted"])
 EOF
 
 echo "== C++: a free function calling a static member, nested enum, flexible array member, __func__"

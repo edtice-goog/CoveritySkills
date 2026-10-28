@@ -229,13 +229,16 @@ route needs, all of it from the emit, and decides nothing:
 | every file the TU read, as stored | `print-source-files` lists them (290 for an nginx TU: the primary, 69 project headers, 214 system headers, the gcc headers, the two compat headers); `extract-files --tu N --regex .` writes them under `files/`, drive letter and leading slash removed | `files/`, `files.layout`, and the recorded paths remapped: `source_local`, `include_paths_local`, `sys_includes_local`, `pre_preinclude_local` |
 | the primary source | the extracted copy is the stored bytes; `print-source` is the fallback, and on Windows its stdout is text-mode (CRLF comes back as CR CR LF) | `tu.c` / `tu.cpp`, with `tu_file.bytes_from` saying which |
 | every function the TU defines | one `find . --kind f --print-definitions` dump; `static` read off each signature line | `functions_defined` (name, display, static, inline, file, line, in_primary), `target` with its `signature` |
-| every function the TU calls | one `find . --kind f --print-callees` dump; a callee without a `defined in TU` line is external | `externals` (name, declared_at, `library` or `project` by declaring path; with `--models`, whether a `.dot` saved by `cov-find-function` names it) |
-| the globals the TU defines | `find . --kind g` | `globals_defined`; globals the TU *reads* are not indexed by the emit and are not listed, which `notes` says |
+| every function the TU calls | one `find . --kind f --print-callees` dump; a callee without a `defined in TU` line is external (compiler builtins dropped) | `externals` (name, declared_at, `library` or `project` by declaring path; with `--models`, whether a `.dot` saved by `cov-find-function` names it) |
+| every callee's prototype, and every global the TU touches | one `find . --kind f --print-debug` dump of the whole TU (26 MB, parsed in 4 s for a 93-function nginx TU): every `function_t` node carries the callee's full type, library ones included, and every `global_variable_t` node its type and `dflags` (`extern` when the TU only reads it) | `externals[].signature`, printed by the slicer's own type printer (`void *ngx_pnalloc(ngx_pool_t *, size_t)`); `externals_data` (the globals read but not defined: name, declaration, declaring file from a whole-emit `find --kind g`, `library`/`project`/`unknown`, the last for a global whose definition the capture never saw); `--no-tree` skips the dump |
+| the globals the TU defines | `find . --kind g` | `globals_defined` |
 
-`notes` are the facts a router decides on: a `static` target (a driver
-cannot name it; it needs a non-static caller in the TU or a wrapper), a
-target defined in a header, a C++ member target, a capture platform other
-than the one running, project externals without a saved model. Exit is 0
+`notes` are the facts a router decides on: a `static` target (a linked
+driver cannot name it and needs a non-static caller in the TU or a
+wrapper; a harness that includes the TU can call it, so this is
+information, not a blocker), a target defined in a header, a C++ member
+target, a capture platform other than the one running, project externals
+without a saved model. Exit is 0
 with notes; non-zero only when the TU or the function does not exist.
 
 Measured on nginx TU 79 (`ngx_http_upstream.c`, captured under Linux with
