@@ -11,7 +11,16 @@ description: >
   function -- and reports the rest (injection classes, anything a clang
   harness cannot instrument) as "not a fuzz-triage candidate; suggest
   external verification", with the reason, instead of attempting them.
-  Formerly coverity-fuzz-triage, which remains as an alias. The finding
+  The method runs on one of two routes: harness-verification (the TU's
+  real source compiled as-is with its recorded flags, a driver, model stubs
+  only for the externals the TU does not define; the default, being the
+  less expensive) or extraction-verification (the slice set from the emit,
+  model stubs outside it). The caller names the route it prefers; the
+  router checks whether it applies to the program and, when it does not,
+  asks in an interactive session and reports and stops in a
+  non-interactive one, never switching route on its own. Formerly
+  coverity-fuzz-triage, which remains
+  as an alias. The finding
   may be a Connect CID ("verify CID 12345"), an entry in a
   cov-format-errors findings file, or a candidate from a path-insensitive
   shape checker. Use this skill for "verify this finding", "verification",
@@ -78,14 +87,24 @@ a finding that is still open is verified (Steps 0-4); a proposed fix in
 hand (a patch, a pull request, a commit, a second version of the code or
 a second idir) means the fix check (Step 5). The Coverity version is in
 the idir, the platform follows the capture, the claim comes from the
-events, the budget has a default. Ask when a run cannot start without the
-answer (which idir, when none was named and none is findable), and
-otherwise decide, state the decision in the report, and run.
+events, the budget has a default. Decide those, state the decision in the report,
+and run. What the skill cannot decide -- which idir, when none was named
+and none is findable; whether to pay for the other route when the
+preferred one does not apply -- is a question **only in an interactive
+session** (rule 38). Not interactive, or unsure which: report exactly
+what is needed, record the finding as not verified for that reason, and
+stop; never default into the more expensive option. Nothing a skill can
+observe tells it reliably that nobody is there, so a TTY, an environment
+variable or the shape of the invocation is not a test to run: unsure
+means stop. A stop leaves the work
+resumable and says how: what is done, what is needed, and the command or
+answer that continues it. An interactive session can always be prompted
+to continue; an unattended one cannot be asked, so it is told.
 
 This skill was `coverity-fuzz-triage`; that directory is now an alias
 pointing here.
 
-Read `coverity/RULES.md` first (rules 3, 21-23, 35).
+Read `coverity/RULES.md` first (rules 3, 21-23, 35, 38).
 
 **This skill is one of a bundle of three** in the CoveritySkills
 repository. It needs `coverity-function-slice` beside it (Step 1 calls its
@@ -117,6 +136,83 @@ not a good use of a Coverity skill. **Open item**: whether and how other
 verifications are suggested, named, or wired in is under discussion and
 not designed; nothing in this skill should be read as a plan for it. Until
 that is settled the output for such a finding is the verdict tier above.
+
+### Then the route: the caller's preference, and whether it applies
+
+The one method runs on one of two routes. Both end in the same Step 4
+tiers; the verdict record names the route, what ran as code and what was
+stubbed.
+
+| route | what runs as code | what is stubbed | cost and fit |
+|---|---|---|---|
+| **harness-verification** (`tools/fz_harness.py`; the default) | the whole TU, its real source compiled as-is with the compiler flags the capture recorded, a driver linked in, the original function run unchanged | only the externals the TU does not define, from their derived models (libc stays real) | the less expensive route: no slicing, one compile, and the real callees in the same file carry their own semantics instead of their models'. It is extraction with the slice set widened to the whole TU and the pretty-printer taken out, so the slice-set rule holds unchanged: nothing on the finding's path is a stub, and a stub list naming a function the finding's events touch is malformed here too |
+| **extraction-verification** (Steps 1-3 as written) | the slice set, printed from the emit by `coverity-function-slice` | every callee outside the set, from its derived model | the route for a program the harness route cannot take, or a defect class the table has learned needs it: the function alone, with the stubs' choices as the point |
+
+**The caller names the route it prefers.** A batch from `coverity-triage`
+carries it in the table row behind the method `Execution:
+coverity-verify`; a CID or a findings-file entry given directly takes it
+as `--route harness|extraction`. **The shipped default is harness**, for
+every caller including `coverity-pathout`'s shapes, because the cheaper
+route is preferred until evidence says a defect type needs the other; the
+table moves on that evidence, and `CALIBRATION.md` records, per public
+finding tried, whether harness sufficed. A user whose program is not
+amenable overrides the preference for that program.
+
+`tools/verify_route.py --manifest <dir> [--route harness|extraction]
+--compile` checks whether the preferred route **applies** to this program
+and records the reason; it does not pick a route. For harness, in order:
+
+1. **The TU manifest's notes** (`coverity-function-slice`'s
+   `tu_manifest.py`: the TU's source from `print-source`, its recorded
+   compiler invocation, the functions it defines, its externals and
+   whether each has a model, the target and whether it is static). A note
+   about captured headers the emit could not supply, or C++ construction
+   the driver cannot reproduce, means harness does not apply.
+2. **A compile attempt.** `clang -fsyntax-only` on the TU with the
+   recovered flags, from the TU's own directory so relative `-I` paths
+   resolve (under WSL for a Linux capture); when that fails and the
+   manifest extracted the capture's files (`files/`, every header the TU
+   read, in the layout the capture saw), a second attempt against those.
+   The record says which compiled (`compile_mode`: source tree, or the
+   capture's files), and `fz_harness.py --from-files` builds the same way.
+   A failure of both is recorded in the compiler's words and means
+   harness does not apply. The manifest's note that a static target
+   cannot be called by a linked driver does not apply here: the TU is
+   included. Measured on
+   proftpd: the TUs compile this way from the source tree the capture was
+   built in.
+3. **Externals without a model** are a count in the record, never a
+   reason: they get generic stubs, which weakens a verdict that leans on
+   them, and the record says so.
+
+A static target does not stop the harness route: `fz_harness.py`
+`#include`s the TU into the target file instead of linking it, so the
+driver can call the function, and the record says the TU was included.
+
+**When the preferred route does not apply, the skill never switches route
+on its own** (rule 38). The other route costs more, and whether to pay is
+the caller's call; that harness is the cheap default does not make
+extraction a default too, it is a decision the caller has not made:
+
+- **Interactive session** (a person is at the prompt): state why the
+  preferred route does not apply, in the compiler's or the manifest's
+  words, say what the other route costs (a slice, the models for its
+  callees, a build and a run), and ask. Run it only on a yes.
+- **Not interactive, or unsure which** (rule 38): report the reason,
+  record the finding as *not verified: <preferred route> does not apply:
+  <reason>*, and stop. Nothing a skill can observe tells it reliably that
+  nobody is there; a TTY, an environment variable or the shape of the
+  invocation is not a test to run, and `verify_route.py` runs none: it
+  reports and leaves the question to the session.
+- **The stop is resumable.** What was built stays (the TU manifest, the
+  models, a slice), the record names the other route and the exact
+  invocation that runs it, and a later interactive session continues from
+  there with one answer.
+
+On the harness route the only edit to the TU's text is the inserted claim
+line (`tu.fz.c`, one line, recorded with its line number), and the driver
+defines the globals the TU reads but does not define, exactly as a harness
+defines a slice's `extern` globals.
 
 ## What makes the method honest
 
@@ -253,6 +349,14 @@ function goes into the slice set and the run is repeated.
 
 ## Step 3: Assemble, build, run -- focused first, then free
 
+On the harness route Steps 1 and 2 change shape: there is no slice (the
+TU is the code) and models are saved only for the externals the manifest
+lists; `fz_harness.py --manifest <dir> --models <dir> --driver driver.c
+--claim .. --before .. --out <dir>` writes `tu.fz.c`, `target.c`,
+`route.json` and the build command (`build.sh` from the TU's directory;
+`build.bat` for a Windows capture). The focused/free discipline, the
+seeds and the reading of the run are the same from here on.
+
 ```bash
 python3 tools/fz_target.py --slice <fn>.slice.c --models <work>/models --harness harness.c \
     --claim '<expr>' --before '<regex of the finding line in the slice>' \
@@ -321,9 +425,10 @@ For a confirmed finding the reproduction is the crashing input plus the
 stub choices, and the thing to check against the real callees is the list
 of behaviours those choices selected. For a refuted one the reason and
 the reach count are the deliverable. Every verdict record names the
-**slice set** (the functions run as code) and, separately, the **stubbed
-callees** with the branch choices taken; the two lists never share a
-name, and a record in which they do is malformed.
+**route** with its reason, what ran **as code** (the slice set, or the TU
+with the functions it defines) and, separately, the **stubbed callees**
+with the branch choices taken; the two lists never share a name, and a
+record in which they do is malformed on either route.
 
 ## Step 5: The fix check -- fixed, or silenced?
 
@@ -413,8 +518,9 @@ owners' call, and the report gives them the evidence for it.
 
 ## Reporting
 
-Per finding: the claim, the slice set, the stubbed callees with their
-choices, the verdict with its tier, and the evidence line
+Per finding: the claim, the route with its reason (and the compile
+attempt's outcome when there was one), what ran as code, the stubbed
+callees with their choices, the verdict with its tier, and the evidence line
 (reach count and inputs; the crash frame and input with the stub choices;
 the model edge that is missing; the source line that refutes it). Then
 the totals: how many confirmed, refuted by execution, refuted by reading,
@@ -441,6 +547,13 @@ not this change, not checked with the reason.
 - Stubbing a function that carries one of the finding's primary events.
   Its model can make the stub do exactly what the finding claims, so the
   confirmation is the analyzer agreeing with itself. It is slice-set code.
+- Switching route on your own when the preferred one does not apply, or
+  running extraction "while we are at it" after harness confirmed. The
+  caller's preference is honoured; a route it did not ask for is a
+  question in an interactive session and a report-and-stop otherwise.
+- Declaring harness inapplicable without a compile attempt, or because
+  the target is static. The record carries the manifest's note or the
+  compiler's diagnostic, and a static target is reached by including the TU.
 - Guarding a stub's dereference (`if (a0) *a0`). It makes the callee look
   null-safe to the analyzer and hides the finding's consequence from the
   fuzzer; measured to make a real finding vanish.
@@ -473,7 +586,7 @@ not this change, not checked with the reason.
 | Question | Skill |
 |---|---|
 | The finding is a candidate from a function that reached the path bound, or you need the candidate list | `coverity-pathout` |
-| The slice does not emit, or the target is a C++ method | `coverity-function-slice` |
+| The slice does not emit, or the target is a C++ method; the TU manifest for the harness route (`tu_manifest.py`) | `coverity-function-slice` |
 | "Would checker X have found this at all?" | `coverity-defect-detectability` |
 | Triage a set of findings: which lane each belongs in, a method per lane, records in Connect's fields | `coverity-triage` (it calls this skill for the execution method) |
 
@@ -490,15 +603,19 @@ coverity-verify/                         # formerly coverity-fuzz-triage; that d
 ├── tools/
 │   ├── cid_lookup.py                    # a Connect CID -> stream, checker, file, function, merge key; then the idir's events
 │   ├── model_stubs.py                   # a callee stub from its cov-find-function model
-│   ├── fz_target.py                     # slice set + models + harness -> target.c; members are code, never stubs; focused/free, --semantic, claim insertion
+│   ├── fz_target.py                     # extraction route: slice set + models + harness -> target.c; members are code, never stubs; focused/free, --semantic, claim insertion
+│   ├── fz_harness.py                    # harness route: the TU as-is + driver + stubs for its externals -> target.c, build command, route.json
+│   ├── verify_route.py                  # the router: origin, manifest notes, compile attempt -> extraction or harness, with the reason
 │   └── fz_support.h                     # byte stream, choice trace, pins, arena, pointer-filled objects, __fz_claim
 └── evals/
     ├── run.sh                           # candidate -> slice -> model stub -> fuzz, on the fixture, about a minute
     ├── run_fixcheck.sh                  # the fix check on the fixture: a fix and a silencer, toggled, replayed, fuzzed; a few minutes
     ├── run_sliceset.sh                  # the slice set on a caller/callee pair: the callee as code refutes, the same callee as a stub "confirms"
+    ├── run_harness.sh                   # the router and the harness route: one TU that compiles (harness, confirmed), one that cannot (declined, extraction)
     ├── evals.json
     ├── lookup.c, use.c                  # a callee with a derived model, a caller with an unguarded dereference
     ├── harness.c                        # the harness pattern
     ├── fixcheck/                        # use_fixed.c (a fix), use_silenced.c + rec_id.c (the dereference moved out of the capture), harness.c
-    └── sliceset/                        # pair.c (get_value and pick both carry a primary event), harness.c
+    ├── sliceset/                        # pair.c (get_value and pick both carry a primary event), harness.c
+    └── harness/                         # app.c + cfg.c (the TU and its one external), driver.c, declined/ (a header the manifest cannot supply)
 ```
