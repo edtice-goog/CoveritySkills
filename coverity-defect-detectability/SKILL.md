@@ -50,13 +50,36 @@ Two things it deliberately does not do:
   here is to run Coverity and report what it actually does; speculation about
   intended behavior is out of scope (and, as noted above, a trap to avoid).
 
+**Asking vs proceeding (rule 38).** Some points here are the user's to decide:
+the installation path (Step 0), confirming the target defect when the reading
+is unclear (Step 1), and any step *beyond* the defined ladder that spends real
+compute or picks a direction the inputs don't settle — a broad `--all` sweep,
+audit mode, or writing and testing a corrected version. (Running the ladder
+itself toward a confirmed target is the skill's job, authorized by the
+request; these are the choices around it.) Interactive: ask, and say what each
+answer costs. Otherwise — not interactive, or unsure whether anyone is there to
+answer — report exactly what is needed and stop. Do not try to detect
+interactivity from weak signals such as a TTY, an environment variable, or the
+shape of the invocation: nothing a skill can observe reliably shows that nobody
+is there, so unsure means stop. Never default into the more expensive or
+less reversible step, and treat a cheap-looking default as a decision too:
+which checker or option to try next, or which of several readings to pursue,
+is a choice the user has not made, not a freebie. When you stop, leave the
+work resumable — keep the captured intermediate directory and any analysis
+runs already done, and report what is already established, what is needed, and
+the exact command or answer that continues from there; a stop that discards
+the capture turns a cheap question into an expensive one. This decides when to
+ask, never that an answer may be assumed: opt-in work stays opt-in (rule 26).
+
 ## Step 0: Locate the Coverity installation
 
 Ask the user for the installation path if it isn't already known (check project
 notes / CLAUDE.md / memory first — it may have been recorded from a previous
 session). Do not go hunting across the filesystem: installations are large,
 live in nonstandard places, and a disk scan wastes minutes answering a question
-the user can answer in seconds.
+the user can answer in seconds. Non-interactively, if the path isn't already
+known from project notes, report that the installation path is required and
+stop rather than searching or guessing (rule 38).
 
 Cheap checks that are fine to try before asking: `cov-analyze` already on PATH,
 or an obvious root like `C:\Coverity\cov-analysis-*` or `/opt/coverity*`.
@@ -82,6 +105,9 @@ the target before the first run so you don't fool yourself later.
 
 If the user supplied code but never said what the defect is, analyze the code
 yourself first and confirm your reading with them before burning analysis runs.
+Non-interactively, or if the reading is genuinely ambiguous, report your reading
+and what needs confirming, and stop — do not spend analysis runs on a guess
+(rule 38).
 
 **When the planted defect isn't quite a defect.** Synthetic test files are
 often written by authors who don't fully understand the vulnerability class

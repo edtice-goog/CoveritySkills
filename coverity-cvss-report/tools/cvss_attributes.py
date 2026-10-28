@@ -16,7 +16,7 @@ the lowercase names the SDK's own enums use, and not "TEXT".
 Credentials come from COV_USER and COVERITY_PASSPHRASE_FILE, never the
 command line.  COV_WS_URL overrides the endpoint.
 
-    cvss_attributes.py setup                 # create all four, idempotent
+    cvss_attributes.py setup [--yes]         # create all four, idempotent
     cvss_attributes.py get <AttributeName>
     cvss_attributes.py snapshots <stream>    # snapshot ids, newest last
     cvss_attributes.py create-text <Name> [description]
@@ -130,13 +130,50 @@ def body_snapshots(stream):
             % (NS, escape(stream)))
 
 
-def cmd_setup():
-    """Create any of the four that are missing.  Safe to re-run."""
-    rc = 0
+#  Exit status for "I did not do it, here is what it needs".
+STOPPED = 3
+
+
+def cmd_setup(assume_yes=False):
+    """Create any of the four that are missing.  Safe to re-run.
+
+    Creating an attribute is instance-wide configuration: the four appear in
+    the triage pane of EVERY project on that Connect, not just yours, and the
+    generator requires these exact names so they cannot be scoped.  So under
+    rule 38 this reports what it would create and stops, and --yes is the
+    record of the user having agreed.  It does not test for a TTY: rule 38
+    says not to infer interactivity from signals like that, and unsure means
+    stop.
+    """
+    missing = []
     for name, kind, default, values, desc in REQUIRED:
         _, text = call(body_get(name))
-        if "No attribute found" not in text:
+        if "No attribute found" in text:
+            missing.append(name)
+        else:
             print("%-14s already exists" % name)
+    if not missing:
+        print("nothing to create")
+        return 0
+    action = ("create %d instance-wide triage attribute(s): %s"
+              % (len(missing), ", ".join(missing)))
+    if not assume_yes:
+        print("")
+        print("STOPPING: nothing was created.")
+        print("  would do : %s" % action)
+        print("  effect   : they appear in the triage pane of every project "
+              "on this Connect")
+        print("  effect   : the generator requires these exact names, so "
+              "they cannot be scoped")
+        print("  kept     : the check above, which found what is missing")
+        print("  to do it : re-run with `setup --yes`")
+        print("This is a decision for you, not for me: rule 38 has the tool "
+              "stop rather")
+        print("than guess at it, whether or not anyone is watching.")
+        return STOPPED
+    rc = 0
+    for name, kind, default, values, desc in REQUIRED:
+        if name not in missing:
             continue
         if kind == "text":
             b = body_create_text(name, desc)
@@ -153,8 +190,11 @@ def cmd_setup():
 
 
 def main():
-    if len(sys.argv) == 2 and sys.argv[1] == "setup":
-        return cmd_setup()
+    argv = [a for a in sys.argv[1:] if a != "--yes"]
+    assume_yes = "--yes" in sys.argv[1:]
+    if len(argv) == 1 and argv[0] == "setup":
+        return cmd_setup(assume_yes)
+    sys.argv = [sys.argv[0]] + argv
     if len(sys.argv) < 3:
         sys.exit(__doc__)
     cmd, name = sys.argv[1], sys.argv[2]
