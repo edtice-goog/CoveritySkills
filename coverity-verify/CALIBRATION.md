@@ -10,7 +10,7 @@ versions were used, each against an idir it wrote:
 
 | idir | written by | size | analyzed with |
 |---|---|---|---|
-| proftpd 1.3.9 (`coverity-demo-data-workspace/idirs/v1.3.9`), 149 C files, 2102 functions | 2025.9.0 (cov-build, gcc, WSL) | 2 GB | 2025.9.0 win64, scratch copy |
+| proftpd 1.3.9 (a cov-build capture under WSL), 149 C files, 2102 functions | 2025.9.0 (cov-build, gcc, WSL) | 2 GB | 2025.9.0 win64, scratch copy |
 | subversion 1.14 + sqlite amalgamation, 9533 functions | 2026.3.0 | 185 MB | 2026.3.0 win64, scratch copy |
 | fixtures (`evals/fixtures/*`), emitted with bare `cov-emit --c` / `--c++` | 2026.6.0 | -- | 2026.6.0 win64 |
 
@@ -147,16 +147,109 @@ the 12 chosen not taken (`tpl_map_va`, `tpl_peek`: variadic targets).
   gave the same result. The vacuous-claim pitfall was found here: the
   original MSan claim is true by construction after the initializer.
 
+### The slice set (2026-10-24)
+
+- **The fixture** (`evals/run_sliceset.sh`, 2026.6.0 win64, clang-cl,
+  `evals/sliceset/pair.c`): `get_value` dereferences `pick`'s result
+  without a test; `pick` returns NULL for a negative id and `get_value`
+  never passes one. Both carry a primary event of the finding. `pick`'s
+  derived model: `<arg 0> < 0` then `returnsnull`, `<arg 0> > -1` then
+  `!= 0` -- a precondition the stub cannot act on, so as a stub the null
+  branch is a free choice. The default analysis reports nothing here (the
+  path-sensitive run honours the precondition), which does not matter to
+  the test: the question is what verification does with the two shapes.
+  Slice set `--name get_value --name pick`: line 1 `/* slice-set:
+  get_value, pick */`, two members as code, `cov-emit: emitted`.
+  Assembled with `pick`'s model deliberately in the index: the log says
+  `slice-set member: compiled as code; its saved model is IGNORED`; 20 s,
+  5,865,663 inputs, the finding's line reached 5,865,663 times, claim
+  never false: **refuted by execution**. The control, `get_value` alone
+  with `pick` as its model stub: the claim fails on the first input with
+  `pick=0` (`returnsnull`): the stub adjudicates a false positive as real,
+  which is the circularity the rule exists for. The two existing evals
+  (`run.sh`, `run_fixcheck.sh`) pass unchanged with the new assembler:
+  their single-name slices carry a one-member set on line 1.
+- **The proftpd batch re-read for cross-function paths** (2026-10-24,
+  2025.9.0 win64 against the same idir): for each of the ten findings,
+  the path events (every event except the `example_*` ones, which are
+  the statistical evidence a `NULL_RETURNS` cites from other call sites
+  and other files, and name no function on the path) were taken from the
+  v10 entry, and the emit was asked, per TU (`find . --kind f`), which
+  functions are declared inside the events' line range. C functions do
+  not nest, so an empty answer means every path event is in the home
+  function. All ten came back empty: every path lay inside its home
+  function (`parse_config_path2` 1165-1231, `set_extendedlog` 323-339,
+  `log_sess_init` 1194-1328, `tpl_node_new` 257-260, `core_post_pass`
+  6640-6664, `pr_data_open` 523-576, `delay_shutdown_ev` 2133-2177,
+  `dolist` 1921-1947, `glob_limited` 447-918, `tpl_free_keep_map`
+  586-667). The slice set of each is its home function, the batch's
+  verdicts stand as made, and nothing was re-verified. The `example_*`
+  events of the three `NULL_RETURNS` do point into five other files
+  each; a first, naive owner pass that counted them would have named a
+  five-function "set" for every one, which is why the resolution step in
+  Step 0 excludes them.
+
+### The router and the harness route (2026-10-25)
+
+- **The fixtures** (`evals/run_harness.sh`, 2026.6.0 win64, clang-cl).
+  A: `evals/harness/app.c` (handle copies `lookup_cfg`'s result without a
+  test; a static helper and a real `<string.h>` in the TU) beside
+  `cfg.c` (`lookup_cfg` returns NULL for an unknown key) in one idir. The
+  TU manifest (`coverity-function-slice`'s `tu_manifest.py`): 2 functions
+  defined, 3 externals (`lookup_cfg` with a model; `strlen`, `strncpy`
+  libc), no notes. Router, preferred harness (the default), with a
+  compile attempt: **applies**. `fz_harness.py`: the TU included with one inserted line
+  (the claim), `trim` and `handle` as code, `lookup_cfg` a 2-behaviour
+  model stub, libc real; built with clang-cl against the real header; the
+  claim failed on the first inputs through `lookup_cfg=0`
+  (`returnsnull`), which the real `lookup_cfg` has: confirmed, route
+  harness, compile mode source tree, record `as_code [trim, handle] /
+  stubbed [lookup_cfg]`. The manifest tool's externals carry `kind`
+  (`library`/`project`) and `model`; the prototypes for the stubs come
+  from the emit (`fz_harness.py --dir --bin`), the manifest's `signature`
+  being filled for the target.
+  B: `evals/harness/declined/app2.c` includes a header found only
+  through `-I` at capture time, and its target is static. The manifest is
+  built with `--no-files` (as when `extract-files` is unavailable; with
+  the files the header is under `files/` and the second compile attempt
+  would find it), so it cannot supply the header; the compile attempt fails with `fatal error:
+  'local.h' file not found`; the router finds harness **does not apply**, with that diagnostic
+  as the reason, notes that the static target alone would not have (the
+  TU is included, not linked), and the run **stops**: `route null`,
+  `applicable false`, the blocker in the record, no extraction run; the
+  eval checks that nothing ran unasked. Preferred extraction on A's
+  manifest is honoured as given. The three earlier evals pass unchanged
+  with the changed support header. **Harness sufficed** for A, the one
+  public-fixture finding tried on it so far.
+
+- **proftpd, public code, the route is open.** The capture's own
+  compiler invocation is recorded per TU (`print-compilation-info`:
+  `gcc -DHAVE_CONFIG_H -DLINUX -I.. -I../include ... -c data.c`), the
+  working directory is not, and it is the source file's directory here.
+  From that directory, with the source tree the capture was built in
+  still present (its `config.h` is a build product), four TUs compiled
+  under WSL clang 18 with `-fsyntax-only` and the recovered flags: data.c,
+  mod_core.c, hanson-tpl.c, glibc-glob.c. The manifest of data.c (TU 44,
+  home of the batch's `pr_data_open` FORWARD_NULL): 22 functions defined,
+  77 externals (19 with a model in the batch's saved set, 11 libc, the
+  rest project functions whose models the batch had not saved; `fcntl`,
+  `recv`, `select`, `sendfile` are libc the LIBC list does not yet name),
+  5 data externals the driver would define (`session`, `main_server`,
+  `resp_list`, `resp_err_list`, `ServerUseReverseDNS`), no notes; the
+  router, preferred harness with a compile attempt: applies; preferred
+  extraction: honoured. **Not done**: a driver for `pr_data_open` and the run
+  itself; the route's cost on a TU of this size is the driver's state
+  (five globals of the server's types) and the models for 40-odd
+  externals, each `cov-find-function --save` at a few seconds.
+
 ## Reasoned, not measured
 
-- That the slice set, every function carrying a primary event compiled as
-  code with stubs only outside it, is the right target. The rule follows
+- That the slice set is the right target in general. The rule follows
   from what a stub is (the analyzer's belief about a callee): a stub for a
   function on the finding's own path lets a model edge produce the claimed
-  state by construction. The proftpd batch was run under the
-  single-function assumption; which of its ten findings had a path that
-  crossed functions, and whether any verdict changes with the set, is not
-  yet re-checked.
+  state by construction. The fixture above shows it happening once; the
+  proftpd batch (below) had no finding whose path crossed functions, so
+  it neither confirms nor contradicts the rule on real code.
 
 - The automatic detection of a vacuous claim in a fix check (B with the
   blamed callee pinned to the behaviour that made the claim false on A):

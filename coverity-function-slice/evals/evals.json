@@ -37,6 +37,30 @@
       ]
     },
     {
+      "id": 5,
+      "eval_name": "describe-the-tu-for-a-harness",
+      "prompt": "For set_caller in the fixture idir built from evals/fixtures/slice_set.c (TU 1, Coverity 2026.6.0), I want to compile the real translation unit as-is, link a driver and run the function unchanged, stubbing only what the TU does not define. What does the emit give me, and what will get in the way?",
+      "expected_output": "Runs tools/tu_manifest.py and reads manifest.json: the recorded flags, tu.c as the stored bytes, files/ with every file the TU read, functions_defined with their static flags, the two externals (lookup, log_missing) as project functions to stub, the target as non-static; reports the notes verbatim (none predicting failure here; for set_callee the static note would appear); does not slice or rewrite anything on this route.",
+      "assertions": [
+        "Uses tu_manifest.py rather than hand-collecting flags and headers",
+        "Names the externals as what a driver must supply or stub, and nothing defined in the TU",
+        "Repeats the notes as facts for the router rather than deciding the route itself",
+        "Does not treat exit 0 with notes as a failure, or notes as a reason to slice instead"
+      ]
+    },
+    {
+      "id": 4,
+      "eval_name": "slice-the-set-not-the-function",
+      "prompt": "A FORWARD_NULL in set_caller (the fixture idir built from evals/fixtures/slice_set.c, TU 1, Coverity 2026.6.0) has its last event inside set_callee, a static function in the same file. I want one file I can re-analyze and run that reproduces the finding without a stub for either function.",
+      "expected_output": "Runs slice_function.py with --name set_caller --name set_callee --emit --analyze; reports the `members :` line (set_callee was static, now reachable across the set), one wur: line per member, and that the one-file idir reports the FORWARD_NULL; explains that the callee is code in the slice and only set_helper and lookup stay prototypes; points at line 1 (`/* slice-set: set_caller, set_callee */`) as the record of what is code.",
+      "assertions": [
+        "Repeats --name rather than slicing the caller alone and stubbing the callee",
+        "Reports per-member analysis lines and treats COULD NOT VERIFY on either member as exit 2",
+        "States that callees outside the set remain prototypes",
+        "Names the line-1 slice-set comment as how a consumer tells members from prototypes"
+      ]
+    },
+    {
       "id": 3,
       "eval_name": "obfuscate-only-when-asked",
       "prompt": "Give me local_enum_forever from the fixture idir (TU 1, Coverity 2026.6.0) as a standalone file. I am going to paste it into another model to ask about the loop structure, so strip anything that identifies where it came from, and prove the stripped version is the same program as far as Coverity is concerned.",

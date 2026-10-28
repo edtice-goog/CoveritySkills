@@ -223,6 +223,15 @@ Make it structural, not observational:
 - prefer an artifact that carries a per-build value (a build timestamp, a
   build id) and check that it moved between arms
 
+**These builds are the expensive part of this skill**, so they are the user's
+decision (rule 38): two full builds at minimum, three in calibration
+topology, and a Coverity arm that is slower than the native one. Interactive,
+confirm the target and the command and say roughly what it will cost. Not
+interactive, or unsure: report the arms you would run, the build command, and
+the artifacts you would compare, and stop. Pre-flight (Step 1) exists partly
+to make that report worth reading -- it is cheap and it can rule the
+comparison out before anything is spent.
+
 Hold constant: build directory, source path, environment, TZ, locale.
 Snapshot each run's artifacts elsewhere before the next build overwrites them.
 Exclude Coverity's own outputs (`idir/`, `emit/`, `build-log.txt`) from the
@@ -361,6 +370,13 @@ Say so plainly rather than guessing:
 
 A "needs expert review" verdict naming the exact offsets is a useful result.
 A confident wrong verdict is not.
+
+**Escalating looks different in the two modes** (`coverity/RULES.md` rule 38).
+Interactive: say what is unresolved, what you would do next, and what it
+costs, and ask. Not interactive, or unable to tell: write the report with the
+offsets and the unresolved classification, and stop. Either way the verdict is
+`DIVERGENT` or `INCOMPARABLE` with the regions named -- never a pass because
+nobody was available to say otherwise.
 
 ## Intermittency
 

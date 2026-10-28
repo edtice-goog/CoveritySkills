@@ -48,6 +48,12 @@ COV_USER=<connect-user> COVERITY_PASSPHRASE_FILE=<file> \
     --set expiration:after_90_days
 ```
 
+- **Creation needs the user, so it cannot run unattended** (`RULES.md` rule
+  38). The password is the one input no key and no configuration can supply.
+  Interactive: ask for it. Not interactive, or unable to tell: report that
+  creation needs the Connect password and the user to supply it, name the
+  command you would run, and stop -- do not prompt, and do not fall through to
+  some other credential.
 - **The password goes in a file, never on the command line.** Command lines
   are visible to other users of the machine. `COVERITY_PASSPHRASE_FILE` is
   documented; a trailing LF or CRLF in the file is tolerated (*measured*), so
