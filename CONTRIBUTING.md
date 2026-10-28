@@ -37,6 +37,16 @@ The Coverity version a measurement ran on is provenance, not environment:
 keep it (`cov-analysis-win64-2026.6.0`, "2025.9.0 linux64"), as the
 measured-versus-reasoned rule requires.
 
+## Someone else's finding: credit it, then have them check it
+
+When you carry another contributor's finding into shared text, such as a rule,
+a skill or a calibration note, ask them to check your wording before it lands.
+Only they know which part they measured and which part they reasoned. A
+plausible mechanism written down beside a measurement borrows its confidence,
+and nothing in the text shows the difference. Crediting the source keeps the
+provenance; their check keeps the claim accurate. A finding can be credited
+correctly and still be stated wrongly.
+
 ## Before pushing
 
 - Grep the diff for any identifier you remember from the run, including the
