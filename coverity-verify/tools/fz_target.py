@@ -5,13 +5,19 @@ harness snippet.
     fz_target.py --slice <fn>.slice.c --models <dir with index.txt> --harness harness.c \
                  --claim '<expr>' --before '<regex of the finding line>' --out target.c
 
-The slice's callee prototypes are classified: libc names are left to the real
-library; project callees get a stub printed from their derived model
-(model_stubs.py); callees with no saved model get a generic stub and are
-listed, because a verdict that relied on one is weaker. The finding's claim is
-inserted as __fz_claim(<expr>) before the first slice line matching --before,
-so the run reports "reached N times, never false" or crashes with the stub
-choices that made it false.
+The slice is a SLICE SET: every function that carries a primary event of the
+finding, as real code in one file. Line 1 names it (`/* slice-set: a, b */`,
+written by slice_function.py; --slice-set a,b overrides). A member is never
+stubbed: its model is the analyzer's belief about it, not its code, and a
+model edge can make a stub do exactly what the finding claims, so a
+confirmation through it would be circular. A model saved for a member is
+ignored and the log says so. The slice's remaining callee prototypes are
+classified: libc names are left to the real library; project callees get a
+stub printed from their derived model (model_stubs.py); callees with no saved
+model get a generic stub and are listed, because a verdict that relied on one
+is weaker. The finding's claim is inserted as __fz_claim(<expr>) before the
+first slice line matching --before, so the run reports "reached N times, never
+false" or crashes with the stub choices that made it false.
 """
 import argparse
 import os
@@ -32,8 +38,19 @@ putenv setenv unsetenv sigaction sigemptyset siginterrupt signal read write clos
 __builtin_expect __builtin_trap""".split())
 
 
+def parse_slice_set(slice_text):
+    """The members named on line 1 (`/* slice-set: a, b, c */`), or []."""
+    first = slice_text.split("\n", 1)[0]
+    m = re.match(r"\s*/\*\s*slice-set:\s*(.*?)\s*\*/", first)
+    if not m:
+        return []
+    return [x.strip() for x in m.group(1).split(",") if x.strip()]
+
+
 def parse_callees(slice_text):
-    m = re.search(r"/\* callees.*?\*/\n(.*?)\n/\* the function", slice_text, re.S)
+    # the callee block ends where the slice set's own prototypes begin (a set
+    # slice) or where the one function begins (a single-name slice)
+    m = re.search(r"/\* callees.*?\*/\n(.*?)\n/\* the (?:slice set|function)", slice_text, re.S)
     if not m:
         return []
     out = []
@@ -139,12 +156,19 @@ def main():
                          "stay fuzz-driven. Without it every stub is free and the run usually ends on a "
                          "bycatch null return before the finding's line is reached.")
     ap.add_argument("--free", default="", help="comma-separated callees left free under --pin-normal")
+    ap.add_argument("--slice-set", default="",
+                    help="comma-separated members of the slice set, overriding the slice's line-1 comment: "
+                         "every function that carries a primary event of the finding, compiled as code, never stubbed")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
     free = set(x for x in a.free.split(",") if x)
     pins = []
 
     slice_text = open(a.slice, encoding="utf-8").read()
+    members = [x for x in a.slice_set.split(",") if x] or parse_slice_set(slice_text)
+    member_set = set(members)
+    defined = set(re.findall(r"^[A-Za-z_][\w \*]*?\b(\w+)\s*\([^;]*\)\s*\{", slice_text, re.M))
+    missing = [m for m in members if m not in defined]
     index = {}
     ip = os.path.join(a.models, "index.txt")
     if os.path.exists(ip):
@@ -168,7 +192,20 @@ def main():
 
     semantic = set(x for x in a.semantic.split(",") if x)
     stubs, report = [], []
+    for name in members:
+        if name in index:
+            report.append("%-28s slice-set member: compiled as code; its saved model is IGNORED (a stub for a function "
+                          "on the finding's own path would be the analyzer's belief, not its code)" % name)
+        else:
+            report.append("%-28s slice-set member: compiled as code" % name)
     for name, proto in parse_callees(slice_text):
+        if name in member_set:
+            # a prototype for a member means the slice does not define it (a
+            # single-name slice with --slice-set naming more): no stub, and the
+            # link will say so; the fix is to slice the member into the set
+            report.append("%-28s slice-set member with NO DEFINITION in this slice: not stubbed; slice it into the "
+                          "set (slice_function.py --name %s --name ...)" % (name, name))
+            continue
         if name in keep:
             report.append("%-28s harness" % name)
             continue
@@ -216,8 +253,13 @@ def main():
     with open(a.out, "w", encoding="utf-8", newline="\n") as f:
         f.write("\n".join(out))
     print("written %s%s" % (a.out, "  (focused: %d stubs pinned, free: %s)" % (len(pins), ",".join(sorted(free)) or "none") if a.pin_normal else "  (free mode)"))
+    print("  slice set: %s%s" % (", ".join(members) if members else "(none named: line 1 has no slice-set comment and --slice-set not given)",
+                                 "  -- the harness's entry point is the finding's home function" if len(members) > 1 else ""))
     for r in report:
         print("  " + r)
+    if missing:
+        print("  WARNING: slice-set member(s) without a definition in this slice: %s -- the target will not link "
+              "until they are sliced into the set" % ", ".join(missing))
 
 
 if __name__ == "__main__":

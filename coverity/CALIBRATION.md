@@ -6,10 +6,10 @@ that nothing unverified reads as measured.
 
 Environment for everything marked verified: **Coverity 2026.6.0 (win64)**,
 `C:\Coverity\cov-analysis-win64-2026.6.0`, Windows 11, against intermediate
-directories in `coverity-defect-detectability-workspace/` and in scratch
-projects built for a specific calibration (gcc 13.2.0, MinGW-W64 /
-Strawberry; GNU make invoked as `gmake`). The exception is *Connect
-authentication* at the end of this file, which ran on 2026.9.0 and says so.
+directories built for calibration and scratch projects made for a specific
+check (gcc 13.2.0, MinGW-W64 / Strawberry; GNU make invoked as `gmake`). The
+exception is *Connect authentication* at the end of this file, which ran on
+2026.9.0 and says so.
 
 ## Verified by direct execution
 

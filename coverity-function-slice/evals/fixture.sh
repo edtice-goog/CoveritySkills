@@ -49,6 +49,40 @@ echo "== the rewritten forms in the slice (no 1e+09., parenthesized casts, call-
 echo "==    parenthesized initializer, no fn::, three-argument __atomic_load, sizeof as an expression)"
 grep -n '1e+09\|(BYTE const \*)src)\[\|(\*ctype_table())\[\|(\*opt)\[\|(start + 1)\[\|offBase = (\|speedChange_e speed\|__atomic_load(\|(offBase - 3)))\[\|sizeof (' "$WORK/slice-pretty/pretty_forms.slice.c"
 
+echo "== C: a SET of functions in one file (slice_set.c, with slice_set_tu2.c as a second, conflicting TU)"
+SDIR="$WORK/idir-slice-set"
+rm -rf "$SDIR"
+"$BIN/cov-emit" --dir "$SDIR" --c "$HERE/fixtures/slice_set.c" | tail -1
+"$BIN/cov-emit" --dir "$SDIR" --c "$HERE/fixtures/slice_set_tu2.c" | tail -1
+"$BIN/cov-analyze" --dir "$SDIR" > "$WORK/analyze-set.stdout" 2>&1 || { tail -20 "$WORK/analyze-set.stdout"; exit 1; }
+echo "== (a) caller + static callee: both defined, the callee reachable (FORWARD_NULL in the caller proves it)"
+python3 "$HERE/../tools/slice_function.py" --dir "$SDIR" --bin "$BIN" --tu 1 --name set_caller --name set_callee --out "$WORK/slice-set-a" --obfuscate --emit --analyze
+echo "   line 1: $(head -1 "$WORK/slice-set-a/set_caller.set.slice.c")   twin: $(head -1 "$WORK/slice-set-a/fn_0.obf.c")"
+echo "   FORWARD_NULL reports in the set slice: $(ls "$WORK/slice-set-a/idir/output" | grep -c '^FORWARD_NULL.errors')  (expect 1)"
+echo "== (c) the caller alone: the callee stays a prototype, and no FORWARD_NULL"
+python3 "$HERE/../tools/slice_function.py" --dir "$SDIR" --bin "$BIN" --tu 1 --name set_caller --out "$WORK/slice-set-c" --emit --analyze | grep 'slice   :\|set     :\|cov-emit\|wur:'
+grep -n 'set_callee' "$WORK/slice-set-c/set_caller.slice.c" | head -2
+echo "   FORWARD_NULL reports in the single slice: $(ls "$WORK/slice-set-c/idir/output" | grep -c '^FORWARD_NULL.errors')  (expect 0)"
+echo "== (b) mutual recursion: both static, prototypes first; verify is per member, up to analysis order within the set"
+python3 "$HERE/../tools/slice_function.py" --dir "$SDIR" --bin "$BIN" --tu 1 --name set_odd --name set_even --out "$WORK/slice-set-b" --obfuscate --emit --analyze | grep 'members\|cov-emit\|wur:\|verify'
+echo "== (d) two TUs that define struct rec differently: conflict, COULD NOT VERIFY, exit 2"
+set +e
+python3 "$HERE/../tools/slice_function.py" --dir "$SDIR" --bin "$BIN" --tu 1 --name set_caller --name set_other@2 --out "$WORK/slice-set-d" --emit --analyze | grep 'conflict\|COULD NOT'
+echo "   exit: ${PIPESTATUS[0]}  (expect 2)"
+set -e
+
+echo "== the TU manifest for the harness route (slice_set.c, TU 1): the static target is a note, not an error"
+python3 "$HERE/../tools/tu_manifest.py" --dir "$SDIR" --bin "$BIN" --tu 1 --name set_callee --out "$WORK/manifest-set" | grep -v 'externals lists functions only'
+echo "   exit: $?  (expect 0)"
+echo "   tu.c identical to the fixture source: $(cmp -s "$WORK/manifest-set/tu.c" "$HERE/fixtures/slice_set.c" && echo yes || echo NO)"
+python3 - "$WORK/manifest-set/manifest.json" <<'EOF'
+import json, sys
+d = json.load(open(sys.argv[1]))
+print("   keys:", ", ".join(sorted(d)))
+print("   externals:", [e["name"] for e in d["externals"]], " target static:", d["target"]["static"],
+      " functions:", len(d["functions_defined"]), " files:", d["files"]["count_extracted"])
+EOF
+
 echo "== C++: a free function calling a static member, nested enum, flexible array member, __func__"
 CXXDIR="$WORK/idir-slice-cxx"
 rm -rf "$CXXDIR"

@@ -121,6 +121,9 @@ capture verification, and authenticating to Connect.
 ## Step 0: Pin the installation
 
 Ask the user, or check project notes and memory. **Do not scan the disk.**
+If nothing on record names it and the session is not interactive -- or you
+cannot tell -- report that the installation path is needed and stop, rather
+than guessing at one (rule 38).
 
 Multiple versions side by side is the normal state of a Coverity user's
 machine, not an anomaly -- pin exactly one for the whole session and record

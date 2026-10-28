@@ -34,11 +34,12 @@ believed.
 | 1 | a CodeXM checker for the shape, over the whole idir | 11 s, 503 hits (2,088 before the checker learned what "guarded" means) |
 | 2 | keep only hits in PATHOUT functions | 115 hits (of 178 PATHOUT functions) |
 | 3 | keep only where the relevant checker pathed out | **0** for `FORWARD_NULL`/`NULL_RETURNS`; 27 in 7 (function, variable) pairs when `REVERSE_INULL` is counted too |
-| 4 | hand them to `coverity-triage`, expecting value or path with `coverity-verify` | per candidate: a lane check, then a slice, stubs and a fuzz run |
+| 4 | hand them to `coverity-triage`, expecting value or path with `coverity-verify` | per candidate: a lane check, then execution by the route verify chooses |
 
 The whole-idir run is cheap because the checker is structural. The
 filtering is the mechanism. Slicing is not needed for detection at all; it
-comes back at stage 4 as the fuzz target, inside `coverity-verify`.
+comes back at stage 4 only when `coverity-verify` routes a candidate to
+extraction-verification.
 
 ## Stage 1: the shape, as a path-insensitive checker
 
@@ -132,8 +133,15 @@ method runs. The user then chooses per candidate: verify anyway where
 that is realistic, run that lane's reader, or leave it untriaged; the
 choice is an override in `run.json` with its reason, and each record
 names the method that produced its verdict. For the value-or-path
-candidates `coverity-verify` runs: the slice, stubs from the derived
-models, a sanitizer as the oracle, a verdict with its tier.
+candidates the method is execution through `coverity-verify`, which
+routes each one itself: extraction-verification (the function sliced out
+of the emit, callees outside the slice stubbed from the derived models,
+a sanitizer as the oracle, fuzzed) or harness-verification (the
+translation unit's real source compiled as it is, a real driver, only the
+externals stubbed). Candidates from this skill usually route to
+extraction, since they sit in large functions whose state depends on
+values earlier calls produced; the choice is verify's. Either way the
+result is a verdict with its tier.
 
 **What reading finds, and why it is not this skill's method.** When the
 27 subversion survivors were examined by reading, every one was refuted,
@@ -159,9 +167,11 @@ finish the function; so their verdict comes from execution, through
 `coverity-triage`, and a reading verdict appears only where the user chose
 that lane's reader for a candidate the lane check moved.
 
-**What execution does.** The slice makes the function executable on its
-own, the derived models make its callees behave exactly as the analyzer
-believes they do, and a sanitizer is the oracle. A crash at the
+**What execution does, on the extraction route.** The slice makes the
+function executable on its own, the derived models make its callees
+behave exactly as the analyzer believes they do, and a sanitizer is the
+oracle. (On the harness route the real translation unit stands in for the
+slice and a driver for the harness; the oracle is the same.) A crash at the
 candidate's dereference, reached through a stub taking its `returnsnull`
 branch, is the confirmation; the analyzer would have accepted that path
 as feasible had it reached it. `coverity-verify/references/fuzz-confirmation.md`
