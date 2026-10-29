@@ -119,13 +119,19 @@ what is reasoned rather than measured.
 - **Creating the two custom attributes, 2026-10-28,** against a Connect
   2026.9.0 server, with its owner's agreement, using HTTP Basic with an auth
   key.
-  - **The REST path.** The REST reference names `/api/v2/attributes`, and
-    that server answered both GET and OPTIONS on it with 404. OPTIONS reports
-    which methods a path allows, so a 404 there means the path is not served
-    at all. The server serves `/api/v2/triageAttributes` instead:
-    - on the collection, OPTIONS allows POST and GET, and both were used;
-    - on `/api/v2/triageAttributes/<name>`, OPTIONS allows GET, PUT and
-      DELETE. GET and PUT were used; DELETE was not called.
+  - **The REST path.** The REST reference names `/api/v2/attributes`. That
+    server answered it with 404 for GET and OPTIONS. GET was also tried with
+    a trailing slash and with a name appended; OPTIONS only on the bare path;
+    POST, PUT and DELETE were not sent.
+    - A 404 on OPTIONS, which reports a path's methods, makes it very likely
+      that the route is absent rather than limited to other methods. That is
+      an inference: "every method" was not measured.
+    - The server serves `/api/v2/triageAttributes` instead. OPTIONS on the
+      collection returned `Allow: POST,GET,HEAD,OPTIONS`; POST and GET were
+      used.
+    - OPTIONS on `/api/v2/triageAttributes/<name>` returned
+      `Allow: GET,HEAD,PUT,DELETE,OPTIONS`; GET and PUT were used, and DELETE
+      was not called.
     `/api/v2/standardAttributes` holds the compliance standards, not triage
     attributes. The Swagger description needs a browser session, and turns
     away a key.

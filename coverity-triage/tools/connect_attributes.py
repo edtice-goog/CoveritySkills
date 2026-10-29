@@ -23,7 +23,8 @@ Exit codes: 0 nothing is missing (or setup --yes made it so); 3 something is
 missing (check, or setup without --yes); 1 an error or a refusal.
 
 REST, measured on Connect 2026.9.0: /api/v2/triageAttributes (the REST
-reference names /api/v2/attributes, which that server does not serve).
+reference names /api/v2/attributes; that server answered GET and OPTIONS
+there with 404).
 Authentication is HTTP Basic with an auth key's username and key. The URL
 comes from --url and never from the key file's comments (coverity rule 28).
 """

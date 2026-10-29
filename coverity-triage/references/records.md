@@ -382,8 +382,9 @@ getting them to Connect*).
   POST creates an attribute, and GET or PUT on
   `/api/v2/triageAttributes/<name>` reads or changes one. That is what a
   Connect 2026.9.0 server serves. Its REST reference names the path
-  `/api/v2/attributes`, which the same server answers with 404, so the tool
-  uses the path the server actually serves.
+  `/api/v2/attributes`, and the same server answered GET and OPTIONS there
+  with 404. The tool therefore uses the path the server was measured to
+  serve.
 - **Requests.**
   - **Create:** a POST carrying `name`, `description`, `attributeType`
     (`LIST_OF_VALUES`), `showInTriage`, `defaultValueName` and
