@@ -84,7 +84,9 @@ Material that explains the skills rather than runs them is in
 [`collateral/`](collateral/README.md):
 [*Behind the Path Limit*](collateral/behind-the-path-limit/README.md), a
 worked example of `coverity-pathout`, `coverity-function-slice` and
-`coverity-verify` together.
+`coverity-verify` together; and
+[*Detection, triage and tuning loop*](collateral/detection-loop/README.md),
+two write-ups on running static analysis as a loop that tunes itself.
 
 ## Requirements
 
