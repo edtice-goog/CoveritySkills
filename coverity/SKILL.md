@@ -108,7 +108,7 @@ marked superseded in place rather than renumbered.
 | Findings dated to the release they arrived in / backdated history for adoption, migration, or a demo | `coverity-demo-data` |
 | "PATHOUT" / "Exceeded path limit" / `paths_exceeded` / which functions reached `--paths` and why / what the analyzer did not examine there | `coverity-pathout` |
 | "show me what the analyzer saw for this function" / "re-analyze just this function" / "a file I can cov-emit by itself" / "obfuscate this function" | `coverity-function-slice` |
-| "triage these findings" / "triage a sample of this run" / "are these false positives?" / which lane a finding belongs in / verdicts in Connect's triage fields with Triage lane and Triage method | `coverity-triage` (asks before it spends anything; hands value-or-path findings to `coverity-verify` when the plan says so) |
+| "triage these findings" / "triage a sample of this run" / "are these false positives?" / which lane a finding belongs in / verdicts in Connect's triage fields, with the lane and the method in the custom `Defect Category` and `Triage Method` attributes | `coverity-triage` (asks before it spends anything; uses `coverity-verify` where the plan or a checker's own method names it) |
 | "verify this finding" / "verify CID 12345" / "is this finding real?" / "confirm the candidates" / "fuzz it" / execution-based verification of any finding / "was this fixed or just silenced?" / "check this fix" / a finding gone in the new version | `coverity-verify` (`coverity-fuzz-triage` is an alias) |
 | CVSS scores on findings / `cov-generate-cvss-report` / why a CWE scored zero | `coverity-cvss-report` |
 | An auth key: create one, check one, a 401 from Connect | here -- *Connecting to Coverity Connect* |
