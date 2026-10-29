@@ -256,19 +256,33 @@ python3 ../coverity-triage/tools/bundle.py --issues <triage>/survivors.json --al
 # so run reset-host-name on a copy first):
 python3 ../coverity-triage/tools/bundle.py --issues <triage>/survivors.json --all --out <triage> \
     --idir <idir> --cov-bin $BIN
-#   assign lanes (its Step 2), then, before any method runs:
+#   assign lanes (its Step 2) WITH THIS SKILL'S SHAPE TABLE, then, before any method runs:
+python3 ../coverity-triage/tools/lanes.py assign --table shapes/triage-lanes.json ...
 python3 ../coverity-triage/tools/records.py check-lanes --bundles <triage> --lanes <triage>/lanes.json --run <triage>/run.json
 ```
 
 The idir route exists because a PATHOUT user usually has the idir and the
 sources at the paths the emit recorded, not a tag; offer git when the
 user has one. `survivors.json` is in cov-format-errors v10 shape, merge
-keys intact;
-`run.json` carries `"expected": {"by": "coverity-pathout", "lane": "Value
-or path", "method": "Execution: coverity-verify"}`. Lane assignment is
-cheap and runs first; it is the one check that each candidate's claim is
-what the shape assumed. `check-lanes` lists every candidate that landed
-elsewhere, with its lane and reason, **before any method runs**, and the
+keys intact, each candidate annotated with the built-in checkers its
+shape stands in for; `run.json` carries `"expected": {"by":
+"coverity-pathout", "lane": "Value or path", "method": "Execution:
+coverity-verify"}`.
+
+**The shape table, `shapes/triage-lanes.json`**, is one row per shape
+checker in triage's own table format, and it is how triage knows what
+this skill's checkers are without naming them itself: each row gives the
+lane of the built-in the shape stands in for (or the two lanes it can
+fall in and what decides between them), the method `Execution:
+coverity-verify`, and the preferred route, harness on every row. **A
+row's method overrides its lane**: a candidate whose row names the
+method that `run.json`'s `expected` names is never off-lane, so the
+catalogue's candidates do not trip the report below merely for standing
+in for a Contract or a Construction checker. Lane assignment is still
+cheap and still runs first; it is the one check that each candidate's
+claim is what the shape assumed. `check-lanes` lists every candidate
+that landed elsewhere, with its lane and reason, **before any method
+runs**, and the
 user chooses for each: run `coverity-verify` anyway where that is
 realistic, run that lane's reader, or leave it untriaged. Any of those is
 fine; what must not happen is a candidate taking a different method, or
@@ -531,7 +545,7 @@ user chose to spend (rule 22).
 | Question | Skill |
 |---|---|
 | The function's body, a file that compiles alone, an obfuscated twin | `coverity-function-slice` |
-| A verdict on a survivor | `coverity-triage`, with `run.json` expecting value or path and `Execution: coverity-verify`; it reports anything that lands elsewhere before a method runs, then hands each candidate to `coverity-verify` with the preferred route from this skill's shape table (harness by default; extraction only on evidence; user override per application). A route that cannot be applied is asked about when interactive, reported otherwise; never switched silently |
+| A verdict on a survivor | `coverity-triage`, given `shapes/triage-lanes.json` (`lanes.py assign --table`) and `run.json` expecting value or path with `Execution: coverity-verify`; a row's method overrides its lane, so the catalogue's candidates are never off-lane by construction; triage reports anything that still lands elsewhere before a method runs, then hands each candidate to `coverity-verify` with the row's preferred route (harness by default; extraction only on evidence; user override per application). A route that cannot be applied is asked about when interactive, reported otherwise; never switched silently |
 | A survivor the lane check puts outside value or path | the user: verify it anyway where realistic, run that lane's reader, or leave it; recorded as an override in `run.json` |
 | "Was the function even captured?" / the file is not in the emit | `coverity` (capture fidelity, rule 34) |
 | "Would checker X have found the bug the cut-off hid?" | `coverity-defect-detectability` |
@@ -558,6 +572,7 @@ coverity-pathout/
 │   └── pathout_filter.py                # keep candidates in PATHOUT functions; writes survivors.json + run.json for coverity-triage
 ├── shapes/                              # the shape catalogue: thirteen path-insensitive CodeXM checkers
 │   ├── README.md                        # checker -> shape -> relevant components
+│   ├── triage-lanes.json                # one row per shape for coverity-triage: lane, method (overrides lane), route
 │   ├── checkers/*.cxm
 │   ├── fixtures/*.c                     # HIT markers per checker
 │   └── bin/run_all.sh, run_fixtures.sh  # the whole catalogue in one cov-analyze; the fixture check
