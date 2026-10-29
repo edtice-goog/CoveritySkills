@@ -164,6 +164,7 @@ triages because a step in its procedure came up.
 | the selection | `--merge-key` for named findings (repeatable), `--per-checker N` for rule 26's stratified sample, `--all` for every finding |
 | the checker tables | the skill's own `references/checker-lanes.json`, plus any organization or producer table (`--table`, *Step 2*) |
 | the plan | the method per lane (*Step 3*), the model for inference, and optionally a verify route for the whole plan |
+| the by-catch folder | where defects noticed outside the selected findings go: `<out>/bycatch/`, beside the records and never in them, or a folder the caller names (`references/records.md`, *By-catch*) |
 
 ## Step 1: Bundle the selection
 
@@ -289,7 +290,8 @@ A finding in **Policy** takes no method, ever. A finding in **Other** takes
   and the verdict set, plus its bundles. Nothing from other lanes, and
   nothing about why the findings were selected.
 - **What it writes:** one verdict file (format in `references/records.md`),
-  stating the model it ran on.
+  stating the model it ran on. Any by-catch goes in a separate file in the
+  by-catch folder the reader is given, never in a verdict.
 - **What it reads:** the code the argument depends on, including the
   callees the events go through. When it has not read them, the verdict is
   `unresolved`, in either direction.
@@ -315,6 +317,8 @@ A finding in **Policy** takes no method, ever. A finding in **Other** takes
   method.
 - **No fallback.** Nothing falls back to reading unless the plan says so,
   because the record must name the one method that produced its verdict.
+- **Bycatch.** A crash verify's free run hits elsewhere is by-catch. It
+  goes to the by-catch folder, never into the verdict's reason.
 
 ## Step 4: Assemble the records
 
@@ -342,7 +346,11 @@ check fails, and it checks every finding it was given:
 - **a `false positive - global invariant` names the invariant, where it is
   enforced, and what would break it** (rule 30: no location, no dismissal);
 - no comment carries a control character other than tab, LF or CR, and no
-  comment exceeds Connect's limit.
+  comment exceeds Connect's limit;
+- no verdict carries by-catch, as a field or in the usual by-catch phrasing;
+- every by-catch file in the by-catch folder is well-formed, and names a
+  bundled finding. Assemble collects them into `bycatch/bycatch.json`, and
+  prints `by-catch: N item(s) in <path>` (or `by-catch: none`).
 
 The verdict maps onto Connect's fields as below. The comment carries the
 argument, the lane and who assigned it, and the method.
@@ -375,6 +383,13 @@ A sample is a sample: "triaged 18 of 147 findings across 13 checkers",
 never a false-positive rate for the run (rule 26). Mark what was executed
 and what was read (rule 23).
 
+**By-catch is reported beside the records, never in them.** Say how many
+items there are, the path of `bycatch.json`, and that they are unverified
+notes: defects to fix in your own code, or something for whoever handles
+unreported vulnerabilities in code that is not yours. Interactive, say it
+in the reply. Unattended, the stdout line from `assemble` is the report.
+Nothing about by-catch goes into `TRIAGE-REPORT.md`, not even a count.
+
 ## Records, and getting them to Connect
 
 `triage.json` holds one record per finding, keyed by **merge key** (a CID is
@@ -403,11 +418,11 @@ findings file from any run. With its findings, it gives:
 
 - the rows for its own custom checkers, if it has any, as a table file;
 - which lane and method it expects, if any (*When the caller expects a
-  lane*).
+  lane*);
+- where by-catch should go, if it has a destination of its own.
 
-It gets back the bundles, `triage.json` and `TRIAGE-REPORT.md`, and keeps
-its own concerns: which findings a story surfaces, whether a true positive
-is legible on screen.
+It gets back the bundles, `triage.json`, `TRIAGE-REPORT.md` and, when there
+is any, `bycatch/bycatch.json`. It keeps its own concerns.
 
 ## Anti-patterns
 
@@ -440,6 +455,8 @@ is legible on screen.
   verdict.
 - Quietly running a different method, or none, on a finding that did not
   land in the lane its caller expected. Report it and let the user choose.
+- Writing by-catch into a `reason`, a verdict file, `run.json` or the
+  report. Those travel with the records; by-catch goes to `bycatch/`.
 - Writing triage to Connect from this skill.
 
 ## Where other skills take over

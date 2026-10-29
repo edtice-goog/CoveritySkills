@@ -79,6 +79,11 @@ job of whoever owns the instance.
 - **A NUL in a triage comment** (from a C `'\0'` quoted into the argument)
   makes Connect refuse the whole triage write; the records tool refuses it
   first.
+- **By-catch never travels with the records.** A defect noticed outside the
+  selected findings has no CID. In code that is not yours, it may also be
+  an unreported vulnerability. It goes to the run's `bycatch/` folder, with
+  `bycatch.json` and a stdout line saying how many and where, and never
+  into a reason, `triage.json` or the report.
 
 ## Layout
 

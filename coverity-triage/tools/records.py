@@ -42,6 +42,12 @@ MAPPING = {
 VERIFY_FIELDS = ("route", "route_reason", "as_code", "stubbed")
 COMMENT_MAX = 4000
 BAD_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+# By-catch never rides in a verdict: these are the fields and phrasings it
+# usually arrives in. A backstop only; by-catch in other words passes.
+BYCATCH_FIELDS = ("bycatch", "by_catch", "side_findings", "side_observations")
+BYCATCH_WORDS = re.compile(r"by-?catch|side observation|aside, not part of this finding"
+                           r"|present but unreported|worth its own check", re.I)
+TEXT_FIELDS = ("reason", "invariant", "enforced_at", "breaks_if")
 
 
 def read_json(path, errors, what):
@@ -226,6 +232,13 @@ def assemble(args):
             if not (v.get("reason") or "").strip():
                 errors.append(where + ": no reason")
                 continue
+            carried = [k for k in BYCATCH_FIELDS if k in v]
+            worded = [k for k in TEXT_FIELDS if BYCATCH_WORDS.search(str(v.get(k) or ""))]
+            if carried or worded:
+                errors.append(where + ": by-catch in a verdict (" + ", ".join(carried + worded)
+                              + "); it goes to the by-catch folder, never into the records "
+                              "(references/records.md, By-catch)")
+                continue
             if v["verdict"] == INVARIANT:
                 gone = [k for k in ("invariant", "enforced_at", "breaks_if")
                         if not (v.get(k) or "").strip()]
@@ -290,6 +303,9 @@ def assemble(args):
             rec["method_reason"] = "the checker's own method (checker table)"
         records.append(rec)
 
+    bc_dir = pathlib.Path(args.bycatch_dir) if args.bycatch_dir else bdir / "bycatch"
+    bycatch = read_bycatch(bc_dir, bundles, errors)
+
     if errors:
         return fail(errors)
 
@@ -307,7 +323,43 @@ def assemble(args):
     report = pathlib.Path(args.report) if args.report else out.with_name("TRIAGE-REPORT.md")
     report.write_bytes(render_report(doc).encode("utf-8"))
     print("wrote " + str(len(records)) + " records to " + str(out) + " and " + str(report))
+    if bycatch:
+        bc_out = bc_dir / "bycatch.json"
+        bc_out.write_bytes((json.dumps({"format": "coverity-triage-bycatch", "schema": 1,
+                                        "tag": index.get("tag"), "items": bycatch},
+                                       indent=1, ensure_ascii=False) + "\n").encode("utf-8"))
+        print("by-catch: " + str(len(bycatch)) + " item(s) in " + str(bc_out))
+    else:
+        print("by-catch: none")
     return 0
+
+
+def read_bycatch(bc_dir, bundles, errors):
+    """The by-catch folder's files -> one list of items; never part of the records."""
+    items = []
+    if not bc_dir.is_dir():
+        return items
+    for f in sorted(bc_dir.glob("*.json")):
+        if f.name == "bycatch.json":
+            continue
+        doc = read_json(f, errors, "by-catch")
+        if doc is None:
+            continue
+        if not METHOD.match(doc.get("noticed_by") or "") or doc.get("noticed_by") == "None":
+            errors.append("by-catch " + f.name + ": noticed_by must be the method that noticed it")
+            continue
+        for n, it in enumerate(doc.get("items") or [], 1):
+            where = "by-catch " + f.name + " item " + str(n)
+            gone = [k for k in ("site", "claim") if not (it.get(k) or "").strip()]
+            if gone:
+                errors.append(where + ": needs " + ", ".join(gone))
+            elif it.get("noticed_while") not in bundles:
+                errors.append(where + ": noticed_while " + repr(it.get("noticed_while"))
+                              + " is not a bundled finding")
+            else:
+                items.append(dict(it, noticed_by=doc["noticed_by"], model=doc.get("model"),
+                                  file=f.name))
+    return items
 
 
 def check(doc):
@@ -484,6 +536,8 @@ def main():
     a.add_argument("--run", required=True)
     a.add_argument("--out", required=True)
     a.add_argument("--report", help="default: TRIAGE-REPORT.md beside --out")
+    a.add_argument("--bycatch-dir", help="the by-catch folder (default: <bundles>/bycatch); "
+                                        "its files are checked and collected into bycatch.json")
     c = sub.add_parser("check-lanes", help="before any method runs: lanes, and what landed "
                                           "outside the caller's expected lane")
     c.add_argument("--bundles", required=True)

@@ -228,3 +228,9 @@ key, the verdict, the argument (`reason`, with `file:line` for every claim
 it makes about the code), the code it read (`sites_read`), and for a
 global invariant the three parts. The reason is what a person reads in
 Connect's Comment field: a paragraph, not an essay.
+
+**A defect you notice outside the finding you were given is by-catch.**
+Write it to the by-catch folder you were given, with its site and the
+claim (format in `records.md`). Never mention it in `reason`, or anywhere
+else in the verdict file: those travel with the records. Note what you
+happen to see in code you read; do not go looking for more.

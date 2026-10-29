@@ -195,7 +195,7 @@ def main():
                            "as_code": ["g", "h"], "stubbed": []}]}
         good_v = [verdicts, intent, executed_k7]
 
-        def attempt(name, lanes_doc, run_doc, vdocs, ok):
+        def attempt(name, lanes_doc, run_doc, vdocs, ok, extra=()):
             d = work / name
             (d / "v").mkdir(parents=True)
             wjson(d / "lanes.json", lanes_doc)
@@ -203,7 +203,8 @@ def main():
             for i, v in enumerate(vdocs):
                 wjson(d / "v" / ("%d.json" % i), v)
             run(TOOLS / "records.py", "assemble", "--bundles", b, "--lanes", d / "lanes.json",
-                "--verdicts", d / "v", "--run", d / "run.json", "--out", d / "triage.json", ok=ok)
+                "--verdicts", d / "v", "--run", d / "run.json", "--out", d / "triage.json",
+                *extra, ok=ok)
             assert (d / "triage.json").exists() == ok, name + ": wrote output on refusal"
             return d
 
@@ -281,6 +282,55 @@ def main():
         refuse("method-mismatch", lanes, runj, [dict(verdicts, method="LLM: Opus 5.5"),
                                                 intent, executed_k7])
         refuse("executed-by-reader", lanes, runj, with_v(executed=True))
+        # By-catch never rides in a verdict, as a field or in the usual phrasing.
+        refuse("bycatch-field", lanes, runj, with_v(bycatch=[{"site": "src/a.c:10"}]))
+        refuse("bycatch-words", lanes, runj, with_v(
+            reason=GOOD_INVARIANT["reason"] + " Side observation: src/a.c:10 looks wrong too."))
+
+        # By-catch goes to its own folder: checked, collected into bycatch.json,
+        # announced on stdout, and absent from triage.json and the report.
+        claim = "UNIQUE-BYCATCH-CLAIM at src/a.c:10"
+        item = {"site": "src/a.c:10", "claim": claim, "noticed_while": "k1",
+                "sites_read": ["src/a.c:10-11"]}
+
+        def bycatch_dir(name, items, noticed_by="LLM: Sonnet 5.5"):
+            bd = work / ("bc-" + name)
+            bd.mkdir()
+            wjson(bd / "Contract-1.json", {"noticed_by": noticed_by, "model": "test-model",
+                                           "items": items})
+            return bd
+
+        bd = bycatch_dir("good", [item])
+        d = attempt("bycatch-good", lanes, runj, good_v, True, extra=("--bycatch-dir", bd))
+        bj = json.loads((bd / "bycatch.json").read_text())
+        assert bj["format"] == "coverity-triage-bycatch" and bj["items"][0]["claim"] == claim, bj
+        assert bj["items"][0]["file"] == "Contract-1.json"
+        for f in ("triage.json", "TRIAGE-REPORT.md"):
+            text = (d / f).read_text().lower()
+            assert claim.lower() not in text and "by-catch" not in text and "bycatch" not in text, f
+        out = run(TOOLS / "records.py", "assemble", "--bundles", b, "--lanes", d / "lanes.json",
+                  "--verdicts", d / "v", "--run", d / "run.json", "--out", d / "again.json",
+                  "--bycatch-dir", bd).stdout
+        assert "by-catch: 1 item(s) in" in out, out
+        out = run(TOOLS / "records.py", "assemble", "--bundles", b, "--lanes", d / "lanes.json",
+                  "--verdicts", d / "v", "--run", d / "run.json", "--out", d / "none.json").stdout
+        assert "by-catch: none" in out, out
+
+        def refuse_bc(name, bd):
+            nonlocal refusals
+            refusals += 1
+            attempt(name, lanes, runj, good_v, False, extra=("--bycatch-dir", bd))
+            assert not (bd / "bycatch.json").exists(), name + ": wrote bycatch.json on refusal"
+
+        refuse_bc("bycatch-no-claim", bycatch_dir("no-claim", [dict(item, claim="")]))
+        refuse_bc("bycatch-unknown-finding", bycatch_dir("unknown", [dict(item, noticed_while="k99")]))
+        refuse_bc("bycatch-no-noticer", bycatch_dir("no-noticer", [item], noticed_by="None"))
+        # The default folder is <bundles>/bycatch/.
+        (b / "bycatch").mkdir()
+        wjson(b / "bycatch" / "Contract-1.json", {"noticed_by": "LLM: Sonnet 5.5", "items": [item]})
+        attempt("bycatch-default", lanes, runj, good_v, True)
+        assert json.loads((b / "bycatch" / "bycatch.json").read_text())["items"][0]["claim"] == claim
+        shutil.rmtree(b / "bycatch")
 
         # No lane restricts methods: verify on the Contract lane is a plan's choice.
         exec_contract = {"lane": "Contract", "method": "Execution: coverity-verify", "model": None,

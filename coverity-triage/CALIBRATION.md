@@ -28,8 +28,8 @@ what is reasoned rather than measured.
       leaves a candidate checker pending with its candidates; marks a checker
       no table has as unplaced; and, with a producer's table, places that
       checker with its own method and route.
-  - **`records.py`:** one good assembly, and twenty-two refusals, each writing
-    nothing:
+  - **`records.py`:** one good assembly, and twenty-seven refusals, each
+    writing nothing:
     - a global invariant with no location;
     - a word outside the verdict set;
     - a NUL in a comment;
@@ -51,9 +51,18 @@ what is reasoned rather than measured.
     - `executed` claimed by a reader;
     - an off-lane finding with no recorded choice;
     - an override with no reason;
-    - a route on an override that is not verify.
+    - a route on an override that is not verify;
+    - a verdict carrying a by-catch field;
+    - a reason written in by-catch phrasing ("Side observation: ...");
+    - a by-catch item with no claim;
+    - a by-catch item naming a finding that was not bundled;
+    - a by-catch file with no method that noticed it.
 
     Shown working:
+    - by-catch collected into `bycatch/bycatch.json` (from the default
+      folder, and from one named with `--bycatch-dir`), announced on stdout
+      (`by-catch: 1 item(s) in ...`, or `by-catch: none`), and absent from
+      `triage.json` and the report;
     - a checker's own method beats the lane's plan, and verify's route and
       inventory are carried into the evidence;
     - a plan-wide route beats a row's route;
@@ -150,9 +159,20 @@ what is reasoned rather than measured.
   come from the same corpus the run read. A reader given the shape of an
   answer is not a blind reader, so examples should come from the skill's own
   fixtures. Open.
-- **Side findings have no field.** One reader reported two possible defects
-  next to the findings it was given. Records carry verdicts on the selected
-  findings only, so a side finding today can only go in `reason`. Open.
+- **By-catch had no place, and went into `reason`.** One reader reported two
+  possible defects beside the findings it was given, and the skill's own
+  text said to mention a bycatch in `reason`.
+  - **Why that was wrong:** `reason` travels with the records, into Connect
+    and to whoever the report is shared with. By-catch has no CID, and in
+    code that is not yours it may be an unreported vulnerability.
+  - **The convention now:** by-catch goes to the run's `bycatch/` folder, or
+    a folder the caller names (`references/records.md`, *By-catch*).
+    `assemble` collects it into `bycatch.json` and prints one stdout line.
+    The report says nothing about it.
+  - **The backstop:** `records.py` refuses a verdict that carries a by-catch
+    field or the usual by-catch phrasing, and a malformed by-catch file.
+  - **Status:** measured on the fixture. That readers follow the convention
+    is reasoned, since no reading run has used it yet.
 
 ## Reasoned, not measured
 

@@ -190,8 +190,81 @@ reachable.
 - Put the tier, and the reach count or the crash evidence, in `reason`.
 - Copy verify's `route`, `route_reason`, `as_code` and `stubbed`.
 
-A *bycatch* is not a verdict on the finding. Mention it in `reason`, so a
-person sees it.
+A *bycatch* tier is not a verdict on the finding. It goes to the by-catch
+directory (next section), never into `reason`.
+
+## By-catch: never in the records
+
+By-catch is a defect noticed while working on a different finding: a crash
+verify's free run hit elsewhere, or a bug a reader saw in code it read. In
+your own code it is usually just another defect to fix. In code that is not
+yours (a vendored library, an open-source dependency), it may be an
+unreported vulnerability.
+
+The records are what people pass around: `triage.json` gets applied to
+Connect and the report gets shared. By-catch has no CID for Connect to
+attach to, and may not be yours to share. So it is kept out of the records
+entirely:
+
+- not in `reason`, nor in any other verdict field, a verdict file or
+  `run.json`;
+- not in `triage.json` or `TRIAGE-REPORT.md`, not even as a count;
+- not in the bundles.
+
+`records.py assemble` refuses a verdict that carries a by-catch field, or a
+`reason` written in the usual by-catch phrasing ("side observation",
+"aside, not part of this finding", "present but unreported", "worth its
+own check", "bycatch"). That refusal is a backstop: by-catch described in
+other words passes it, and the convention is what protects you.
+
+**Where it goes: the `bycatch/` folder of the run** (`<out>/bycatch/`),
+beside the records but never inside them. A caller can name another folder
+instead (`--bycatch-dir`), such as a security team's intake folder.
+
+- **What the readers write.** One file per reader batch or verify run, named
+  `<lane>-<n>.json` or `verify-<n>.json`:
+
+  ```json
+  {
+   "noticed_by": "LLM: Sonnet 5.5",
+   "model": "claude-sonnet-5-5",
+   "items": [
+    {"site": "<path>:<line>",
+     "claim": "<what looks wrong there, in one sentence, with file:line>",
+     "noticed_while": "<merge key of the finding being read>",
+     "sites_read": ["<path>:<first>-<last>"]}
+   ]
+  }
+  ```
+
+- **What `assemble` adds.** It checks every by-catch file (each item needs a
+  `site`, a `claim`, and a `noticed_while` naming a bundled finding). It
+  writes `bycatch.json` in the same folder, with every item and the file it
+  came from. It also prints one line a script can read:
+
+  ```
+  by-catch: 2 item(s) in <out>/bycatch/bycatch.json
+  ```
+
+  With no by-catch, it writes no `bycatch.json`, and prints `by-catch: none`.
+
+```json
+{
+ "format": "coverity-triage-bycatch",
+ "schema": 1,
+ "tag": "v2.0",
+ "items": [
+  {"site": "...", "claim": "...", "noticed_while": "...", "sites_read": ["..."],
+   "noticed_by": "LLM: Sonnet 5.5", "model": "claude-sonnet-5-5", "file": "Contract-1.json"}
+ ]
+}
+```
+
+An item is a note, not a verdict: nobody has verified it. In your own code,
+treat it like any other defect report. In code that is not yours, hand it to
+whoever handles unreported vulnerabilities there (a product security team,
+or the upstream project's security contact). Sharing the whole run folder
+shares `bycatch/` with it, and the folder's name says so.
 
 ## `triage.json`: the records
 

@@ -110,6 +110,18 @@
         "Asks (or, unattended, reports and stops) before using the row",
         "Writes the row to a table file the user keeps, not into the skill's own table"
       ]
+    },
+    {
+      "id": 9,
+      "eval_name": "bycatch-stays-out-of-the-records",
+      "prompt": "Triage a per-checker sample of 2 from findings.json (tag v2.0 in ~/src/proj), read with Sonnet, results into ~/runs/proj. While reading one finding, the reader notices what looks like a different defect in another function that no finding covers.",
+      "expected_output": "The reader gives the finding its verdict on that finding alone. It writes the other defect as a by-catch item (site, claim, the merge key it was noticed while reading) to ~/runs/proj/bycatch/. records.py assemble collects it into ~/runs/proj/bycatch/bycatch.json and prints 'by-catch: 1 item(s) in ...'. Nothing about it goes into reason, the verdict file, triage.json or TRIAGE-REPORT.md. The final message says how many by-catch items there are, where they are, and that they are unverified notes: a defect to fix in your own code, or something for whoever handles unreported vulnerabilities in code that is not yours.",
+      "assertions": [
+        "The verdict's reason does not mention the noticed defect",
+        "The by-catch item is in the run's bycatch/ folder, and collected into bycatch.json",
+        "triage.json and TRIAGE-REPORT.md say nothing about by-catch, not even a count",
+        "The final message reports the by-catch count and the path of bycatch.json"
+      ]
     }
   ]
 }
