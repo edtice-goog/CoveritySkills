@@ -21,7 +21,7 @@ The skills the deck describes are in this repository: `coverity-pathout`,
 skills' calibration records.
 
 The deck shows verification by extraction: the slice set, with callees
-outside it stubbed from their derived models. `coverity-verify` now has a
-second route, harness-verification, which compiles the whole translation
-unit as the build did and is its default; extraction remains the route for
-code the harness route cannot take.
+outside it stubbed from their derived models. That is the route
+`coverity-pathout`'s shapes take, by their table rows. `coverity-verify`'s
+second route, harness-verification, compiles the whole translation unit as
+the build did and is the default for other callers.
