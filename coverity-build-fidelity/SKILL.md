@@ -29,6 +29,13 @@ nothing produces binaries byte-identical to native**, which is the best result
 the fidelity check can report. Total capture failure and perfect fidelity have
 the same signature. Never emit a verdict from one arm.
 
+That is not hypothetical. A translation unit compiled with a compiler option
+the front end rejects is never captured, while the real compiler still runs
+— so the object, the binary and the exit status are identical in both arms and
+this skill's comparison passes, with the capture silently short by exactly the
+files carrying the flag. Measured on two releases; see `coverity`'s
+`references/capture-fidelity.md`.
+
 The deliverable is a report someone can act on -- a release gate decision, and
 a machine-readable input for downstream inference -- not a boolean.
 
