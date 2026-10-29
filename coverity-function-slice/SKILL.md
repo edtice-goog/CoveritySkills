@@ -224,7 +224,8 @@ leading slash>`). The manifest carries the recorded compile line and its
 parts (`flags`, `include_paths`, `sys_includes`, `pre_preinclude`,
 `defines_from_build`), the capture's working directory and platform, every
 function the TU defines with `static` and location, the externals (called,
-not defined; each with its prototype as the slicer prints one, `library`
+not defined; each with its prototype as the slicer prints one, without
+the terminating semicolon, `library`
 or `project` by declaring path; with `--models`, whether a saved derived
 model exists), `externals_data` (the globals the TU reads but does not
 define, with their declarations: what a driver must define or the link
