@@ -135,6 +135,9 @@ flowchart LR
 - The output is a records file in Connect's attribute names. Applying it to
   Connect, with or without the two custom attributes, is up to whoever owns the
   instance.
+- A defect a reader notices while judging a different finding (a by-catch)
+  goes to a `bycatch/` folder of its own, never into the records or the
+  report, so nothing that travels with the verdicts carries it.
 
 ## Settle one finding by running it
 
