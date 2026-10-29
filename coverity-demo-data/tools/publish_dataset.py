@@ -45,7 +45,11 @@ import datetime
 #      and listed under capture.findings and capture.inventory. A
 #      column needs both to be comparable to another column, and
 #      neither can be regenerated once the matching install is gone.
-SCHEMA = 3
+#   4: the audit block is gone. This skill builds datasets and does not
+#      triage, so a dataset carries no verdicts to describe. Triage is
+#      invoked separately against a published dataset and its output
+#      stays with whoever ran it.
+SCHEMA = 4
 
 
 def fail(msg):
@@ -153,37 +157,6 @@ def merge_keys(idir, cov_bin, scratch):
     return {i["mergeKey"] for i in data.get("issues", []) if i.get("mergeKey")}
 
 
-def bycatch_backstop(ws):
-    """Refuse to publish material that admits to carrying by-catch.
-
-    A by-catch is a defect noticed while working on a different finding,
-    i.e. a potential zero-day. Datasets are delivered to demo instances,
-    where one could be put on screen by accident, so it must not ship.
-
-    This is a BACKSTOP, not a detector. coverity-triage records a by-catch
-    in a record's free-text `reason`, so one described without the word is
-    invisible here. It fails loudly on the conventional case; it cannot
-    certify a dataset clean. Keep by-catch out of what you publish.
-    """
-    suspect = []
-    d = ws / "audit"
-    if d.is_dir():
-        for q in sorted(d.rglob("*")):
-            if q.is_file() and q.suffix.lower() in (".json", ".md", ".txt"):
-                try:
-                    txt = q.read_text(encoding="utf-8", errors="replace")
-                except OSError:
-                    continue
-                if re.search(r"by[-_ ]?catch", txt, re.I):
-                    suspect.append(q.relative_to(ws).as_posix())
-    q = ws / "TRIAGE-REPORT.md"
-    if q.is_file() and re.search(r"by[-_ ]?catch",
-                                 q.read_text(encoding="utf-8", errors="replace"),
-                                 re.I):
-        suspect.append("TRIAGE-REPORT.md")
-    return suspect
-
-
 def validate(rows, idirs_root, cov_bin, scratch):
     """Every check that can be made locally. Returns derived facts."""
     facts, problems = {}, []
@@ -267,14 +240,6 @@ def validate(rows, idirs_root, cov_bin, scratch):
                 f"{stream}: two releases on the same date {dupes} -- a stream "
                 f"is one branch moving forward; concurrent lines need separate "
                 f"streams")
-
-    for hit in bycatch_backstop(idirs_root.parent):
-        problems.append(
-            f"{hit}: contains by-catch text. A by-catch is a potential "
-            f"zero-day and must not ship -- datasets go to demo instances. "
-            f"Move it out of the audit material and send it to whoever tracks "
-            f"by-catch. (Backstop only: one described without the word is "
-            f"invisible to this check.)")
 
     if problems:
         print("[FATAL] dataset is not publishable:", file=sys.stderr)
@@ -407,13 +372,9 @@ def assemble(dataset, rows, facts, args, ws, idirs_root, version, scratch):
     for r in rows:
         print(f"  copying {r['tag']} ...", flush=True)
         copy_tree(idirs_root / r["tag"], dataset / "idirs" / r["tag"], args.link)
-    for sub in ("audit", "logs"):
+    for sub in ("logs",):
         if (ws / sub).is_dir():
             copy_tree(ws / sub, dataset / sub, args.link)
-    for name in ("TRIAGE-REPORT.md",):
-        if (ws / name).is_file():
-            shutil.copy2(ws / name, dataset / name)
-
     here = pathlib.Path(__file__).parent
     shutil.copy2(here / "commit_sweep.py", dataset / "tools" / "commit_sweep.py")
     shutil.copy2(here / "commit_template.sh", dataset / "commit.sh")
@@ -462,8 +423,6 @@ def assemble(dataset, rows, facts, args, ws, idirs_root, version, scratch):
     # speaker-test/speaker-test.c as an installed program). Record the shape so
     # the builder sees it before publishing and a consumer sees it in the
     # manifest without re-deriving it.
-    triage_records = sorted(q.relative_to(dataset).as_posix()
-                            for q in (dataset / "audit").glob("**/triage.json"))
     tip = rows[-1]["tag"]
     tip_dirs = collections.Counter(s.split("/")[0]
                                   for s in facts[tip]["stripped"] if "/" in s)
@@ -492,14 +451,6 @@ def assemble(dataset, rows, facts, args, ws, idirs_root, version, scratch):
             "streams": sorted({r["stream"] for r in rows}),
             "cids_at_tip": facts[rows[-1]["tag"]]["cids"],
         },
-        # coverity-triage records, so a consumer finds the verdicts without
-        # guessing. An empty list means untriaged, which is a normal and
-        # expected state: triage is the user's choice, not a default. Report
-        # the records themselves rather than whether an audit/ directory
-        # exists -- a directory can hold anything, and "a directory is there"
-        # reads as "this was checked" when it may not have been.
-        "audit": {"triaged": bool(triage_records),
-                  "triage_records": triage_records},
         "capture": {
             "tu_by_top_dir_at_tip": dict(sorted(tip_dirs.items(),
                                                 key=lambda kv: -kv[1])),
@@ -521,10 +472,6 @@ def assemble(dataset, rows, facts, args, ws, idirs_root, version, scratch):
         f"- {len(rows)} versions, {', '.join(manifest['counts']['streams'])}",
         f"- {manifest['counts']['cids_at_tip']} CIDs at the newest version",
         f"- analyzed with Coverity {version}",
-        ("- triage: " + (f"{len(triage_records)} record(s) under audit/"
-                         if triage_records else
-                         "NONE. Nothing here has been checked; triage anything "
-                         "you intend to feature before showing it.")), "",
         "## Commit it", "",
         "Take a database backup of the target Connect first: the dates this",
         "writes are write-once per merge key and cannot be corrected in place.",

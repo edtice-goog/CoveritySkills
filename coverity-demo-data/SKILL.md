@@ -11,7 +11,7 @@ description: >
   with aging outstanding issues or a fix-rate trend is wanted; when asked how
   to make snapshots appear on past dates; or when preparing a demo, POC, or
   training environment. Triage is optional and never automatic: the skill
-  asks which findings to triage, if any, and hands them to coverity-triage.
+  does not triage: triage is invoked separately against a published dataset.
   Requires a local Coverity Analysis installation and a Coverity Connect
   instance the user is willing to have written to; this skill runs real builds
   and real commits.
@@ -48,12 +48,12 @@ and audited, repeatably. Do not drift into writing the customer narrative.
 
 The deliverable is a populated Connect instance and the population table that
 describes what is in it -- enough for someone else to judge whether it fits
-their story -- plus, when the user chooses triage, the triage records for the
-findings they chose (Step 4).
+their story. No verdicts: a published dataset says what the analyzer found,
+not whether any of it is real.
 
 **This skill assumes the `coverity` skill and its `RULES.md`.** Read the rules
 before running any Coverity command; the numbers cited here are stable. Rules
-9-11 (build verification and capture percentages), 26 (triage a sample), 29
+9-11 (build verification and capture percentages), 29
 (one stream per branch), 30 (name the global invariant), 31 (`--strip-path`,
 verified) and 38 (ask only when interactive) carry most of the weight; this
 skill adds the demo-data-specific consequences rather than restating them.
@@ -68,7 +68,7 @@ important structural decision in the skill:
 | 1. Capture + analyze every candidate version | Yes, freely | Re-run it |
 | 2. Map streams, select versions, offline | Yes, freely | Re-run it |
 | 3. Commit oldest-first with `--backdate` | **No** | Restore DB, redo |
-| 4. Triage, if the user chooses it (`coverity-triage`) | Yes | Re-run it |
+| 4. (no triage -- a separate skill, invoked separately) | n/a | n/a |
 
 Do all thinking in Phases 1-2, where set algebra over merge keys predicts
 exactly what Connect will show. Enter Phase 3 only with a decided list. Phase 2
@@ -88,11 +88,10 @@ handed a prompt to continue, while an unattended one cannot be handed back a
 database.
 
 Rule 38 says *when to ask*, not that an answer may be assumed. A decision
-counts as already made only if the invocation supplies it: "publish untriaged",
-a tags file that names the stream for every version, or an instruction to commit
-to a named target each settle their question. Absence of an instruction settles
-nothing -- **packaging untriaged is a choice too**, not the quiet default, and
-what is opt-in stays opt-in in both modes (rule 26).
+counts as already made only if the invocation supplies it: a tags file that
+names the stream for every version, or an instruction to commit to a named
+target, each settle their question. Absence of an instruction settles
+nothing.
 
 **Do not infer interactivity from weak signals** -- not a TTY, an environment
 variable, or the shape of the invocation. An API task, a scheduled or CI run
@@ -110,19 +109,17 @@ every point here, but for different reasons, so report the right one:
 
 - Before Phase 3, nothing has been written to a database at all. The corpus can
   sit captured, analyzed and validated indefinitely.
-- At Step 4, Phase 3 is already done and its snapshots stay committed with
-  their backdated dates. The idirs, the analyses and the commits all persist;
-  what is outstanding is triage, which is optional, and publication.
+- After Phase 3, its snapshots stay committed with their backdated dates. The
+  idirs, the analyses and the commits all persist; only publication is
+  outstanding.
 
 Either way the report names what is done, what is needed, and the answer or
-command that continues -- for Step 4, "package untriaged" or the triage steps
-and their methods.
+command that continues.
 
 Where this bites, in rising order of regret:
 
 | Step | Decision | Unattended, unsettled |
 |---|---|---|
-| 4 | which findings go to triage, if any | report and stop; nothing is lost -- the commits stand and only triage and publish remain |
 | 2 | which release line each version belongs to | state the mapping you would use, and stop |
 | 3 | commit the corpus to a Connect instance | **report and stop** -- first-detected dates are global and write-once |
 | 0 | restore a database to re-run Phase 3 | **report and stop** -- this destroys whatever else is on that instance |
@@ -436,88 +433,38 @@ Always `--dry-run` first: it prints the resolved order and dates, and commits
 nothing. Verification queries for doing this by hand are in
 `references/backdating.md`.
 
-## Step 4: Triage -- only what the user chooses
+## Step 4: Do not triage
 
-Never point at a defect on stage without having checked it. But triage spends
-model time on every finding it reads, and a dataset is often published to be
-triaged later, by someone else, for a story not yet chosen. So **this skill
-never triages on its own, and never on a default.** Ask the user, once, which
-of these to do -- and unattended, report the options with their counts and
-stop (rule 38), because triage spends model time on every finding it reads.
-Stopping is not the same as choosing the first option: packaging untriaged is
-itself a decision, and the user makes it. Say what survives -- the idirs, the
-analyses and the backdated snapshots already committed, none of which a stop
-disturbs -- and name the answer that continues: package untriaged, or which
-findings and which method per lane.
+**This skill builds datasets. It does not triage them, and a dataset it
+publishes carries no verdicts.** Triage is a separate skill, invoked separately
+against a published dataset by whoever wants it, and its output stays with
+them.
 
-- **Package without triage.** Publish the dataset untriaged (Step 5). The
-  hand-off says so plainly: nothing in it has been checked, and anything
-  featured on stage must be triaged before the demo. The published dataset
-  carries its idirs and its source revisions, so triage can run later without
-  rebuilding anything.
-- **The story-surfaced findings only** -- the merge keys the chosen story
-  points at. Cheap, since a story surfaces few defects, and it is where the
-  risk lives: the single new defect at the tip is the most likely to be
-  featured and the least likely to be caught by a sample of a checker that
-  fired fifty times.
-- **A per-checker sample, plus the story-surfaced findings** -- rule 26
-  applied to a multi-version dataset, for confidence in the dataset as a whole.
-  Confidence in a checker's output generalizes across its instances far better
-  than across checkers, so a few per checker buys most of the assurance at a
-  fraction of the cost of reading everything. `phase2.py` prints the checker
-  roster.
+That boundary is deliberate and worth keeping for three reasons.
 
-And, for whatever is triaged, the method for each lane and its model, or a
-lane left out (`coverity-triage`, Step 3). Put the counts in the question;
-they cost nothing to compute:
+**Cost.** Triage spends model time on every finding it reads. A dataset is
+usually published to be triaged later, by someone else, for a story nobody has
+chosen yet -- and often never triaged at all, because the person wanted the
+history rather than the verdicts.
 
-```
-python3 ../coverity-triage/tools/bundle.py --issues <tip>.json --git-repo <repo> \
-    --tag <tip tag> --strip-prefix <build-root> --per-checker 2 \
-    --merge-key <story-surfaced key> --plan
-```
+**Nothing to carry out.** By-catch -- a defect noticed while working on a
+different finding, in effect a potential zero-day in someone else's code --
+gets written into verdict prose, in whatever words the reviewer reached for.
+A dataset goes to demo instances and onto screens, so a by-catch riding along
+would eventually be shown by accident. There is no reliable way to detect one
+in prose: in a real library, by-catch appeared as "not part of this finding",
+"side observation", "present but unreported" and "worth its own check", none
+of which a keyword check would find. Carrying no verdicts removes the problem
+instead of policing it, which is why this is structural rather than a filter.
 
-Say in the question that the model matters. Measured on the proftpd corpus, a
-stratified sample of nine defects contained **four** false positives, and every
-one was *checker-correct*: catching them required reading a guarding
-`strncasecmp` that made a null-return path infeasible, recognising a deliberate
-two-check cycle idiom that a copy-paste heuristic misread, knowing that a
-`time_t` duration is not an epoch timestamp, and following a setter that copies
-by address family rather than by the size of its argument
-(`references/worked-example-fp-audit.md`). The user weighs that against the
-cost; this skill does not decide it for them.
+**Separability.** A dataset is instance-independent and immutable; a verdict is
+a judgement someone made at a point in time, and two people may reasonably
+disagree. Binding them into one artifact would freeze one reading of the data
+into the data.
 
-Then hand the choice to **`coverity-triage`**, with `--out audit/<tag>` so that
-publishing carries the results into the dataset. That skill bundles the
-selected findings (source read from git at the tag, never from the working
-tree, which holds whichever version was built last), assigns each a lane, runs
-the lane methods the user chose, and writes `triage.json` and
-`TRIAGE-REPORT.md`. The verdicts, their vocabulary and their discipline are
-that skill's; this one keeps none of its own.
-
-**What stays here is demo-worthiness.** A verdict says whether a finding is
-right, not whether it belongs on screen. A finding can be perfectly real and
-still fail the legibility rule (`references/selection.md`); a correctly
-dismissed global invariant leaves the dataset fine but is not something to put
-on screen, because explaining why a defect is not a defect is not a story
-anyone wants told. Read each story-surfaced finding's bundle, and its *Shape*
-line (event count, files touched, interprocedural, statistical evidence),
-against the legibility rule. Keep both in the dataset; keep both off the
-slide.
-
-**By-catch never ships in a dataset.** A by-catch is a defect noticed while
-working on a different finding -- in effect a potential zero-day in someone
-else's code. A published dataset is delivered to demo instances and shown on
-screens, so a by-catch riding along in the triage material could be put in
-front of an audience by accident. Keep it out of `audit/` and out of any report
-the dataset carries; route it to whoever handles unreported vulnerabilities for
-your organisation, and record it there rather than here.
-
-`publish_dataset.py` refuses to publish audit material containing the word, as
-a backstop. Do not mistake that for a guarantee: `coverity-triage` records a
-by-catch in a record's free-text `reason`, so one described without the word
-passes the check. The check catches the conventional case and the convention is
-what actually protects you.
+What stays here is **demo-worthiness**, which is not a verdict: a finding can
+be perfectly real and still be the wrong thing to put on screen. See the
+legibility rule in `references/selection.md`.
 
 ## Step 5: Publish the dataset to the archive
 
@@ -561,9 +508,9 @@ path:
 Hand off the dataset's location, plus:
 
 - The Phase 2 population table, since it is the evidence for what the data shows
-- The triage records (`audit/<tag>/triage.json` and its report) when the user
-  chose triage, naming who produced the verdicts and how; otherwise the plain
-  statement that the dataset is untriaged
+- The plain statement that the dataset is untriaged, and that anyone who
+  intends to feature a finding should triage it first -- separately, with
+  `coverity-triage` against the published dataset
 - The reminder that the consumer takes **their own** database backup before
   committing, because first detected is write-once on their instance
 
