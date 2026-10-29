@@ -55,13 +55,13 @@ for name, r in rows.items():
     else:
         assert len(r["lanes"]) >= 2 and set(r["lanes"]) <= lanes and r.get("decide"), name + ": candidate row needs lanes + decide"
     assert r["method"] == "Execution: coverity-verify", name + ": method"
-    assert r["route"] in ("harness", "extraction"), name + ": route"
+    assert r["route"] == "extraction", name + ": route (the shapes are built for the extraction chain)"
     assert r.get("lane") not in ("Policy", "Other"), name + ": no method on a Policy/Other row"
 on_disk = {"PATHOUT_CANDIDATE_" + f[:-4].upper() for f in os.listdir(sys.argv[2]) if f.endswith(".cxm")}
 on_disk.discard("PATHOUT_CANDIDATE_DOUBLE_FREE"); on_disk.add("PATHOUT_CANDIDATE_DOUBLE_RELEASE")   # the checker's reported name
 missing = on_disk - set(rows)
 assert not missing, "checkers with no row: " + ", ".join(sorted(missing))
-print("rows: %d (%d checkers on disk, plus the superseded OVERFLOW_BEFORE_ALLOC); all with Execution: coverity-verify, route harness"
+print("rows: %d (%d checkers on disk, plus the superseded OVERFLOW_BEFORE_ALLOC); all with Execution: coverity-verify, route extraction"
       % (len(rows), len(on_disk)))
 EOF
 LANES_PY="$HERE/../../coverity-triage/tools/lanes.py"

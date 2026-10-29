@@ -116,7 +116,7 @@ is the chain, which does not depend on the analyzer finishing.
 | **model gap** | the crash relied on the model's silence: a global the callee writes and the generic model does not record (`session.d`, `delay_tab.dt_data`). Refuted for the finding; the gap is the analyzer's false positive too, and a user model fixes both |
 | **parameter-, global-, hook-sourced** | the harness supplied the NULL (a parameter, `main_server`, a `fatal` hook that returns). A question about callers and configuration, not this function |
 | **unconfirmed after N seconds** | the line was reached but not often, or not at all; say which. Not a refutation |
-| **bycatch** | a crash elsewhere in the slice set under a model-permitted behaviour (an unchecked `returnsnull`; an overflow in another branch). Report it separately; on proftpd one of them was real |
+| **bycatch** | a crash elsewhere in the slice set under a model-permitted behaviour (an unchecked `returnsnull`; an overflow in another branch). Report it separately from the finding, never credited to it; it may be real |
 
 Keep the harness-sourced tiers separate. A harness can hand NULL to any
 parameter or global and make any hook return, which would confirm every

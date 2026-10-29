@@ -52,9 +52,10 @@ pathed out. On subversion, keyed on a null dereference a later stage found: 503,
 0 (27 with the reverse shape counted). The survivors are not judged here:
 they go to `coverity-triage` with their expected lane (value or path) and
 method (execution through `coverity-verify`, with a preferred route per
-shape from this skill's table: harness-verification by default, as the
-cheaper method, extraction-verification only where harness has proved
-insufficient, and a user override per application), and any that the
+shape from this skill's table: extraction-verification on every row,
+since the shapes were built for the slice-and-model-stub chain and do not
+work under harness-verification, with a user override per application),
+and any that the
 lane check puts elsewhere are put to the user before a method runs.
 
 **The cost of the notice is measured, on the whole project.** `--paths N

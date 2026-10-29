@@ -59,10 +59,10 @@ address`, 30-90 s budgets, `-detect_leaks=0 -timeout=10`.
 | FORWARD_NULL data.c:576 `pr_data_open` | model gap, refuted | claim false with `data_active_open = zero_return`; its generic model records no write of `session.d`; data.c:271 and :392 assign it |
 | FORWARD_NULL mod_delay.c:2177 `delay_shutdown_ev` | model gap, refuted | claim false with `delay_table_load = zero_return`; no write of `delay_tab.dt_data` in the model; mod_delay.c:730 mmaps into it |
 | REVERSE_INULL mod_ls.c:1931 `dolist` | refuted by execution, a path the analyzer missed | `opt == NULL`, `have_options` returns 0 (its model has no dereference of `arg 1`; the source stats it), the check `if (arg && *arg)` reached with NULL on the first input: the check is not redundant |
-| OVERRUN glibc-glob.c:786 `glob_limited` | refuted by execution; **bycatch: a real 1-byte stack overflow** | focused on `~/`: 9.1M inputs, the named alloca reached 3,130,966 times, no ASan report (the `dirlen` copy from `dirname + 1` includes the NUL). Free run: `dynamic-stack-buffer-overflow` at the `~user` copy, `alloca(end_name - dirname)` then `mempcpy` of that many bytes plus a NUL (glibc-glob.c:809-811, the HAVE_MEMPCPY branch; the memcpy branch is correct). Not among Coverity's 147 findings |
+| OVERRUN glibc-glob.c:786 `glob_limited` | refuted by execution | focused on `~/`: 9.1M inputs, the named alloca reached 3,130,966 times, no ASan report (the `dirlen` copy from `dirname + 1` includes the NUL) |
 
 Totals: 0 confirmed, 5 refuted by execution, 2 model gaps, 2 sourced by
-the harness (hook, global), 1 by reading; 1 real defect as bycatch; 2 of
+the harness (hook, global), 1 by reading; 2 of
 the 12 chosen not taken (`tpl_map_va`, `tpl_peek`: variadic targets).
 
 - **Bycatch class.** Under the models every pool allocator (`make_array`,
@@ -205,9 +205,15 @@ the 12 chosen not taken (`tpl_map_va`, `tpl_peek`: variadic targets).
   (`returnsnull`), which the real `lookup_cfg` has: confirmed, route
   harness, compile mode source tree, record `as_code [trim, handle] /
   stubbed [lookup_cfg]`. The manifest tool's externals carry `kind`
-  (`library`/`project`) and `model`; the prototypes for the stubs come
-  from the emit (`fz_harness.py --dir --bin`), the manifest's `signature`
-  being filled for the target.
+  (`library`/`project`), `model` and, since 2026-10-29, a `signature`
+  for every external (`const char *lookup_cfg(const char *)`, without
+  the terminator, which `fz_harness.py` adds); the stub prototypes now
+  come from the manifest, and the emit lookup (`--dir --bin`) serves only
+  an older manifest without signatures. Re-run on the fixture with the
+  signed manifest: the same confirmation, the log line reading
+  `prototype from the manifest`. The manifest's `externals_data` lists
+  the globals a TU reads but does not define, empty on this fixture; the
+  driver defines those.
   B: `evals/harness/declined/app2.c` includes a header found only
   through `-I` at capture time, and its target is static. The manifest is
   built with `--no-files` (as when `extract-files` is unavailable; with

@@ -355,6 +355,21 @@ All dates 2026-09-09.
     the `static` note; `tu.c` identical to the fixture source; exit 0.
     A non-static target (`ngx_http_upstream_init`, `--no-files`) produced
     no failure note beyond the platform one.
+  - **Prototypes and data externals from one whole-TU `--print-debug`
+    dump (2026-10-28).** nginx TU 79: the dump is 26.3 MB / 526,380
+    lines, parsed in 4.4 s; it holds 182 distinct `function_t` nodes (every
+    callee, library ones included: `int getsockopt(int, int, int, void
+    *restrict, socklen_t *restrict)`, `int *__errno_location(void)`) and 62
+    `global_variable_t` nodes, 17 distinct, with `dflags` (`{extern}` for a
+    global the TU reads, `{static mutable}` / `{mutable}` for its own). All
+    85 externals got a prototype; 13 globals are read but not defined
+    (`ngx_cached_time`, `ngx_event_flags`, `ngx_http_core_module`, ...),
+    each located by a whole-emit `find --kind g` in the TU that defines it.
+    On the `pretty_forms.c` fixture the one extern global, `g_counter`,
+    comes back with `declared_at` None and kind `unknown`: no TU defines
+    it, and `find --kind g` indexes definitions only. `__atomic_load`
+    appeared as an external there (the front end's lowered builtin, kind
+    unknown) and is now dropped with the other builtins.
 
 ## Reasoned, not measured
 
