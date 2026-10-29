@@ -266,10 +266,33 @@ control run is *older code committed later*, so putting it in the user's
 existing stream moves that stream backwards and makes every finding absent from
 it read as fixed (rule 29).
 
-That part is **reasoned, not measured.** The write-once behaviour was measured
-across three snapshots in one stream; the cross-stream consequence follows from
-where `date_originated` lives and has never been run. If a decision rests on
-it, measure it first -- it is cheap.
+**Measured, incidentally rather than by design.** On a Connect instance holding
+two published datasets that share three vendored-zlib merge keys, the dataset
+committed second went into its own project and streams, and those three CIDs
+kept the first dataset's 2011-12-07 first-detected date although the second
+commit backdated them to 1999-04-01: write-once means **the first commit to
+report a key fixes its date, not the earliest date offered.** So the behaviour
+holds across projects, not merely across streams within one project. Three keys
+on one instance confirms the mechanism rather than bounding it.
+
+#### Therefore: attribute before the first commit, or lose the date half
+
+That measurement decides *when* this skill has to run. Dates are fixed by the
+first commit that reports a key, so they can be set correctly only once:
+
+- Attribute **first**, then commit the new-analyzer results with the right
+  dates, and the version-attributable findings carry the dates they were
+  actually present.
+- Commit first and attribute afterwards, and those findings are already stamped
+  with the day of the commit. **A later `--backdate` cannot correct it even
+  though the date it offers is earlier** -- that is exactly what the
+  measurement above shows. The remedy is a new instance or a database restore,
+  which is nobody's idea of a remedy.
+
+The label half survives either order: an annotation can be applied whenever.
+The date half does not, so if a team is mid-upgrade and has not yet committed,
+say so plainly -- that is the cheapest this will ever be, and it stops being
+available the moment they commit.
 
 ### Step 7. Report
 
