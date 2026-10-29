@@ -126,16 +126,57 @@ project created for this (`cvss-audit-sample`) with its own triage store
 (`cvss-audit-triage`) so nothing written here reaches another project's
 defects.
 
-**Standing it up.** The four attributes cannot be created by
-`cov-manage-im` (it sets attribute *values* on defects) nor by REST
-(`/api/v2/checkerAttributes` exposes only `displayType`,
-`displayCategory`, `checker`). `createAttribute` on the v9 SOAP
-configuration service works, with `attributeType` `STRING` and
+**Standing it up.** `createAttribute` on the v9 SOAP configuration service
+creates the four attributes, with `attributeType` `STRING` and
 `LIST_OF_VALUES` — **not** the lowercase spellings; the accepted values
 are in the API reference's "Attribute type (attributeType)" table, not in
-the reports guide. `--mode triage` creates a triage store, not
-`--mode triage-stores`. `project-contact-email` is validated as an email,
-so `example.invalid` is rejected.
+the reports guide. `cov-manage-im` cannot: it sets attribute *values* on
+defects, not definitions.
+
+> **Correction (2026-10-29).** This paragraph used to say the attributes
+> could not be created by REST either. That was wrong, and the way it was
+> wrong is worth keeping. What was measured here, on Connect 2025.12.0, is
+> that `/api/v2/checkerAttributes` returns only `displayType`,
+> `displayCategory` and `checker`. What was *inferred* from that single
+> endpoint — that REST offers no way to create an attribute definition —
+> was never measured: `/api/v2/triageAttributes` was not probed at all, on
+> that version or any other.
+>
+> The `coverity-triage` thread measured the real answer on a Connect
+> **2026.9.0** instance, and the clauses below are theirs, narrowed to what
+> they actually exercised after they checked this wording:
+>
+> - `POST /api/v2/triageAttributes` creates an attribute, returning 201.
+>   The body that was accepted carried `name`, `description`,
+>   `attributeType` `LIST_OF_VALUES`, `showInTriage`, `defaultValueName`
+>   and `attributeValues` as a list of `{"name": ...}`. `STRING` is a type
+>   the server *reports* for built-in attributes such as `Ext. Reference`;
+>   creating one was not tried.
+> - `OPTIONS` on `/api/v2/triageAttributes/<name>` allows GET, HEAD, PUT,
+>   DELETE and OPTIONS. GET and PUT were exercised; DELETE was not called.
+> - A PUT on that path replaces the value list: adding a value kept the
+>   existing ids, and a PUT that left a value out removed it. Relevant here
+>   only if one of the four pick lists ever needs correcting.
+> - The 2026.9 REST reference documents the path as `/api/v2/attributes`.
+>   That server answers **GET and OPTIONS** on it with 404 — GET also with
+>   a trailing slash and with a name appended, OPTIONS on the bare path
+>   only. POST, PUT and DELETE were not sent. A 404 on OPTIONS says the
+>   route is very likely absent rather than method-restricted, but "every
+>   method" was not measured.
+>
+> Their implementation is theirs; this skill keeps the SOAP call, which
+> works on every version it has been run against. The point of recording
+> this is that a claim here was false, not to send anyone elsewhere.
+>
+> Credited rather than re-measured: the local instance was unreachable when
+> this was written, and the measurement is on a version this skill has never
+> been run against. Nothing in the skill is broken by it — the SOAP call
+> still works and is what `cvss_attributes.py` uses — but "REST cannot" was
+> a claim this calibration had no measurement behind.
+
+`--mode triage` creates a triage store, not `--mode triage-stores`.
+`project-contact-email` is validated as an email, so `example.invalid` is
+rejected.
 
 **Snapshot 10037, 19 defects, plain `--all --aggressiveness-level high`.**
 `--scores` then `--report` both completed. Every one of the 19 predictions

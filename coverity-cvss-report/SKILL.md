@@ -112,11 +112,16 @@ python3 tools/cvss_attributes.py setup          # add --yes when unattended
 Idempotent, so it is safe against an instance that already has some. It
 asks first, because these four are **instance-wide**: they appear in the
 triage pane of every project on that Connect, not just yours, and the
-generator requires these exact names so they cannot be scoped or renamed. It
-uses `createAttribute` on the v9 SOAP configuration service, because
-nothing else can: `cov-manage-im` sets attribute *values* on defects, not
-definitions, and REST exposes only the built-in checker attributes. The
-accepted `attributeType` spellings are `STRING` and `LIST_OF_VALUES`.
+generator requires these exact names so they cannot be scoped or renamed.
+
+It uses `createAttribute` on the v9 SOAP configuration service, with
+`attributeType` spelled `STRING` or `LIST_OF_VALUES`. That works on every
+version tried. `cov-manage-im` cannot stand in for it — that sets attribute
+*values* on defects, not definitions.
+
+REST can create them too on a recent enough server, so SOAP is this
+skill's choice rather than the only way; `CALIBRATION.md` records what was
+measured there.
 
 Credentials come from `COV_USER` and `COVERITY_PASSPHRASE_FILE` throughout.
 Never put a password on a command line (rule 3).

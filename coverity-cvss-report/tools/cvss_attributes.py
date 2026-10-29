@@ -2,12 +2,18 @@
 """Create the four CVSS triage attributes in Coverity Connect.
 
 The CVSS Report Generator requires CVSS_Audited, CVSS_Score, CVSS_Severity
-and CVSS_Vector to exist before its first run, and nothing else can make
-them: cov-manage-im sets attribute *values* on defects, not attribute
-*definitions*, and the REST API exposes only displayType, displayCategory
-and checker under /api/v2/checkerAttributes.  createAttribute on the v9
-SOAP configuration service is the scriptable route, so this is a small
-client for exactly that, plus the reads needed to check the result.
+and CVSS_Vector to exist before its first run.  createAttribute on the v9
+SOAP configuration service makes them, so this is a small client for
+exactly that, plus the reads needed to check the result.  cov-manage-im
+cannot stand in: it sets attribute *values* on defects, not definitions.
+
+REST can also create them on a recent enough server -- POST to
+/api/v2/triageAttributes, measured by the coverity-triage thread on a
+Connect 2026.9.0 instance.  An earlier version of this docstring said REST
+could not, reasoning from /api/v2/checkerAttributes exposing only
+displayType, displayCategory and checker; that endpoint does, but it was
+the wrong one to generalise from.  SOAP stays here because it works across
+the versions this skill has been run against.
 
 The accepted attributeType spellings are STRING and LIST_OF_VALUES, from
 the platform API reference's "Attribute type (attributeType)" table -- not
