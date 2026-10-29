@@ -35,7 +35,7 @@ flowchart TB
     CV -->|"verified capture"| BF
     PO -->|"body"| FS
     PO -->|"candidates"| TR
-    DM -->|"findings, if chosen"| TR
+    DM -.->|"a published dataset,<br/>triaged separately"| TR
     TR -->|"execution method"| VE
     VE -->|"slice set, TU manifest"| FS
     BF -->|"build held constant"| IT
@@ -236,17 +236,15 @@ tool, or preparing a demo, POC or training instance.
 flowchart LR
     C["capture and analyze<br/>every release"] --> P["select versions and streams<br/>offline (merge-key arithmetic)"]
     P --> K["commit oldest-first<br/>--backdate"]
-    K --> Q{"Triage?<br/>(asked, never assumed)"}
-    Q -->|"no"| PUB["publish the dataset, untriaged"]
-    Q -->|"which findings, which methods"| TR["coverity-triage"]
-    TR --> PUB
+    K --> PUB["publish the dataset"]
+    PUB -.->|"verdicts, if you want them:<br/>run separately"| TR["coverity-triage"]
 ```
 
 - `coverity-demo-data` builds the history: one stream per branch, commits in
   global date order, the commit phase guarded because first-detected dates can
   be written only once.
-- Triage is optional and never automatic. The skill asks which findings, if
-  any, go to `coverity-triage`.
+- It does not triage. If you want verdicts on a published dataset's findings,
+  run `coverity-triage` against it yourself.
 
 ## Upgrade Coverity without confusing tool changes with code changes
 
@@ -320,7 +318,7 @@ and which came from a CWE with no mapping.
 | `coverity-compiler-configuration` | template configurations; cross-compilers, embedded toolchains and wrappers; diagnosing and regenerating a tainted configuration | verifying the capture; judging the build | `coverity` (capture verification) |
 | `coverity-build-fidelity` | native vs `cov-build` comparison of the product; capture coverage; a release-gate verdict and a profile draft | guessing at unexplained differences (it escalates to a person); work where the build cannot run | `coverity-recreate-from-emit` when the build cannot run |
 | `coverity-defect-detectability` | an empirical detectability verdict; the minimal configuration; a repro command | triaging real findings; speculating about what a checker would do instead of running it | `coverity-triage` for verdicts on findings |
-| `coverity-demo-data` | a multi-version history with real release dates; streams per branch; guarded oldest-first commits; a self-contained published dataset | triaging on its own or by default; the customer narrative; backdating triage history | `coverity-triage`, when the user chooses |
+| `coverity-demo-data` | a multi-version history with real release dates; streams per branch; guarded oldest-first commits; a self-contained published dataset that keeps each release's findings export and capture inventory | triaging, on request or otherwise (run `coverity-triage` on a published dataset yourself); the customer narrative; backdating triage history | nothing: triage is run separately |
 | `coverity-pathout` | which functions reached the path bound and which checker; the shape catalogue there; the cost of raising the bound; restructuring; a priced pilot before a large run | judging its candidates; analyzing an idir from a version that is not installed (it stops and asks) | `coverity-function-slice` for bodies; `coverity-triage` for candidates, through its own shape table (method: execution through `coverity-verify`, extraction route); anything that lands elsewhere goes to the user |
 | `coverity-function-slice` | one function from the AST; a standalone file that compiles and analyzes; an obfuscated twin with proof; a manifest of a whole translation unit for the harness route | deciding whether a finding is real | `coverity-pathout`, `coverity-verify` (its callers) |
 | `coverity-verify` | an execution verdict on one finding, on the caller's preferred route (harness by default, or extraction), with its tier, the route and the evidence; the fix check | injection, resource and concurrency claims (it suggests external verification); switching route on its own; triaging a batch by reading | `coverity-function-slice` for the slice set and the translation-unit manifest |
