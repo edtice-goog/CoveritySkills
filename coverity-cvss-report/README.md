@@ -62,6 +62,15 @@ out, which is why this is a tool and not a table.
 `SKILL.md` has the detail, including the two consequences of marking
 `CVSS_Audited = Yes` and how to undo it.
 
+Every step that writes to Connect reports what it would do and stops with
+exit status 3 unless `--yes` is passed, per rule 38: the tools do not guess
+at whether anyone is watching, so the asking happens in the session with
+the user and `--yes` records the answer. An unattended run therefore yields
+the audit and the choice and no writes — `mark` still prints the
+(a)/(b)/(c) split and writes its CSV, then stops before touching Connect.
+`--yes` authorizes a write already asked for; it does not make an opt-in
+step automatic (rule 26).
+
 ## What a real run established
 
 Two snapshots of the same C fixtures against Connect 2025.12.0 with Reports

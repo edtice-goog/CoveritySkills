@@ -585,6 +585,7 @@ Compare the three frozen results. Let **C** be the expected product set,
 | `A` matches `C`, B empty, every `capture-percentage` 100 | Capture is sound | `CONSISTENT` |
 | `A` much smaller than `C`, B empty | **The build did not compile them.** Incremental build with nothing to do, compiler-cache hits, wrong target, or a build that failed early and continued | Clean the tree and re-capture. The most common real failure |
 | `A` much smaller than `C`, B non-empty | Unconfigured compiler | `coverity-compiler-configuration` |
+| `A` short of `C` by exactly the files carrying one compiler flag, B empty, exit status 0 | **An unsupported compiler option.** The front end refuses the TU; the real compiler still runs, so the object and the binary appear | `SHORTFALL`. See below -- no build-success check can see this |
 | `A` near zero while the build reported success, B empty | **Vacuous capture.** A no-op incremental build, a build delegating to a persistent daemon or compile server (MSBuild node reuse, Gradle daemon), or `--record-only` with no `--replay` | `VACUOUS`. Never report as a pass |
 | `A` larger than `C` | Denominator inflation -- build probes, tests, generated or third-party sources | `SURPLUS`. Benign; name the surplus rather than celebrating the count |
 | `A` matches `C` but `had-recoverable-errors`, or `coverity list` says `Incomplete` | **Partial parse.** The TU is analyzed with individual functions missing — and `capture-percentage` may still read 100 | `DEGRADED`. Name the functions from the capture log's `#1563` warnings; a prime cause of "Coverity missed my defect" |
@@ -593,6 +594,61 @@ Compare the three frozen results. Let **C** be the expected product set,
 | "Captured files not found on disk" non-empty | Stale idir, cleaned generated code, or path drift | Distrust the idir until explained |
 | B non-empty but `A` matches `C` | A compiler-shaped binary that compiled nothing product-relevant | Usually benign; name it |
 | Analyzed count much smaller than `A` | Capture fine; **analysis** scoped down | Not a capture defect. `coverity-defect-detectability` |
+
+### An unsupported compiler option drops the TU, and the build still succeeds
+
+Coverity's front end rejects some compiler options outright. A translation
+unit compiled with one is **not captured at all** -- and because `cov-build`
+still runs the real compiler, the object file appears, the link succeeds, the
+binary is produced, and the exit status is 0. The only places it shows are the
+emitted count and the capture log.
+
+Measured twice, on two releases, same source file both arms:
+
+| | without the option | with `-fpermissive` |
+|---|---|---|
+| `cov-build` exit status | 0 | **0** |
+| object file produced | yes | **yes** |
+| console | `Emitted 1 C/C++ compilation units (100%) successfully` | `Emitted 0 C/C++ compilation units (0%) successfully` |
+| `cov-manage-emit list` | the file | `(no ASTs) (failure)` |
+
+`idir/build-log.txt` carries the reason, and it names the mechanism rather
+than the one flag:
+
+```
+[ERROR] While compiling "clean.cpp": The following option is not supported in the current release:
+	-fpermissive
+Using these options may lead to invalid or misleading analysis
+results. This error may be suppressed by setting ...
+```
+
+Three things follow, and they are why this belongs in a capture check rather
+than a build check:
+
+- **The flag alone is enough.** The file above needs nothing relaxed -- it
+  compiles cleanly either way. Whether the code requires the option is
+  irrelevant; carrying it is what drops the TU.
+- **A native pre-build cannot reveal it,** because the native compile
+  succeeds. Neither can exit status, the link, or comparing binaries: all four
+  agree across both arms. Only expected-versus-emitted disagrees.
+- **The shortfall is shaped like the flag.** Where a project applies the
+  option to part of the tree -- an era-compatibility `CXXFLAGS`, a
+  per-directory Makefile -- the missing files are exactly the ones it touched,
+  and the percentage is partial rather than zero. That is the quiet case of
+  rule 9: loud enough to see if you are counting, invisible if you are not.
+
+"in the current release" is the tool's own wording: the set of rejected
+options is release-dependent, so treat the specific flag as an instance and
+the mechanism as the finding. Do not keep a list of flags -- read the capture
+log.
+
+**The suppression variable is not a fix.** The error names an environment
+variable that silences it. Suppressing means the analysis proceeds over a
+translation unit the front end said it could not model faithfully, so results
+from it should not be trusted; it was not tested here, and nothing in this
+repo relies on it. If a project builds only with a rejected option, the honest
+outcomes are to build it without the option or to put the component out of
+scope and say so -- not to silence the error.
 
 ### Grades
 
