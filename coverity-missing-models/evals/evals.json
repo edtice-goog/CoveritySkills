@@ -1,0 +1,102 @@
+{
+  "skill_name": "coverity-missing-models",
+  "evals": [
+    {
+      "id": 0,
+      "eval_name": "false-positive-from-triage",
+      "prompt": "coverity-triage gave us three FORWARD_NULL records as 'false positive - global invariant'. Each says the null branch calls fail_hard(), which never returns because it exits through exit_hook, installed at startup. Can we stop these coming back? The idir is analyzed with Coverity 2026.9.0 (fixture: evals/fixtures/killpath/fail_hard.c).",
+      "expected_output": "Identifies the invariant as a fact about one function (fail_hard never returns), so a model question; checks fail_hard is not already modeled from the library (tools/models.py inventory) and reads its derived model (cov-find-function --save: only escape(<arg 0>), no edge ending the path); writes a model calling only __coverity_panic__() with a header stating the invariant, where it is enforced and what breaks it; builds it with cov-make-library; before re-analyzing says one iteration is a full re-analysis of a copy and asks; re-analyzes a copy with the original options and --model-file; runs models.py compare with --model-source, --expect gone=<the false positive> and --expect kept=<a real FORWARD_NULL that does not go through fail_hard>; reports that fail_hard took user1, the code analyzed is unchanged, the false positive is gone, the real one kept, nothing else moved.",
+      "assertions": [
+        "Models fail_hard, not the function the finding is in",
+        "The model only ends the path; it adds no other behaviour",
+        "Asks before the re-analysis, naming its cost",
+        "Re-analyzes a copy, not the original idir, with the original options",
+        "Checks that the model applied (user1 in callgraph metrics), not only that the finding is gone",
+        "Checks a real finding of the same shape is kept"
+      ]
+    },
+    {
+      "id": 1,
+      "eval_name": "escape-arena-owner",
+      "prompt": "Our fuzzer found a use-after-free: use_after_close() reads d->len after doc_close(d), and doc_close destroys the doc's arena. Coverity 2026.9.0 reported nothing. Write whatever model is needed. (fixture: evals/fixtures/arena/arena.c)",
+      "expected_output": "First rules out capture, a disabled checker, an option, and the path bound; reads arena_destroy's derived model (escape_to_global of the blocks, no free) and concludes a model question; explains that modeling arena_destroy as a free would not reach d, because d is an object inside the arena, not an alias of it; models doc_close as __coverity_free__(d) with the real early return on NULL, after confirming in doc_open that the doc is the first allocation of the arena doc_close destroys; re-analyzes a copy and runs compare with --expect new=arena.c:164:USE_AFTER_FREE and --expect silent=arena.c:177 (the open twin); reads every other finding that moved.",
+      "assertions": [
+        "Rules out capture, checker, option and path bound before blaming a model",
+        "Models doc_close (the owner), not only arena_destroy",
+        "Keeps doc_close's early return on NULL",
+        "Uses the open twin as a canary that must stay silent",
+        "Reads every new and gone finding, not only the target"
+      ]
+    },
+    {
+      "id": 2,
+      "eval_name": "dropped-side-effect",
+      "prompt": "I modeled arena_destroy() as __coverity_free__(a) so that arena use-after-free shows up. Now there's a double free reported in arena_clear(), in while (a->subs) arena_destroy(a->subs). Real?",
+      "expected_output": "Says it is caused by the model: the real arena_destroy unlinks its argument from the parent's list of children, so the loop advances; the bare model drops that side effect because a user model replaces the derived model entirely. Offers to restate the unlink in the model (measured to remove the double free), or to model the owner's release function instead and leave arena_destroy unmodeled; checks the result with compare.",
+      "assertions": [
+        "Attributes the double free to the model, not the code",
+        "Names the dropped behaviour (the unlink) by reading arena_destroy",
+        "Offers restating the side effect or modeling at the owner",
+        "Does not dismiss it without reading the real function"
+      ]
+    },
+    {
+      "id": 3,
+      "eval_name": "not-a-model",
+      "prompt": "Triage marked a NULL_RETURNS on strchr(s, ':') as a false positive: it is only reached when s starts with \"syslog:\". Write a model of strchr so this stops.",
+      "expected_output": "Declines to model strchr: the invariant is a relation between the caller's values, not a behaviour of strchr, and a model saying strchr never returns NULL would hide real defects at every other call. Suggests an assertion or code change at the site, or leaving the finding triaged.",
+      "assertions": [
+        "Does not write a never-NULL model of strchr",
+        "Explains the invariant is not a property of the function",
+        "Names the alternative: assertion, code change, or the triaged record"
+      ]
+    },
+    {
+      "id": 4,
+      "eval_name": "built-in-name-collision",
+      "prompt": "A pen test found a null dereference right after a call to our error() function, which logs and returns. Coverity never reported it. (fixture: evals/fixtures/collision/report.c, Coverity 2026.9.0)",
+      "expected_output": "Runs tools/models.py inventory and finds error() analyzed with a built-in model (hasImplementation true, models built-in and implementation); explains that Coverity ships a model for error() that ends the path, and built-in models outrank the code; reads the project's error() to confirm it returns; writes a user model restating what it really does (calls log_msg and returns); re-analyzes a copy and expects the FORWARD_NULL at report.c:19 to be new; suggests reviewing every other function the inventory lists under the same heading.",
+      "assertions": [
+        "Finds the collision from callgraph metrics, not by guessing",
+        "Reads the project's error() before overriding the built-in model",
+        "The model restates the real behaviour rather than an empty body that drops the call",
+        "Points at the other functions the inventory lists"
+      ]
+    },
+    {
+      "id": 5,
+      "eval_name": "silent-no-op",
+      "prompt": "I wrote a model, cov-make-library said 1 models successfully merged, and I re-ran cov-analyze with --model-file. Nothing changed. Is the model wrong?",
+      "expected_output": "Checks whether the model applied before judging its content: callgraph-metrics.json.gz of the re-analyzed copy should show the function's models as userN and list the library under modelFiles; when it does not, the model's name matches no function (a misspelling, a static function, a C++ signature mismatch). Notes that neither tool warns about this.",
+      "assertions": [
+        "Looks for userN in callgraph metrics (or runs models.py compare with --model-source)",
+        "Names name mismatch as the likely cause, including C++ mangling",
+        "Does not start rewriting the model's behaviour before checking it applied"
+      ]
+    },
+    {
+      "id": 6,
+      "eval_name": "unattended",
+      "prompt": "(non-interactive, scheduled run) Here are the triage records for last night's analysis. Turn the global-invariant false positives into models.",
+      "expected_output": "Does the free steps: reads the records, decides which are model questions, runs the inventory, writes the models with their headers, builds the library; does not start a re-analysis; reports what was written, the commands that copy and re-analyze the idir and run compare, and which records were not model questions and why; stops.",
+      "assertions": [
+        "Does not start a re-analysis unattended",
+        "Writes and builds the models, with headers",
+        "Reports the exact commands to continue",
+        "Says which records were not model questions"
+      ]
+    },
+    {
+      "id": 7,
+      "eval_name": "record-the-lesson",
+      "prompt": "The model worked and we're keeping it. What do we record, and where?",
+      "expected_output": "The model source with its header goes into the project's source control beside the analysis configuration, with a short log (trigger, version, counts per checker, target, canary, the call on each finding that moved); every analysis passes --model-file, and the library is rebuilt on each Coverity upgrade. If the lesson holds beyond this codebase, it is added to references/idioms.md in neutral words with a fixture and a run.sh case, marked measured or reasoned, carrying nothing from the codebase.",
+      "assertions": [
+        "Keeps the model source, not only the library",
+        "Says the library must be rebuilt on upgrade",
+        "Separates the project's record from a generic idiom entry",
+        "The idiom entry carries no names from the codebase and has a fixture"
+      ]
+    }
+  ]
+}
