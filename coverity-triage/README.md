@@ -16,7 +16,7 @@ question triage has to answer depends on the kind of claim:
 
 **Most findings get their lane from a checker table**, with no model
 involved: one row per checker, covering the C checkers of Coverity
-2025.9.0. **Inference runs only for the few checkers whose findings vary**,
+2025.9.0 and eleven C++-only checkers. **Inference runs only for the few checkers whose findings vary**,
 and chooses among that checker's candidate lanes. A custom checker is placed
 once, with a row of its own, and a producer can ship the rows for its
 checkers.

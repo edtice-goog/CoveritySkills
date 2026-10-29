@@ -220,9 +220,10 @@ rules below in full.
 
 1. **From the checker table, with no model.** A finding whose checker has a
    fixed lane takes it. The skill's table covers the checkers whose
-   languages include C in Coverity 2025.9.0. An organization's own table,
-   or a producer's rows for its custom checkers, follows it through
-   `--table`, and a later row replaces an earlier one.
+   languages include C in Coverity 2025.9.0, and eleven C++-only checkers.
+   An organization's own table, or a producer's rows for its custom
+   checkers, follows it through `--table`, and a later row replaces an
+   earlier one.
 2. **Inference, only where the table gives candidates.** For a checker whose
    findings vary (NEGATIVE_RETURNS: a callee's negative return, or a
    variable tested negative), `lanes.py` leaves the finding pending with its
@@ -231,9 +232,11 @@ rules below in full.
    deciding events. It never returns a verdict. It runs on the plan's
    `assigner` model, which the plan has fixed: the step reads event traces,
    and a misrouted finding gets the wrong method.
-3. **A custom checker with no row is placed once**, not per finding. Its
-   row comes from the producer's rows if it ships any, from the built-in
-   checker it stands in for, or from its description. A checker that is
+3. **A checker with no row is placed once**, not per finding: a custom
+   checker, or a built-in one the table lacks (another language's, or a
+   C++-only checker not yet covered). Its row comes from the producer's
+   rows if it ships any, from the built-in checker it stands in for, or
+   from its description. A checker that is
    noisy by design, built to be verified, carries the method
    `Execution: coverity-verify` in its row. Interactive, show the proposed
    rows and ask; otherwise report them and stop (rule 38). Either way, write
@@ -536,7 +539,7 @@ coverity-triage/
 ├── CALIBRATION.md               # what was run, on what, and what was not
 ├── references/
 │   ├── lanes.md                 # the six lanes, the tests, the table, custom checkers, methods
-│   ├── checker-lanes.json       # the checker table: C checkers in Coverity 2025.9.0
+│   ├── checker-lanes.json       # the checker table: C checkers in Coverity 2025.9.0, some C++
 │   ├── reading.md               # the reading method: each lane's questions, the verdict set
 │   └── records.md               # the table format, run.json, lanes.json, verdict files, triage.json
 ├── tools/

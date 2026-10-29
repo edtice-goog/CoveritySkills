@@ -42,7 +42,8 @@ report: Policy is decided, Other is unplaced.
 table, then writes `lanes.json`:
 
 1. **The table.** It starts from the skill's own `checker-lanes.json` (the
-   checkers whose languages include C, Coverity 2025.9.0). Each `--table`
+   checkers whose languages include C, Coverity 2025.9.0, and eleven
+   C++-only checkers). Each `--table`
    file is read after it, in order, and a later row replaces an earlier one
    for the same checker. An organization keeps its own table this way, and a
    producer of custom checkers ships the rows for its own.
@@ -72,7 +73,10 @@ and for choosing among a row's candidates. Take the first that answers yes.
    no claim that the code misbehaves?** That is **Policy**. The test: if the
    checker asserts anything that could turn out untrue (that a value is a
    secret, that a path reaches a sink), it gets triage, and it is not
-   Policy.
+   Policy. A performance finding (a copy where a move would do, a large
+   parameter passed by value) is Policy even when its premise could be
+   checked: the code is correct either way, so triage has no question to
+   answer.
 3. **Is the behaviour wrong or undefined for some input the code can
    receive, judged from types, declared sizes or the shape of a call, with
    no particular value needed?** **Construction.** This includes a construct

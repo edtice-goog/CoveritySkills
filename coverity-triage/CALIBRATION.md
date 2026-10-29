@@ -221,14 +221,22 @@ what is reasoned rather than measured.
   cites, found every argument held. That is a reading, not a reference. The
   run tested the mechanics.
 - **The checker table.**
-  - Its 96 rows were placed from each checker's description in the
+  - Its 96 C rows were placed from each checker's description in the
     2025.9.0 checker reference, not from findings. Only 13 of them have met
     real findings, all on proftpd.
+  - Eleven C++-only rows were added when a C++ analysis (Coverity 2026.9.0,
+    defaults plus `--security --distrust-all`) reported checkers the table
+    did not have. Each was placed from its description in the 2026.9.0
+    checker reference, with the events of one finding read. Four of them
+    are performance checkers (COPY_INSTEAD_OF_MOVE, UNNECESSARY_STRING_COPY,
+    AUTO_CAUSES_COPY, MISSING_MOVE_ASSIGNMENT), placed in Policy like
+    PASS_BY_VALUE; UNINIT_CTOR is Intent, since it reports a member left
+    unset, not a read of it.
   - Which checkers vary enough to need candidates, and which candidates
     they get, is reasoned from those descriptions.
-  - Checkers outside C (and C++-only checkers) have no rows yet. A finding
-    from one is unplaced, and its checker is placed once before anything
-    runs.
+  - Checkers outside C have no rows yet, nor do the other C++-only
+    checkers. A finding from one is unplaced, and its checker is placed
+    once before anything runs.
 - **The Intent lane's questions.** No reader has run them yet.
 - **Policy.** No Policy finding has gone through; none fired on proftpd at
   analysis defaults.
