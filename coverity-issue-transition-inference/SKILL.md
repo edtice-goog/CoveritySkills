@@ -241,17 +241,35 @@ Three mechanics that decide whether it works, all of them measured in
 this summary:
 
 - `--backdate` takes `yyyymmdd` and nothing else.
-- `date_originated` is **global per merge key and write-once**. A later
-  backdate cannot move it, so a column spanning several releases must be
-  committed **oldest first**, each release carrying its own date.
+- `date_originated` is **per CID, global to the instance, and write-once** --
+  set from the backdate only **for merge keys not previously seen**. So a
+  column spanning several releases must be committed **oldest first**, each
+  release carrying its own date.
 - The snapshot's code must be pinned to one known date. Do not backdate a
   snapshot that mixes code versions -- within one release the code is fixed and
   the date is a fact; across releases it is a guess.
 
-This also answers what to do with a regenerated corpus: a new-analyzer column
-over the same releases wants its own project or stream, committed oldest-first
-with each release's own `--backdate`. The separation keeps each column readable
-on its own, and the backdating keeps the dates true within it.
+**Write-once is why this works, not a limitation of it.** The findings that
+need a date are the version-attributable ones, whose merge keys the instance has
+never seen -- so the backdate sets them. The findings already present under the
+old analyzer keep the dates they already had, because a later backdate cannot
+move them, and those dates were already correct. The no-op falls exactly on the
+findings that did not need fixing.
+
+**A separate stream is for rule 29, not for dates.** It does not give the new
+column its own first-detected dates: `date_originated` hangs off the per-CID
+record for the whole instance, and merge keys are mostly stable across analyzer
+versions, so a shared finding carries one date no matter which stream or project
+it is committed into. Genuinely independent dates would need a separate Connect
+instance. What the separate stream buys is a timeline that does not lie: the
+control run is *older code committed later*, so putting it in the user's
+existing stream moves that stream backwards and makes every finding absent from
+it read as fixed (rule 29).
+
+That part is **reasoned, not measured.** The write-once behaviour was measured
+across three snapshots in one stream; the cross-stream consequence follows from
+where `date_originated` lives and has never been run. If a decision rests on
+it, measure it first -- it is cheap.
 
 ### Step 7. Report
 
