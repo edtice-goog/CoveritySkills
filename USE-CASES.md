@@ -37,7 +37,7 @@ flowchart TB
     PO -->|"candidates"| TR
     DM -->|"findings, if chosen"| TR
     TR -->|"execution method"| VE
-    VE -->|"target"| FS
+    VE -->|"slice set, TU manifest"| FS
     BF -->|"build held constant"| IT
     RE -->|"old code, new analyzer"| IT
 ```
@@ -79,16 +79,19 @@ fields and a record of which lane and method produced it.
 ```mermaid
 flowchart LR
     IN["Findings<br/>a sample, a story's findings,<br/>or another skill's batch"] --> P{"Plan chosen?<br/>which findings,<br/>which method per lane"}
-    P -->|"no: show the counts, ask"| P
+    P -->|"no"| Q["ask when interactive;<br/>otherwise report and stop"]
     P -->|"yes"| A{"Assign a lane<br/>checker table first,<br/>inference where it varies"}
+    A -.->|"no row"| PC["a custom checker:<br/>place it once,<br/>in a table you keep"]
+    PC -.-> A
     A -->|"construction"| L1["Construction lane<br/>is the construct there?"]
     A -->|"intent"| LI["Intent lane<br/>did the author mean this?"]
     A -->|"contract"| L2["Contract lane<br/>what does the callee promise?"]
     A -->|"value or path"| L3["Value-or-path lane<br/>is the path feasible, the value handled?"]
-    A -->|"policy"| PO["Policy<br/>a rule-set match: lane only"]
-    A -->|"other"| O["Other<br/>no verdict"]
-    L3 -.->|"when the plan says execution"| VE["coverity-verify"]
-    L1 & LI & L2 & L3 & VE --> R[("Records<br/>Classification, Action, Severity, Comment<br/>+ Triage lane, Triage method")]
+    A -->|"policy"| PO["Policy<br/>a rule-set match: never triaged"]
+    A -->|"other"| O["Other<br/>no method, no verdict"]
+    L1 & LI & L2 & L3 --> M["Method<br/>your choice for the finding,<br/>else the checker's own,<br/>else the lane's"]
+    M -.->|"execution"| VE["coverity-verify"]
+    M & VE --> R[("Records<br/>Classification, Action, Severity, Comment<br/>+ Triage lane, Triage method")]
     PO & O --> R
 ```
 
@@ -109,15 +112,22 @@ flowchart LR
     the code at all (a parse error is a capture problem, for the `coverity`
     skill); no verdict.
 - Most checkers make one kind of claim, so a checker table assigns the lane;
-  the findings of the few checkers whose claims vary are assigned by reading
-  the events.
-- Each lane's method is chosen separately: a reading by a model you name,
-  execution through `coverity-verify` for the value-or-path lane, or a person.
-  Different lanes can use different models. Intent findings are well-defined
-  code with nothing to crash, so they are read, not executed. Policy and Other
-  take no method.
+  only the findings of the few checkers whose claims vary are assigned by
+  reading the events.
+- A custom checker the table does not know is placed once, before anything
+  runs: from rows its producer ships, from the built-in checker it stands in
+  for, or from its description. You see the proposed rows, and they go into a
+  table file you keep, so the next run asks nothing.
+- Each lane has a preferred method: a reading by a model you name, execution
+  through `coverity-verify`, or a person. Different lanes can use different
+  models. A checker built for one method keeps it whatever its lane, and your
+  choice for a single finding overrides both. No lane rules a method out:
+  Intent findings are well-defined code with nothing to crash, so a reading
+  suits them, but nothing forbids another method. Policy takes no method,
+  ever; Other takes none unless you give one to a finding, with the reason.
 - Nothing runs until you have chosen which findings and which methods, because
-  every method costs time per finding.
+  every method costs time per finding. Run unattended, it assigns what the
+  table can, then reports the plan it needs and stops.
 - A skill that hands its findings over can say which lane it expects. A
   finding that lands elsewhere is reported to you before any method runs.
 - The output is a records file in Connect's attribute names. Applying it to
@@ -135,16 +145,32 @@ only silenced the analyzer.
 flowchart LR
     F["A finding<br/>CID or findings-file entry"] --> D{"A claim a sanitizer or<br/>an assertion can judge?"}
     D -->|"no: injection, resource,<br/>concurrency"| X["suggest external verification"]
-    D -->|"yes"| S["coverity-function-slice<br/>the function, standalone"]
-    S --> M["stubs from Coverity's own<br/>models of the callees"]
-    M --> Z["fuzz: focused, then free"]
-    Z --> V["verdict with its tier<br/>and the evidence"]
+    D -->|"yes"| RT{"Router: does the caller's<br/>preferred route apply?<br/>(harness by default)"}
+    RT -->|"harness"| H["the whole translation unit,<br/>compiled with its recorded flags,<br/>a driver linked in; model stubs<br/>only for what it does not define"]
+    RT -->|"extraction"| S["coverity-function-slice<br/>the slice set, standalone;<br/>model stubs outside it"]
+    RT -->|"it does not apply"| Q["ask when interactive;<br/>otherwise report and stop"]
+    H & S --> Z["fuzz: focused, then free"]
+    Z --> V["verdict with its tier,<br/>the route and the evidence"]
     FX["a fix in hand"] -.-> K["the fix check:<br/>fixed, or silenced?"]
     V -.-> K
 ```
 
-- `coverity-verify` does this, using `coverity-function-slice` for the target.
-- Run on a batch, verification is one lane method of `coverity-triage`.
+- `coverity-verify` does this. Its one method runs on one of two routes,
+  with the same verdict tiers on both:
+  - **Harness:** the translation unit's real source, compiled as the build
+    compiled it, with a driver linked in and the original function run
+    unchanged. Only the externals the unit does not define are stubbed, from
+    Coverity's own models of them. It is the cheaper route and the default.
+  - **Extraction:** the slice set from the emit, printed by
+    `coverity-function-slice`, with every callee outside the set stubbed from
+    its model. It is for a program the harness route cannot take, or a defect
+    type that has been shown to need it.
+- The caller names the route it prefers; a user whose program does not suit
+  the harness route overrides it for that program. When the preferred route
+  does not apply, the router never switches on its own: it asks in an
+  interactive session, and otherwise reports why and stops.
+- Run on a batch, verification is one method of `coverity-triage`, and a
+  checker's table row can carry the route it prefers.
 
 ## Look where the analyzer reached its path bound
 
@@ -160,7 +186,7 @@ flowchart LR
     W --> SC["path-insensitive shape catalogue<br/>over the idir, kept to those functions"]
     SC --> C["candidates"]
     C --> A{"coverity-triage<br/>assign a lane<br/>(expected: value or path)"}
-    A -->|"value or path"| VE["coverity-verify<br/>run it"]
+    A -->|"value or path"| VE["coverity-verify<br/>run it, harness route preferred"]
     A -->|"anything else"| Q{"Told before anything runs;<br/>you choose"}
     Q -->|"verify anyway,<br/>where realistic"| VE
     Q -->|"that lane's reader"| RD["reading"]
@@ -286,9 +312,9 @@ and which came from a CWE with no mapping.
 | `coverity-defect-detectability` | an empirical detectability verdict; the minimal configuration; a repro command | triaging real findings; speculating about what a checker would do instead of running it | `coverity-triage` for verdicts on findings |
 | `coverity-demo-data` | a multi-version history with real release dates; streams per branch; guarded oldest-first commits; a self-contained published dataset | triaging on its own or by default; the customer narrative; backdating triage history | `coverity-triage`, when the user chooses |
 | `coverity-pathout` | which functions reached the path bound and which checker; the shape catalogue there; the cost of raising the bound; restructuring; a priced pilot before a large run | judging its candidates; analyzing an idir from a version that is not installed (it stops and asks) | `coverity-function-slice` for bodies; `coverity-triage` for candidates, expecting value or path with `coverity-verify`; anything else goes to the user |
-| `coverity-function-slice` | one function from the AST; a standalone file that compiles and analyzes; an obfuscated twin with proof | deciding whether a finding is real | `coverity-pathout`, `coverity-verify` (its callers) |
-| `coverity-verify` | an execution verdict on one finding (fuzzing under model stubs) with its tier and evidence; the fix check | injection, resource and concurrency claims (it suggests external verification); triaging a batch by reading | `coverity-function-slice` for the target |
-| `coverity-triage` | a lane per finding (construction, intent, contract, value or path, policy, other), from a checker table where the checker decides it; a method and model per lane; records in Connect's fields plus Triage lane and Triage method; policy findings recorded, not triaged | choosing the findings; writing to Connect; severity beyond "low"; exploitability; Connect's AI-Assisted Triage; demo-worthiness | `coverity-verify` for the execution method |
+| `coverity-function-slice` | one function from the AST; a standalone file that compiles and analyzes; an obfuscated twin with proof; a manifest of a whole translation unit for the harness route | deciding whether a finding is real | `coverity-pathout`, `coverity-verify` (its callers) |
+| `coverity-verify` | an execution verdict on one finding, on the caller's preferred route (harness by default, or extraction), with its tier, the route and the evidence; the fix check | injection, resource and concurrency claims (it suggests external verification); switching route on its own; triaging a batch by reading | `coverity-function-slice` for the slice set and the translation-unit manifest |
+| `coverity-triage` | a lane per finding (construction, intent, contract, value or path, policy, other), from a checker table where the checker decides it; a custom checker placed once, in a table you keep; a method and model per lane, which a checker's own method overrides; records in Connect's fields plus Triage lane and Triage method; policy findings recorded, not triaged | choosing the findings; writing to Connect; severity beyond "low"; exploitability; Connect's AI-Assisted Triage; demo-worthiness | `coverity-verify` for the execution method |
 | `coverity-issue-transition-inference` | the control run; per-finding code-vs-analyzer attribution; annotation, after asking how | comparing raw merge keys (Connect lines findings up); vendor-level cause as the headline | `coverity-build-fidelity`, `coverity-recreate-from-emit` for the control |
 | `coverity-recreate-from-emit` | an analyzable idir without the original build; fast-forward and local-update reuse, behind gates | reuse when a gate fails; the default path when the build can run | `coverity-issue-transition-inference` (its consumer) |
 | `coverity-cvss-report` | the report per the documentation; an audit of which scores were judged; the CVSS_Audited attribute | writing a security profile; judging exploitability | `coverity-verify` for whether a finding is real and reachable |
