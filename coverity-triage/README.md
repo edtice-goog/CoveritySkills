@@ -59,12 +59,18 @@ and "no triage" is always one of the answers. A dataset built by
 [coverity-demo-data](../coverity-demo-data/README.md) is triaged here as a
 separate step, when someone chooses to.
 
-**Write triage to Connect.** The output is a records file in Connect's own
-attribute names. Applying it, with or without the custom attributes, is the
-job of whoever owns the instance. `tools/connect_attributes.py` creates the
-two custom attributes, `Defect Category` and `Triage Method`, on an
-instance over REST. `check` reads and reports what is missing; `setup
---yes` is the only step that writes, and only the attribute definitions.
+**Getting the triage into Connect** is an optional last step, run when
+whoever owns the instance asks for it. The output is a records file in
+Connect's own attribute names, and two tools take it there over REST:
+
+- `tools/connect_attributes.py` creates the two custom attributes,
+  `Defect Category` and `Triage Method`. `check` reports what is missing;
+  `setup --yes` writes, and only the attribute definitions.
+- `tools/connect_apply.py` applies the records to one stream. Without
+  `--yes` it prints what it would change and changes nothing. It finds each
+  finding by merge key and writes only what differs. It leaves alone any
+  value someone already set, unless `--overwrite`. `--standard-only` leaves
+  the custom attributes out. After a write it reads the findings back.
 
 ## What the skill knows that saves time
 
@@ -105,10 +111,11 @@ coverity-triage/
 │   ├── bundle.py                # selection (--merge-key, --per-checker, --all), --plan, bundles
 │   ├── lanes.py                 # lanes from the checker table; pending and unplaced; check-table
 │   ├── records.py               # assemble (all checks before any write) and validate
-│   └── connect_attributes.py    # check / create Defect Category and Triage Method on a Connect
+│   ├── connect_attributes.py    # check / create Defect Category and Triage Method on a Connect
+│   └── connect_apply.py         # apply triage.json to a Connect stream: plan, --yes, read back
 └── evals/
     ├── evals.json               # behaviour: asks before spending, unattended stop, Policy, refusals
-    └── test_tools.py            # the three tools on a generated fixture, refusals and overrides included
+    └── test_tools.py            # the tools on a generated fixture and a fake Connect, refusals and overrides included
 ```
 
 ## Requirements
@@ -121,3 +128,6 @@ coverity-triage/
   Coverity version that wrote it, clang with libFuzzer and ASan).
 - For `connect_attributes.py` only: the Connect's URL and an auth key with
   permission to manage triage attributes.
+- For `connect_apply.py` only: the Connect's URL, the project and stream
+  the findings were committed to, and an auth key with permission to triage
+  in that stream's triage store.

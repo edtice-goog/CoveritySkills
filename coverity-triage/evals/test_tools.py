@@ -394,13 +394,15 @@ def main():
         assert len(c) <= 4000 and "shortened" in c
 
         attribute_cases = test_connect_attributes(work)
+        apply_cases = test_connect_apply(work, work / "good" / "triage.json")
 
         print("ok: bundle plan, bundles (git at the tag, form feed, two sites), 6 bundle refusals, "
               "the checker table and 11 bad rows, lanes from the table (fixed, candidates, "
               "unplaced, a producer's row), one assembly, a plan-level route, "
               + str(refusals) + " records refusals, verify in the Contract lane, expected-lane "
               "overrides, check-lanes, shortened comment, connect_attributes against a fake "
-              "Connect (" + str(attribute_cases) + " cases)")
+              "Connect (" + str(attribute_cases) + " cases), connect_apply against a fake "
+              "Connect (" + str(apply_cases) + " cases)")
         return 0
     finally:
         shutil.rmtree(work, ignore_errors=True)
@@ -412,7 +414,10 @@ class FakeConnect:
     def __init__(self, username, key):
         import http.server
         import threading
+        from urllib.parse import parse_qs, urlsplit
         self.attrs, self.writes = {}, []
+        # For connect_apply.py: streams, and issues as {cid: {column: value}}.
+        self.streams, self.issues, self.drop = {}, {}, None
         token = "Basic " + __import__("base64").b64encode(
             (username + ":" + key).encode()).decode()
         fake = self
@@ -439,7 +444,37 @@ class FakeConnect:
                 body = None
                 if method in ("POST", "PUT"):
                     body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-                    fake.writes.append((method, self.path, body))
+                    if not self.path.startswith("/api/v2/issues/search"):  # a search reads
+                        fake.writes.append((method, self.path, body))
+                url = urlsplit(self.path)
+                q = parse_qs(url.query)
+                if method == "GET" and url.path.startswith("/api/v2/streams/"):
+                    from urllib.parse import unquote
+                    s = fake.streams.get(unquote(url.path[len("/api/v2/streams/"):]))
+                    return self.reply(200, {"streams": [s]}) if s else self.reply(404, {})
+                if method == "POST" and url.path == "/api/v2/issues/search":
+                    project = next(f["matchers"][0]["name"] for f in body["filters"]
+                                   if f["columnKey"] == "project")
+                    if project not in {s["primaryProjectName"] for s in fake.streams.values()}:
+                        # measured: an unknown project is a 500 with this text, not an empty result
+                        return self.reply(500, {"message": "Project " + project + " not found"})
+                    off, n = int(q["offset"][0]), int(q["rowCount"][0])
+                    cids = sorted(fake.issues)
+                    rows = [[{"key": c, "value": (cid if c == "cid" else fake.issues[cid].get(c))}
+                             for c in body["columns"]] for cid in cids[off:off + n]]
+                    return self.reply(200, {"offset": off, "totalRows": len(cids),
+                                            "columns": body["columns"], "rows": rows})
+                if method == "PUT" and url.path == "/api/v2/issues/triage":
+                    names = {"Classification": "classification", "Action": "action",
+                             "Severity": "severity", "Comment": "lastTriageComment"}
+                    for cid in body["cids"]:
+                        for av in body["attributeValuesList"]:
+                            if av["attributeName"] == fake.drop:
+                                continue
+                            col = names.get(av["attributeName"],
+                                            "column_custom_" + av["attributeName"])
+                            fake.issues[str(cid)][col] = av["attributeValue"]
+                    return self.reply(200)
                 if method == "GET" and self.path.startswith("/api/v2/triageAttributes/"):
                     a = fake.attrs.get(self.name())
                     return self.reply(200, a) if a else self.reply(404, {"code": 1200})
@@ -540,6 +575,98 @@ def test_connect_attributes(work):
         wjson(work / "ak-empty", {"comments": {"host": "x"}})
         tool_run("check", "--url", fake.url, "--key-file", work / "ak-empty", code=1)
         assert len(fake.writes) == n, "a refused run wrote to the instance"
+        return cases
+    finally:
+        fake.close()
+
+
+def test_connect_apply(work, records):
+    """connect_apply.py against FakeConnect: plan, apply, idempotence, conflicts, refusals."""
+    tool = TOOLS / "connect_apply.py"
+    fake = FakeConnect("triager", "s3cret")
+    try:
+        key = work / "ak-apply"
+        wjson(key, {"username": "triager", "key": "s3cret",
+                    "comments": {"host": "elsewhere.invalid"}})
+        fake.streams["s1"] = {"name": "s1", "triageStoreName": "Store A",
+                              "primaryProjectName": "p1"}
+        default = {"classification": "Unclassified", "action": "Undecided",
+                   "severity": "Unspecified", "lastTriageComment": None,
+                   "column_custom_Defect Category": "Unassigned",
+                   "column_custom_Triage Method": "None"}
+        cid_of = {}
+        for n, mk in enumerate(("k1", "k3", "k4", "k5", "k6", "k7", "k8"), 1):  # k2 absent
+            cid_of[mk] = str(10000 + n)
+            fake.issues[cid_of[mk]] = dict(default, mergeKey=mk)
+        fake.issues[cid_of["k3"]]["classification"] = "Pending"   # someone triaged it
+        common = ["--url", fake.url, "--key-file", key, "--records", records,
+                  "--project", "p1", "--stream", "s1"]
+        cases = 0
+
+        def tool_run(*args, code, extra_tool=None):
+            nonlocal cases
+            cases += 1
+            p = subprocess.run([sys.executable, "-I", str(extra_tool or tool), *map(str, args)],
+                               capture_output=True, text=True)
+            assert p.returncode == code, (args, p.returncode, p.stdout, p.stderr)
+            return p
+
+        def puts():
+            return [w for w in fake.writes if w[0] == "PUT"]
+
+        tool_run(*common, code=1)          # the custom attributes do not exist yet
+        res = json.loads(tool_run(*common, "--standard-only", "--json", code=3).stdout)
+        assert all("Defect Category" not in e["set"] for e in res["plan"]), res
+        tool_run("setup", "--url", fake.url, "--key-file", key, "--records", records, "--yes",
+                 code=0, extra_tool=TOOLS / "connect_attributes.py")
+        n = len(fake.writes)
+        res = json.loads(tool_run(*common, "--json", code=3).stdout)
+        assert len(fake.writes) == n, "a plan-only run wrote"
+        by = {e["mergeKey"]: e for e in res["plan"]}
+        assert by["k2"]["status"] == "not-found" and by["k3"]["status"] == "conflict", by
+        assert by["k6"]["set"] == {"Defect Category": "Policy"}, by["k6"]   # Triage Method is None already
+        assert by["k1"]["status"] == "update" and "Comment" in by["k1"]["set"], by["k1"]
+
+        res = json.loads(tool_run(*common, "--yes", "--json", code=3).stdout)
+        assert res["applied"] and res["verified"] and res["requests"] == len(puts()), res
+        k1 = fake.issues[cid_of["k1"]]
+        rec1 = next(r for r in json.loads(pathlib.Path(records).read_text())["records"]
+                    if r["mergeKey"] == "k1")
+        assert k1["classification"] == "False Positive" and k1["action"] == "Ignore", k1
+        assert k1["lastTriageComment"] == rec1["triageState"]["comment"], k1
+        assert k1["column_custom_Defect Category"] == "Contract", k1
+        assert k1["column_custom_Triage Method"] == "LLM: Sonnet 5.5", k1
+        assert fake.issues[cid_of["k3"]]["classification"] == "Pending", "overwrote someone's triage"
+        assert all(cid_of["k3"] not in map(str, w[2]["cids"]) for w in puts())
+        assert all("triageStoreName=Store%20A" in w[1] for w in puts()), puts()
+
+        n = len(fake.writes)
+        tool_run(*common, "--yes", code=3)                    # again: nothing new, no second comment
+        assert len(fake.writes) == n, fake.writes[n:]
+        tool_run(*common, "--yes", "--overwrite", code=3)     # k3 now, k2 still absent
+        assert fake.issues[cid_of["k3"]]["classification"] == "Bug"
+        fake.issues["10099"] = dict(default, mergeKey="k2")
+        tool_run(*common, "--yes", code=0)                     # every record now applied
+        assert fake.issues["10099"]["column_custom_Triage Method"] == "Human"
+
+        # A value that does not take is caught on read-back.
+        fake.issues[cid_of["k3"]]["severity"] = "Unspecified"
+        fake.drop = "Severity"
+        tool_run(*common, "--yes", code=1)
+        fake.drop = None
+        # Refusals, each writing nothing.
+        n = len(fake.writes)
+        hv = fake.attrs["Triage Method"]["attributeValues"]
+        fake.attrs["Triage Method"]["attributeValues"] = [v for v in hv if v["name"] != "Human"]
+        tool_run(*common, "--yes", code=1)                     # a value the list lacks
+        fake.attrs["Triage Method"]["attributeValues"] = hv
+        wjson(work / "not-records.json", {"format": "something-else"})
+        tool_run(*common[:4], "--records", work / "not-records.json", "--project", "p1",
+                 "--stream", "s1", "--yes", code=1)
+        tool_run(*common[:6], "--project", "p1", "--stream", "nope", "--yes", code=1)
+        p = tool_run(*common[:6], "--project", "s1", "--stream", "s1", "--yes", code=1)
+        assert "primary project is 'p1'" in p.stderr, p.stderr
+        assert len(fake.writes) == n, fake.writes[n:]
         return cases
     finally:
         fake.close()

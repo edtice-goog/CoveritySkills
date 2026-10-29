@@ -373,10 +373,9 @@ dereferences"), and the two are set independently.
 They must exist on the instance, with every value the records use, before
 anything can set them. Whoever applies the records chooses, per apply,
 whether to set them or only the standard attributes. The records always
-carry both, so the choice is the applier's and not this skill's.
+carry both, so the choice is made at apply time (`--standard-only`).
 
-**Creating them: `tools/connect_attributes.py`** (SKILL.md, *Records, and
-getting them to Connect*).
+**Creating them: `tools/connect_attributes.py`** (SKILL.md, *Step 6*).
 
 - **The API it uses.** It works over REST at `/api/v2/triageAttributes`:
   POST creates an attribute, and GET or PUT on
@@ -396,3 +395,31 @@ getting them to Connect*).
 - **What it will not do:** delete or rename an attribute or a value, or
   change an attribute's type. An attribute that already exists with another
   type, or a needed value marked deprecated, stops it with a message.
+
+## Applying the records: `tools/connect_apply.py`
+
+SKILL.md, *Step 6*, gives the command and when to run it. Here is what it
+sends.
+
+- **Finding each record's finding.** A POST to `/api/v2/issues/search`,
+  filtered by the project and the stream, returns every finding in the
+  stream with its CID, merge key, Classification, Action, Severity, last
+  triage comment and the two custom attributes, in pages of 200. A merge key
+  that comes back with two CIDs stops the apply.
+- **The triage store.** A GET on `/api/v2/streams/<name>` gives the stream's
+  `triageStoreName`, and the write goes to that store.
+- **The write.** A PUT to `/api/v2/issues/triage?triageStoreName=<store>`
+  with `{"cids": [...], "attributeValuesList": [{"attributeName": ...,
+  "attributeValue": ...}]}`. The comment is the attribute `Comment`. One
+  request carries every finding that gets the same values.
+- **What each field becomes.** `triageState.classification`, `action`,
+  `severity` and `comment` go to Classification, Action, Severity and
+  Comment, and `customTriage` to the two custom attributes, by name. A null
+  is not sent.
+- **What counts as someone's triage.** Any value other than the attribute's
+  default: `Unclassified`, `Undecided`, `Unspecified`, `Unassigned` and
+  `None`. A comment is never a conflict. It is posted when it differs from
+  the finding's last triage comment, ignoring line endings and surrounding
+  white space.
+- **The read-back.** After the write, the same search runs again, and each
+  finding written must now hold every value its record sets.

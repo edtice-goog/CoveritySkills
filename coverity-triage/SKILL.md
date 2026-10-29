@@ -14,18 +14,19 @@ description: >
   "triage these findings", "triage a sample of this run", "classify these
   defects", "are these false positives", "triage before I hand this off",
   "triage in lanes", "which lane does this finding belong in", "place this
-  custom checker", "set Defect Category and Triage Method", and whenever
-  another coverity-* skill that produces findings hands them off for
-  verdicts. The skill never starts on a default: triage spends model time
-  per finding, so which findings and which method per lane are fixed by
-  the user (or by the calling skill, which asks its user) before anything
-  runs. Unattended, it reports what it needs and stops. It writes a records
-  file and never writes triage to a server. Whoever owns the Connect
-  instance applies the records, with or without the custom attributes, and a
-  setup tool creates those two attributes there on request. Needs the findings as
-  cov-format-errors JSON and the source at the analyzed version, from git
-  or, when there is no git source, from the intermediate directory itself.
-  No Coverity Connect, and no build.
+  custom checker", "set Defect Category and Triage Method", "apply the
+  triage to Connect", and whenever another coverity-* skill that produces
+  findings hands them off for verdicts. The skill never starts on a
+  default: triage spends model time per finding, so which findings and
+  which method per lane are fixed by the user (or by the calling skill,
+  which asks its user) before anything runs. Unattended, it reports what it
+  needs and stops. It writes a records file. On request, it then creates
+  the two custom attributes on a Connect instance and applies the records
+  there, writing nothing without an explicit yes and never overwriting
+  triage someone already set. Needs the findings as cov-format-errors JSON
+  and the source at the analyzed version, from git or, when there is no git
+  source, from the intermediate directory itself. No build, and Coverity
+  Connect only for the optional apply.
 ---
 
 # Coverity triage
@@ -86,7 +87,7 @@ flowchart LR
     V --> R[("Records file<br/>Classification, Action,<br/>Severity, Comment<br/>+ Defect Category, Triage Method")]
     PO --> R
     O --> R
-    R -.->|"applied by whoever<br/>owns the instance"| C["Coverity Connect"]
+    R -.->|"Step 6, on request:<br/>connect_apply.py"| C["Coverity Connect"]
 ```
 
 Read `coverity/RULES.md` first: rules 22, 23, 26, 30 and 38 carry most of
@@ -110,11 +111,10 @@ lane's method, and writes the records and a report.
   severity word, *low severity*, and nothing more.
 - **Second-guess a policy.** Policy findings carry their lane and nothing
   else.
-- **Write triage to Connect.** It writes a records file in Connect's
-  attribute names. Applying it, with or without the two custom attributes,
-  belongs to whoever owns the instance (*Records, and getting them to
-  Connect*). The one thing it writes to an instance, and only when asked, is
-  the definition of those two attributes.
+- **Write to Connect unasked.** It writes a records file in Connect's
+  attribute names. Applying the file is a separate, optional step (*Step 6*),
+  run only when the instance's owner says so. The same holds for creating the
+  two custom attributes, the only definitions the skill ever creates.
 - **Use Connect's AI-Assisted Triage.** Its methods run where this skill
   runs, and the records say which ones ran.
 - **Decide what is worth showing.** A correct verdict on a finding nobody
@@ -393,19 +393,24 @@ unreported vulnerabilities in code that is not yours. Interactive, say it
 in the reply. Unattended, the stdout line from `assemble` is the report.
 Nothing about by-catch goes into `TRIAGE-REPORT.md`, not even a count.
 
-## Records, and getting them to Connect
+## Step 6 (optional): Apply the records to Connect
 
 `triage.json` holds one record per finding, keyed by **merge key** (a CID is
 a label local to one Connect database; rule 27). It carries the triage state
 in the attribute names that Connect's triage-store export uses. Format and
 field rules: `references/records.md`.
 
-Applying it is not this skill's step. Whoever owns the instance decides,
-per apply, whether to set the standard attributes only or the two custom
-attributes as well.
+Applying it writes triage that other people see, and triage history keeps
+every write. So it runs only when whoever owns the instance asks for it.
+Interactive, show the plan and ask. Unattended, run the plan only, report
+it, and stop, unless the inputs already say to apply (rule 38). Each apply
+decides whether to set the standard attributes only, or the two custom ones
+as well.
 
-- The custom ones, `Defect Category` and `Triage Method`, are pick lists. They
-  must exist on the instance, with a value for everything the records set
+**1. The custom attributes.** Skip this with `--standard-only`.
+
+- `Defect Category` and `Triage Method` are pick lists. They must exist on
+  the instance, with a value for everything the records set
   (one `Triage Method` value per model), before anything can set them.
 - `tools/connect_attributes.py` creates them over REST:
 
@@ -429,6 +434,35 @@ attributes as well.
     `~/.coverity/ak-<host>-<port>` (the `coverity` skill's `connect_auth.py`
     writes it there). The URL comes from `--url` only, never from the key
     file (rule 28).
+
+**2. Apply.**
+
+```
+python3 tools/connect_apply.py --url <connect-url> --records triage.json \
+    --project <project> --stream <stream-of-the-analyzed-version> [--standard-only] [--overwrite] [--yes]
+```
+
+- **Finding the CIDs.** It finds each record's finding in the stream by
+  merge key and writes to the stream's own triage store. A record whose
+  merge key the stream does not have is listed, and not applied.
+- **It writes only what differs.** A field the record leaves null (no
+  verdict, no severity) is left alone. A field that already holds the
+  record's value is skipped. The comment is skipped when it is already the
+  finding's last triage comment, so a second apply does not post it twice.
+- **It never overwrites someone's triage.** A finding whose Classification,
+  Action, Severity or custom attribute already holds a value that someone
+  set, which differs from the record, is listed and left alone unless
+  `--overwrite`.
+- **Without `--yes`, it changes nothing.** It prints the plan, and exits 3
+  when there is something to write. With `--yes` it writes, reads the
+  findings back, and fails (exit 1) if a value did not take.
+- **Exit codes.** It exits 0 only when every record's finding holds what the
+  record sets, and 3 when a record was skipped (not found, or left alone).
+  `--json` prints one object for a script.
+- **By-catch is never applied:** it is not in the records.
+
+Then report what was applied, what was left alone and why, and what was not
+found (rule 22).
 
 ## Handing off to this skill
 
@@ -479,8 +513,9 @@ is any, `bycatch/bycatch.json`. It keeps its own concerns.
   land in the lane its caller expected. Report it and let the user choose.
 - Writing by-catch into a `reason`, a verdict file, `run.json` or the
   report. Those travel with the records; by-catch goes to `bycatch/`.
-- Writing triage to Connect from this skill, or running `connect_attributes.py
-  setup --yes` on an instance without its owner's say-so.
+- Running `connect_apply.py --yes` or `connect_attributes.py setup --yes`
+  on an instance without its owner's say-so, or passing `--overwrite` to
+  replace triage someone set without being asked to.
 
 ## Where other skills take over
 
@@ -508,7 +543,8 @@ coverity-triage/
 │   ├── bundle.py                # select + bundle: trace and source from git at the tag (or the idir); --plan
 │   ├── lanes.py                 # lanes from the checker table; what is left for inference; check-table
 │   ├── records.py               # assemble + validate the records; check-lanes; TRIAGE-REPORT.md
-│   └── connect_attributes.py    # check / create Defect Category and Triage Method on a Connect (REST)
+│   ├── connect_attributes.py    # check / create Defect Category and Triage Method on a Connect (REST)
+│   └── connect_apply.py         # apply triage.json to a Connect stream: plan, --yes, read back (REST)
 └── evals/
     ├── evals.json
     └── test_tools.py            # the tools on a generated fixture and a fake Connect, negatives included

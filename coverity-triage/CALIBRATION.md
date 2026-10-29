@@ -241,7 +241,22 @@ what is reasoned rather than measured.
 - **Applying records to Connect.**
   - The records use the attribute names of Connect's triage-store export and
     the REST triage write.
-  - No apply was run from this skill, which writes no triage.
+  - `connect_apply.py` has run against the fake Connect in
+    `evals/test_tools.py` only, in 13 cases. They cover a plan that writes
+    nothing; an apply that skips a finding someone triaged; a second apply
+    that writes nothing; `--overwrite`; a record not in the stream; a value
+    that does not take, caught by the read-back; and refusals for a missing
+    attribute or value, a file that is not a records file, an unknown
+    stream, and a project name that is not the stream's.
+  - On a real Connect 2026.9.0, a plan-only run (no `--yes`) of the tool
+    itself was made against a stream of 112 findings. The records file was
+    built for the test from 3 of the stream's merge keys and 1 that does not
+    exist. The plan came out as expected: 2 to set, 1 left alone because it
+    was already classified, and 1 not found. Nothing was written.
+  - The same server answers a project name it does not know with HTTP 500
+    and "Project <name> not found", not an empty result. The tool's refusal
+    adds the stream's own primary project to that message.
+  - The triage PUT itself has not been sent to a real server yet.
 - **Other Connect versions.** The REST path and the request bodies were
   measured on one 2026.9.0 server only. An older Connect may serve
   `/api/v2/attributes` instead, or neither.
