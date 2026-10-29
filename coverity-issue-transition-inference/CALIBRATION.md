@@ -82,6 +82,12 @@ of one C project analyzed at **2025.9.0** and at **2026.9.0**, comparing the
 per-release finding exports of the older column against the published
 merge-key record of the newer one.
 
+Both inputs are sealed published artifacts, not working copies, so the figures
+below can be re-derived rather than taken on trust. The screen was run twice --
+once against a run workspace and once against the sealed copy of the same
+column -- and returned identical figures; the 24 export files were also
+compared byte for byte across the two locations and are identical.
+
 ```
 3134 key-releases shared      7 gained      0 lost
 union: 222 keys old / 223 new  -- shared 222, old-only 0, new-only 1
