@@ -174,17 +174,21 @@ stubbed.
 | route | what runs as code | what is stubbed | cost and fit |
 |---|---|---|---|
 | **harness-verification** (`tools/fz_harness.py`; the default) | the whole TU, its real source compiled as-is with the compiler flags the capture recorded, a driver linked in, the original function run unchanged | only the externals the TU does not define, from their derived models (libc stays real) | the less expensive route: no slicing, one compile, and the real callees in the same file carry their own semantics instead of their models'. It is extraction with the slice set widened to the whole TU and the pretty-printer taken out, so the slice-set rule holds unchanged: nothing on the finding's path is a stub, and a stub list naming a function the finding's events touch is malformed here too |
-| **extraction-verification** (Steps 1-3 as written) | the slice set, printed from the emit by `coverity-function-slice` | every callee outside the set, from its derived model | the route for a program the harness route cannot take, or a defect class the table has learned needs it: the function alone, with the stubs' choices as the point |
+| **extraction-verification** (Steps 1-3 as written) | the slice set, printed from the emit by `coverity-function-slice` | every callee outside the set, from its derived model | the route for a program the harness route cannot take, or a defect class the table has learned needs it: the function alone, with the stubs' choices as the point. `coverity-pathout`'s shapes take it by design: their candidates are large functions whose behaviour depends on values earlier calls produced, and the shapes were built for this chain |
 
 **The caller names the route it prefers.** A batch from `coverity-triage`
 carries it in the table row behind the method `Execution:
 coverity-verify`; a CID or a findings-file entry given directly takes it
-as `--route harness|extraction`. **The shipped default is harness**, for
-every caller including `coverity-pathout`'s shapes, because the cheaper
-route is preferred until evidence says a defect type needs the other; the
-table moves on that evidence, and `CALIBRATION.md` records, per public
-finding tried, whether harness sufficed. A user whose program is not
-amenable overrides the preference for that program.
+as `--route harness|extraction`. **The shipped default is harness** for
+a caller that states no preference, because the cheaper route is
+preferred until evidence says a defect type needs the other.
+`coverity-pathout`'s shapes state extraction, by their table rows
+(`coverity-pathout/shapes/triage-lanes.json`): they were built for the
+slice-and-model-stub chain and do not work under harness, and a row moves
+to harness only on evidence that it does. The table moves on that
+evidence, and `CALIBRATION.md` records, per public finding tried, whether
+harness sufficed. A user whose program is not amenable overrides the
+preference for that program.
 
 `tools/verify_route.py --manifest <dir> [--route harness|extraction]
 --compile` checks whether the preferred route **applies** to this program
