@@ -205,9 +205,15 @@ the 12 chosen not taken (`tpl_map_va`, `tpl_peek`: variadic targets).
   (`returnsnull`), which the real `lookup_cfg` has: confirmed, route
   harness, compile mode source tree, record `as_code [trim, handle] /
   stubbed [lookup_cfg]`. The manifest tool's externals carry `kind`
-  (`library`/`project`) and `model`; the prototypes for the stubs come
-  from the emit (`fz_harness.py --dir --bin`), the manifest's `signature`
-  being filled for the target.
+  (`library`/`project`), `model` and, since 2026-10-29, a `signature`
+  for every external (`const char *lookup_cfg(const char *)`, without
+  the terminator, which `fz_harness.py` adds); the stub prototypes now
+  come from the manifest, and the emit lookup (`--dir --bin`) serves only
+  an older manifest without signatures. Re-run on the fixture with the
+  signed manifest: the same confirmation, the log line reading
+  `prototype from the manifest`. The manifest's `externals_data` lists
+  the globals a TU reads but does not define, empty on this fixture; the
+  driver defines those.
   B: `evals/harness/declined/app2.c` includes a header found only
   through `-I` at capture time, and its target is static. The manifest is
   built with `--no-files` (as when `extract-files` is unavailable; with

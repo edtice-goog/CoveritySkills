@@ -232,8 +232,15 @@ def main():
         if name in LIBC or external_is_library(ext):
             report.append("%-28s real libc" % name); real_libc.append(name); continue
         proto = ext_sig.get(name)
-        if proto is None and a.dir and a.bin:
+        proto_from = "manifest"
+        if proto:
+            proto = proto.strip()
+            if not proto.endswith(";"):
+                proto += ";"                     # the manifest writes the declaration without the terminator
+        elif a.dir and a.bin:
+            # an older manifest without signatures: ask the emit
             proto = prototype_from_emit(a.bin, a.dir, man.get("tu"), name)
+            proto_from = "emit"
         if proto is None:
             report.append("%-28s NO PROTOTYPE (manifest carries no signature; emit lookup failed): define it in the driver" % name)
             unsigned_ext.append(name); continue
@@ -248,7 +255,8 @@ def main():
             n = re.search(r"(\d+) behaviour", s).group(1)
             behs = [re.sub(r"\s+", " ", m.strip()) for m in re.findall(r"/\* model: (.*?) \*/", s)
                     if not m.strip().startswith("dereference(")]
-            report.append("%-28s model stub, %s behaviour(s): %s" % (name, n, "  ".join("%d=%s" % (i, b) for i, b in enumerate(behs))))
+            report.append("%-28s model stub, %s behaviour(s): %s  (prototype from the %s)"
+                          % (name, n, "  ".join("%d=%s" % (i, b) for i, b in enumerate(behs)), proto_from))
             stubs.append(s); stubbed.append((name, "model"))
             if a.pin_normal and name not in free and len(behs) > 1:
                 bad = ("returnsnull", "negative_return", "<- == -1", "<- < 0")
@@ -256,7 +264,7 @@ def main():
                 if normal:
                     pins.append((name, normal[0], behs[normal[0]]))
         else:
-            report.append("%-28s NO MODEL -> generic stub" % name)
+            report.append("%-28s NO MODEL -> generic stub  (prototype from the %s)" % (name, proto_from))
             stubs.append(generic_stub(proto)); stubbed.append((name, "generic"))
 
     # 3. the target file: the TU included, then the support, stubs, pins, driver
