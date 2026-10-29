@@ -187,9 +187,9 @@ flowchart LR
     W --> M["measure: cost of a higher --paths,<br/>or restructure the function"]
     W --> SC["path-insensitive shape catalogue<br/>over the idir, kept to those functions"]
     SC --> C["candidates"]
-    C --> A{"coverity-triage<br/>assign a lane<br/>(expected: value or path)"}
-    A -->|"value or path"| VE["coverity-verify<br/>run it, harness route preferred"]
-    A -->|"anything else"| Q{"Told before anything runs;<br/>you choose"}
+    C --> A{"coverity-triage<br/>a lane from pathout's shape table;<br/>the row names the method"}
+    A -->|"the row's method"| VE["coverity-verify<br/>harness route preferred"]
+    A -->|"lands elsewhere"| Q{"Told before anything runs;<br/>you choose"}
     Q -->|"verify anyway,<br/>where realistic"| VE
     Q -->|"that lane's reader"| RD["reading"]
     Q -->|"leave it"| SK["untriaged"]
@@ -199,11 +199,16 @@ flowchart LR
   catalogue there, and measures what a higher bound costs. With many
   functions at the bound, it pilots one, prices the rest (triage of each
   candidate included) and asks before going on.
-- Its candidates are built to be run: `coverity-verify` is their triage
-  method. They still pass through `coverity-triage`'s lane assignment, which is
-  cheap and checks that each candidate's claim is what the shape assumed.
-- A candidate that lands outside value or path is reported before any method
-  runs, and you choose: verify it anyway where that is realistic, run that
+- Its candidates are built to be run. `coverity-pathout` ships a row per shape
+  for `coverity-triage`'s table, naming the lane of the built-in checker the
+  shape stands in for and the method, execution through `coverity-verify`
+  with the harness route preferred. A row's method overrides its lane, so a
+  candidate standing in for a Contract or Construction checker still goes to
+  `coverity-verify`.
+- They still pass through `coverity-triage`'s lane assignment, which is cheap
+  and checks that each candidate's claim is what the shape assumed. A
+  candidate that lands elsewhere is reported before any method runs, and you
+  choose: verify it anyway where that is realistic, run that
   lane's reader, or leave it untriaged. Any choice is fine; none happens by
   surprise, and the record says which one you made.
 
@@ -313,7 +318,7 @@ and which came from a CWE with no mapping.
 | `coverity-build-fidelity` | native vs `cov-build` comparison of the product; capture coverage; a release-gate verdict and a profile draft | guessing at unexplained differences (it escalates to a person); work where the build cannot run | `coverity-recreate-from-emit` when the build cannot run |
 | `coverity-defect-detectability` | an empirical detectability verdict; the minimal configuration; a repro command | triaging real findings; speculating about what a checker would do instead of running it | `coverity-triage` for verdicts on findings |
 | `coverity-demo-data` | a multi-version history with real release dates; streams per branch; guarded oldest-first commits; a self-contained published dataset | triaging on its own or by default; the customer narrative; backdating triage history | `coverity-triage`, when the user chooses |
-| `coverity-pathout` | which functions reached the path bound and which checker; the shape catalogue there; the cost of raising the bound; restructuring; a priced pilot before a large run | judging its candidates; analyzing an idir from a version that is not installed (it stops and asks) | `coverity-function-slice` for bodies; `coverity-triage` for candidates, expecting value or path with `coverity-verify`; anything else goes to the user |
+| `coverity-pathout` | which functions reached the path bound and which checker; the shape catalogue there; the cost of raising the bound; restructuring; a priced pilot before a large run | judging its candidates; analyzing an idir from a version that is not installed (it stops and asks) | `coverity-function-slice` for bodies; `coverity-triage` for candidates, through its own shape table (method: execution through `coverity-verify`, harness route preferred); anything that lands elsewhere goes to the user |
 | `coverity-function-slice` | one function from the AST; a standalone file that compiles and analyzes; an obfuscated twin with proof; a manifest of a whole translation unit for the harness route | deciding whether a finding is real | `coverity-pathout`, `coverity-verify` (its callers) |
 | `coverity-verify` | an execution verdict on one finding, on the caller's preferred route (harness by default, or extraction), with its tier, the route and the evidence; the fix check | injection, resource and concurrency claims (it suggests external verification); switching route on its own; triaging a batch by reading | `coverity-function-slice` for the slice set and the translation-unit manifest |
 | `coverity-triage` | a lane per finding (construction, intent, contract, value or path, policy, other), from a checker table where the checker decides it; a custom checker placed once, in a table you keep; a method and model per lane, which a checker's own method overrides; records in Connect's fields plus Defect Category (the lane) and Triage Method; policy findings recorded, not triaged | choosing the findings; writing to Connect; severity beyond "low"; exploitability; Connect's AI-Assisted Triage; demo-worthiness | `coverity-verify` for the execution method |
