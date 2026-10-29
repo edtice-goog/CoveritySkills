@@ -241,17 +241,58 @@ Three mechanics that decide whether it works, all of them measured in
 this summary:
 
 - `--backdate` takes `yyyymmdd` and nothing else.
-- `date_originated` is **global per merge key and write-once**. A later
-  backdate cannot move it, so a column spanning several releases must be
-  committed **oldest first**, each release carrying its own date.
+- `date_originated` is **per CID, global to the instance, and write-once** --
+  set from the backdate only **for merge keys not previously seen**. So a
+  column spanning several releases must be committed **oldest first**, each
+  release carrying its own date.
 - The snapshot's code must be pinned to one known date. Do not backdate a
   snapshot that mixes code versions -- within one release the code is fixed and
   the date is a fact; across releases it is a guess.
 
-This also answers what to do with a regenerated corpus: a new-analyzer column
-over the same releases wants its own project or stream, committed oldest-first
-with each release's own `--backdate`. The separation keeps each column readable
-on its own, and the backdating keeps the dates true within it.
+**Write-once is why this works, not a limitation of it.** The findings that
+need a date are the version-attributable ones, whose merge keys the instance has
+never seen -- so the backdate sets them. The findings already present under the
+old analyzer keep the dates they already had, because a later backdate cannot
+move them, and those dates were already correct. The no-op falls exactly on the
+findings that did not need fixing.
+
+**A separate stream is for rule 29, not for dates.** It does not give the new
+column its own first-detected dates: `date_originated` hangs off the per-CID
+record for the whole instance, and merge keys are mostly stable across analyzer
+versions, so a shared finding carries one date no matter which stream or project
+it is committed into. Genuinely independent dates would need a separate Connect
+instance. What the separate stream buys is a timeline that does not lie: the
+control run is *older code committed later*, so putting it in the user's
+existing stream moves that stream backwards and makes every finding absent from
+it read as fixed (rule 29).
+
+**Measured, incidentally rather than by design.** On a Connect instance holding
+two published datasets that share three vendored-zlib merge keys, the dataset
+committed second went into its own project and streams, and those three CIDs
+kept the first dataset's 2011-12-07 first-detected date although the second
+commit backdated them to 1999-04-01: write-once means **the first commit to
+report a key fixes its date, not the earliest date offered.** So the behaviour
+holds across projects, not merely across streams within one project. Three keys
+on one instance confirms the mechanism rather than bounding it.
+
+#### Therefore: attribute before the first commit, or lose the date half
+
+That measurement decides *when* this skill has to run. Dates are fixed by the
+first commit that reports a key, so they can be set correctly only once:
+
+- Attribute **first**, then commit the new-analyzer results with the right
+  dates, and the version-attributable findings carry the dates they were
+  actually present.
+- Commit first and attribute afterwards, and those findings are already stamped
+  with the day of the commit. **A later `--backdate` cannot correct it even
+  though the date it offers is earlier** -- that is exactly what the
+  measurement above shows. The remedy is a new instance or a database restore,
+  which is nobody's idea of a remedy.
+
+The label half survives either order: an annotation can be applied whenever.
+The date half does not, so if a team is mid-upgrade and has not yet committed,
+say so plainly -- that is the cheapest this will ever be, and it stops being
+available the moment they commit.
 
 ### Step 7. Report
 
