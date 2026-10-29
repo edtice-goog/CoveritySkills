@@ -1,91 +1,112 @@
 {
  "format": "coverity-triage-checker-lanes",
  "schema": 1,
- "about": "One row per shape checker in this catalogue, for coverity-triage's lane assignment (tools/lanes.py assign --table). The lane is the lane of the built-in checker the shape stands in for. Every row's method is execution through coverity-verify, because the shapes are path-insensitive and noisy by design and their hits are candidates until run; a row's method overrides its lane, so a candidate never trips triage's off-lane report. The route is harness on every row, the cheaper default; a row moves to extraction only on calibration evidence that harness is insufficient for that shape, and a user may override the route per application.",
+ "about": "One row per shape checker in this catalogue, for coverity-triage's lane assignment (tools/lanes.py assign --table). The lane is the lane of the built-in checker the shape stands in for. Every row's method is execution through coverity-verify, because the shapes are path-insensitive and noisy by design and their hits are candidates until run; a row's method overrides its lane, so a candidate never trips triage's off-lane report. The route is extraction on every row: these shapes were built for the extraction chain (the function sliced from the emit, callees outside the slice stubbed from the derived models, then fuzzed) and do not work under harness-verification; a row would move to harness only on evidence that it does, and a user may override the route per application.",
  "checkers": {
   "PATHOUT_CANDIDATE_NULL_CHECK_THEN_DEREF": {
    "lane": "Value or path",
    "why": "Stands in for FORWARD_NULL and REVERSE_INULL: a pointer tested against null in the function and dereferenced where no test guards it. Whether a null reaches that dereference along some path is the claim.",
    "method": "Execution: coverity-verify",
-   "route": "harness"
+   "route": "extraction"
   },
   "PATHOUT_CANDIDATE_ZERO_CHECK_THEN_DIVIDE": {
    "lane": "Value or path",
    "why": "Stands in for DIVIDE_BY_ZERO: a divisor tested against zero in the function and used where no test guards it. Whether zero reaches the division is the claim.",
    "method": "Execution: coverity-verify",
-   "route": "harness"
+   "route": "extraction"
   },
   "PATHOUT_CANDIDATE_DOUBLE_RELEASE": {
    "lane": "Value or path",
    "why": "Stands in for USE_AFTER_FREE's double-free case: one variable passed to a releasing call at two sites. Whether one path takes both sites without a reassignment between them is the claim.",
    "method": "Execution: coverity-verify",
-   "route": "harness"
+   "route": "extraction"
   },
   "PATHOUT_CANDIDATE_ALLOC_NEVER_RELEASED": {
    "lane": "Value or path",
    "why": "Stands in for RESOURCE_LEAK: a local receives an allocation that the function never frees, passes on, returns or stores. Whether a path exits with it still held is the claim.",
    "method": "Execution: coverity-verify",
-   "route": "harness"
+   "route": "extraction"
   },
   "PATHOUT_CANDIDATE_UNCHECKED_ARRAY_INDEX": {
    "lane": "Value or path",
    "why": "Stands in for OVERRUN and NEGATIVE_RETURNS: a fixed-size local array indexed by a variable the function never compares. Whether the index can leave the array's range is the claim.",
    "method": "Execution: coverity-verify",
-   "route": "harness"
+   "route": "extraction"
   },
   "PATHOUT_CANDIDATE_FREE_OF_NONHEAP": {
    "lane": "Value or path",
    "why": "Stands in for BAD_FREE: free of an address, a local array, a string literal or a pointer plus an offset. Whether the pointer at that call can be a heap block start is the claim.",
    "method": "Execution: coverity-verify",
-   "route": "harness"
+   "route": "extraction"
   },
   "PATHOUT_CANDIDATE_SIZEOF_POINTER_AS_SIZE": {
    "lane": "Intent",
    "why": "Stands in for SIZEOF_MISMATCH and BAD_SIZEOF: sizeof of a pointer variable used as the size of the block it addresses. The code is well defined and does what it says; the question is whether that is what was meant, so coverity-verify's own decide step may route this row out rather than run it.",
    "method": "Execution: coverity-verify",
-   "route": "harness"
+   "route": "extraction"
   },
   "PATHOUT_CANDIDATE_UNCHECKED_NULL_RETURN_DEREF": {
-   "lanes": ["Contract", "Value or path"],
+   "lanes": [
+    "Contract",
+    "Value or path"
+   ],
    "decide": "Stands in for NULL_RETURNS, a Contract checker: a local receives the result of a call that may return null and is dereferenced with no test in the function. Contract when the question is what that callee promises; Value or path when the question is whether this call, with these arguments, returns null on a path that reaches the dereference. The callee's model and execution answer the second, which is why the row's method is verify.",
    "method": "Execution: coverity-verify",
-   "route": "harness"
+   "route": "extraction"
   },
   "PATHOUT_CANDIDATE_UNBOUNDED_COPY_INTO_FIXED_BUFFER": {
-   "lanes": ["Construction", "Value or path"],
+   "lanes": [
+    "Construction",
+    "Value or path"
+   ],
    "decide": "Stands in for STRING_OVERFLOW and OVERRUN: strcpy, strcat, sprintf or gets into a fixed-size local array. Construction when the copy is wrong for part of its possible input, which is a defect without showing that input arrives; Value or path when the source is bounded elsewhere and the claim is that an over-long value reaches the copy.",
    "method": "Execution: coverity-verify",
-   "route": "harness"
+   "route": "extraction"
   },
   "PATHOUT_CANDIDATE_SOURCE_LENGTH_INTO_FIXED_BUFFER": {
-   "lanes": ["Construction", "Value or path"],
+   "lanes": [
+    "Construction",
+    "Value or path"
+   ],
    "decide": "Stands in for STRING_OVERFLOW and OVERRUN: a bounded copy into a fixed-size local array whose bound is the source's own length, so the bound protects nothing. Construction when the length can exceed the array for part of the input; Value or path when the claim is that such a source reaches the copy.",
    "method": "Execution: coverity-verify",
-   "route": "harness"
+   "route": "extraction"
   },
   "PATHOUT_CANDIDATE_UNBOUNDED_ARITHMETIC_INTO_SINK": {
-   "lanes": ["Construction", "Value or path"],
+   "lanes": [
+    "Construction",
+    "Value or path"
+   ],
    "decide": "Stands in for INTEGER_OVERFLOW and OVERFLOW_BEFORE_WIDEN: arithmetic on a never-compared variable reaching an allocation size, a length or an index. Construction when the arithmetic wraps for part of the operand's range, a defect without showing the operand arrives; Value or path when the claim is that a wrapping value reaches the sink.",
    "method": "Execution: coverity-verify",
-   "route": "harness"
+   "route": "extraction"
   },
   "PATHOUT_CANDIDATE_OVERFLOW_BEFORE_ALLOC": {
-   "lanes": ["Construction", "Value or path"],
+   "lanes": [
+    "Construction",
+    "Value or path"
+   ],
    "decide": "Superseded by UNBOUNDED_ARITHMETIC_INTO_SINK and kept for older runs; same shape (a product or shift on a never-compared variable in an allocation size) and the same distinction: Construction when it wraps for part of the range, Value or path when the claim is that a wrapping value reaches the allocation.",
    "method": "Execution: coverity-verify",
-   "route": "harness"
+   "route": "extraction"
   },
   "PATHOUT_CANDIDATE_NARROWING_CAST_OF_ARITHMETIC": {
-   "lanes": ["Construction", "Value or path"],
+   "lanes": [
+    "Construction",
+    "Value or path"
+   ],
    "decide": "Stands in for INTEGER_OVERFLOW and OVERFLOW_BEFORE_WIDEN: such arithmetic cast, explicitly or implicitly, to a narrower integer type. Construction when the cast truncates for part of the range; Value or path when the claim is that a truncated value reaches a sink.",
    "method": "Execution: coverity-verify",
-   "route": "harness"
+   "route": "extraction"
   },
   "PATHOUT_CANDIDATE_NONLITERAL_FORMAT_STRING": {
-   "lanes": ["Construction", "Value or path"],
+   "lanes": [
+    "Construction",
+    "Value or path"
+   ],
    "decide": "Stands in for PRINTF_ARGS and FORMAT_STRING_INJECTION: a printf-family call whose format is not a literal and which passes nothing after it. Construction when any format with a directive misbehaves, a defect without showing where the format comes from; Value or path when the claim is that an attacker-chosen format reaches the call.",
    "method": "Execution: coverity-verify",
-   "route": "harness"
+   "route": "extraction"
   }
  }
 }

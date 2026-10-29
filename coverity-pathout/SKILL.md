@@ -274,7 +274,7 @@ checker in triage's own table format, and it is how triage knows what
 this skill's checkers are without naming them itself: each row gives the
 lane of the built-in the shape stands in for (or the two lanes it can
 fall in and what decides between them), the method `Execution:
-coverity-verify`, and the preferred route, harness on every row. **A
+coverity-verify`, and the preferred route, extraction on every row. **A
 row's method overrides its lane**: a candidate whose row names the
 method that `run.json`'s `expected` names is never off-lane, so the
 catalogue's candidates do not trip the report below merely for standing
@@ -293,10 +293,13 @@ driver, with only the externals stubbed) and extraction-verification (the
 function sliced out of the emit, callees outside the slice stubbed from
 the derived models, then fuzzed). The caller sends a *preferred* route,
 and this skill's table of shapes (one row per shape; see *Step 3*'s
-hand-off files) carries it: **harness by default**, because it is the
-cheaper method; a row moves to extraction only on evidence that harness
-is insufficient for that shape; and a user may override the route per
-application when their situation does not suit it. When the preferred
+hand-off files) carries it: **extraction on every row**. The shapes were
+built for that chain -- a candidate sits in a large function whose
+behaviour depends on what the analyzer's models say its callees do, and
+the slice with model stubs is what makes that runnable -- and they do not
+work under harness-verification; a row would move to harness only on
+evidence that it does, and a user may override the route per application
+when their situation does not suit it. When the preferred
 route cannot be applied to a candidate, `coverity-verify` asks in an
 interactive session, and otherwise reports what it needed and stops; it
 never falls back to the other route on its own. Report the route each
@@ -545,7 +548,7 @@ user chose to spend (rule 22).
 | Question | Skill |
 |---|---|
 | The function's body, a file that compiles alone, an obfuscated twin | `coverity-function-slice` |
-| A verdict on a survivor | `coverity-triage`, given `shapes/triage-lanes.json` (`lanes.py assign --table`) and `run.json` expecting value or path with `Execution: coverity-verify`; a row's method overrides its lane, so the catalogue's candidates are never off-lane by construction; triage reports anything that still lands elsewhere before a method runs, then hands each candidate to `coverity-verify` with the row's preferred route (harness by default; extraction only on evidence; user override per application). A route that cannot be applied is asked about when interactive, reported otherwise; never switched silently |
+| A verdict on a survivor | `coverity-triage`, given `shapes/triage-lanes.json` (`lanes.py assign --table`) and `run.json` expecting value or path with `Execution: coverity-verify`; a row's method overrides its lane, so the catalogue's candidates are never off-lane by construction; triage reports anything that still lands elsewhere before a method runs, then hands each candidate to `coverity-verify` with the row's preferred route (extraction on every row, the chain the shapes were built for; harness only on evidence that it works for a shape; user override per application). A route that cannot be applied is asked about when interactive, reported otherwise; never switched silently |
 | A survivor the lane check puts outside value or path | the user: verify it anyway where realistic, run that lane's reader, or leave it; recorded as an override in `run.json` |
 | "Was the function even captured?" / the file is not in the emit | `coverity` (capture fidelity, rule 34) |
 | "Would checker X have found the bug the cut-off hid?" | `coverity-defect-detectability` |

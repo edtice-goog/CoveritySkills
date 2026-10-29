@@ -139,9 +139,10 @@ compiled as it is, a real driver, only the externals stubbed) and
 extraction-verification (the function sliced out of the emit, callees
 outside the slice stubbed from the derived models, a sanitizer as the
 oracle, fuzzed). The caller sends a preferred route, and this skill's
-shape table carries one per shape: harness by default, as the cheaper
-method; extraction only on evidence that harness is insufficient for that
-shape; a user may override per application. When the preferred route
+shape table carries one per shape: extraction on every row, because the
+shapes were built for that chain and do not work under
+harness-verification; a row would move to harness only on evidence that
+it does; a user may override per application. When the preferred route
 cannot be applied, verify asks in an interactive session and otherwise
 reports and stops; it never switches routes on its own. Either way the
 result is a verdict with its tier and the route it came from.
