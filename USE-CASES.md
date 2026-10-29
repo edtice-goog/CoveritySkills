@@ -96,8 +96,10 @@ flowchart LR
 ```
 
 - `coverity-triage` does this, in six lanes:
-  - **Construction:** the code is built in a way the organization has chosen
-    to disallow, whatever data reaches it.
+  - **Construction:** the construct does the wrong thing, or something
+    undefined, for some input it can receive, whatever input actually
+    arrives. It is real when the construct is there, and is never dismissed
+    by arguing that the bad input is unlikely.
   - **Intent:** the code is well-defined, but a pattern suggests it may not do
     what its author meant, which the checker cannot know (a copy-paste slip, a
     missing `break`, a `sizeof` of the wrong thing, dead code).
