@@ -585,7 +585,7 @@ Compare the three frozen results. Let **C** be the expected product set,
 | `A` matches `C`, B empty, every `capture-percentage` 100 | Capture is sound | `CONSISTENT` |
 | `A` much smaller than `C`, B empty | **The build did not compile them.** Incremental build with nothing to do, compiler-cache hits, wrong target, or a build that failed early and continued | Clean the tree and re-capture. The most common real failure |
 | `A` much smaller than `C`, B non-empty | Unconfigured compiler | `coverity-compiler-configuration` |
-| `A` short of `C` by exactly the files carrying one compiler flag, B empty, exit status 0 | **An unsupported compiler option.** The front end refuses the TU; the real compiler still runs, so the object and the binary appear | `SHORTFALL`. See below -- no build-success check can see this |
+| `A` short of `C` by exactly the files carrying one compiler flag, B empty, exit status 0 | **An unsupported compiler option.** `cov-build`'s command-line translation rejects the invocation; the real compiler still runs, so the object and the binary appear | `SHORTFALL`. See below -- no build-success check can see this |
 | `A` near zero while the build reported success, B empty | **Vacuous capture.** A no-op incremental build, a build delegating to a persistent daemon or compile server (MSBuild node reuse, Gradle daemon), or `--record-only` with no `--replay` | `VACUOUS`. Never report as a pass |
 | `A` larger than `C` | Denominator inflation -- build probes, tests, generated or third-party sources | `SURPLUS`. Benign; name the surplus rather than celebrating the count |
 | `A` matches `C` but `had-recoverable-errors`, or `coverity list` says `Incomplete` | **Partial parse.** The TU is analyzed with individual functions missing — and `capture-percentage` may still read 100 | `DEGRADED`. Name the functions from the capture log's `#1563` warnings; a prime cause of "Coverity missed my defect" |
@@ -597,13 +597,15 @@ Compare the three frozen results. Let **C** be the expected product set,
 
 ### An unsupported compiler option drops the TU, and the build still succeeds
 
-Coverity's front end rejects some compiler options outright. A translation
-unit compiled with one is **not captured at all** -- and because `cov-build`
-still runs the real compiler, the object file appears, the link succeeds, the
-binary is produced, and the exit status is 0. The only places it shows are the
-emitted count and the capture log.
+`cov-build`'s translation of the compiler command line rejects some
+invocations. The option never reaches `cov-emit`, the translation unit is
+recorded as a failure with no ASTs, and **it is not captured at all** -- while
+the real compiler still runs, so the object appears, the link succeeds, the
+binary is produced byte-for-byte, and the exit status is 0. The only places it
+shows are the emitted count and the capture log.
 
-Measured twice, on two releases, same source file both arms:
+Measured on two releases, 2025.12.2 and 2026.9.0, with a paired same-file
+control on the first:
 
 | | without the option | with `-fpermissive` |
 |---|---|---|
@@ -612,43 +614,66 @@ Measured twice, on two releases, same source file both arms:
 | console | `Emitted 1 C/C++ compilation units (100%) successfully` | `Emitted 0 C/C++ compilation units (0%) successfully` |
 | `cov-manage-emit list` | the file | `(no ASTs) (failure)` |
 
-`idir/build-log.txt` carries the reason, and it names the mechanism rather
-than the one flag:
+And on a **partially flagged** two-TU build -- the flag on one source, not the
+other, one `cov-build`, linked to an executable:
+
+| | |
+|---|---|
+| console | `Emitted 1 C/C++ compilation units (50%) successfully` |
+| emit | the unflagged TU; the flagged one `(no ASTs) (failure)` |
+| link | exit status 0, executable produced |
+| executable vs a native build of the same script | **byte-identical**, 15840 bytes each |
+
+That last row is the point: **a fidelity comparison passes** while capture is
+short by exactly the flagged file.
+
+`idir/build-log.txt` carries the reason. Grep it for
+`not supported in the current release`:
 
 ```
-[ERROR] While compiling "clean.cpp": The following option is not supported in the current release:
+COV_TRANSLATE EXPANDED ARGS: "-fpermissive" "-c" "lib.cpp" "-o" "lib.o"
+[ERROR] While compiling "lib.cpp": The following option is not supported in the current release:
 	-fpermissive
 Using these options may lead to invalid or misleading analysis
 results. This error may be suppressed by setting ...
 ```
 
+The translator is where it happens: that first line shows it received the
+flag, the `cov-emit` command line in the same log does not contain it, and the
+option appears in none of the installation's shipped `gnu` templates. The
+rejected set is built into the translation, not configuration you can inspect
+or change.
+
 Three things follow, and they are why this belongs in a capture check rather
 than a build check:
 
-- **The flag alone is enough.** The file above needs nothing relaxed -- it
-  compiles cleanly either way. Whether the code requires the option is
-  irrelevant; carrying it is what drops the TU.
+- **The flag alone is enough.** The file needs nothing relaxed -- it compiles
+  cleanly either way. Whether the code requires the option is irrelevant;
+  carrying it is what drops the TU.
 - **A native pre-build cannot reveal it,** because the native compile
   succeeds. Neither can exit status, the link, or comparing binaries: all four
-  agree across both arms. Only expected-versus-emitted disagrees.
+  agree across both arms, measured. Only expected-versus-emitted disagrees.
 - **The shortfall is shaped like the flag.** Where a project applies the
   option to part of the tree -- an era-compatibility `CXXFLAGS`, a
   per-directory Makefile -- the missing files are exactly the ones it touched,
   and the percentage is partial rather than zero. That is the quiet case of
   rule 9: loud enough to see if you are counting, invisible if you are not.
 
-"in the current release" is the tool's own wording: the set of rejected
-options is release-dependent, so treat the specific flag as an instance and
-the mechanism as the finding. Do not keep a list of flags -- read the capture
-log.
+**Scope of the measurement.** Linux, `g++` 13.3, the `g++` template comptype,
+on the two releases named above. `clang`, MSVC, a non-template comptype and
+Windows were not tested, so read "some invocations" as covering what was
+measured and not as a claim about every compiler. "in the current release" is
+the tool's own wording rather than a difference observed between the two
+releases: treat the specific flag as an instance and the mechanism as the
+finding, and read the capture log rather than keeping a list of flags.
 
 **The suppression variable is not a fix.** The error names an environment
-variable that silences it. Suppressing means the analysis proceeds over a
-translation unit the front end said it could not model faithfully, so results
-from it should not be trusted; it was not tested here, and nothing in this
-repo relies on it. If a project builds only with a rejected option, the honest
-outcomes are to build it without the option or to put the component out of
-scope and say so -- not to silence the error.
+variable that silences it. Suppressing it means the analysis proceeds over an
+invocation the tool says "may lead to invalid or misleading analysis results",
+so results from that TU should not be trusted; it was not tested here, and
+nothing in this repo relies on it. If a project builds only with a rejected
+option, the honest outcomes are to build it without the option or to put the
+component out of scope and say so -- not to silence the error.
 
 ### Grades
 
