@@ -19,6 +19,17 @@ Selection (combine freely; nothing is selected by default):
                     before the plan is agreed: triage costs model time per
                     finding, and the count is the first thing to agree on.
 
+RELEASES RUN ONE AT A TIME, OLDEST FIRST. For every later release, pass the
+earlier releases' records with --prior (repeatable): a merge key one of them
+already settled (a verdict, or a lane that takes no method) is left out, so
+only the delta is triaged. A key named with --merge-key is still bundled.
+
+COMPILER HEADERS ARE NEVER TRIAGED. A finding whose main event is in a
+compiler's own headers (libstdc++, libc++, GCC's, Clang's, MSVC's) is a
+residual false positive: --per-checker and --all always include it, it never
+takes a sample's place, and the later steps record it Intentional with no
+method. --compiler-header PREFIX adds another compiler's include directory.
+
 SOURCE COMES FROM GIT, NOT THE WORKING TREE. A working tree holds whatever was
 checked out last -- for a corpus built from many tags in one directory, the
 wrong source for every version but one, and wrong in a way that reads as
@@ -44,6 +55,43 @@ import shutil
 import subprocess
 import sys
 import tempfile
+
+# Directories a compiler installs its own headers in, matched on the recorded
+# absolute path of a finding's main event.
+COMPILER_HEADER_DIRS = re.compile(
+    r"/include/c\+\+/"                                          # libstdc++, libc++ (c++/v1)
+    r"|/lib(?:64)?/gcc(?:-cross)?/[^/]+/[^/]+/include(?:-fixed)?/"  # GCC's own
+    r"|/lib(?:64)?/clang/[^/]+/include/"                        # Clang's own
+    r"|/VC/Tools/MSVC/[^/]+/(?:include|atlmfc/include)/"        # MSVC, with ATL and MFC
+    r"|/VC/(?:include|atlmfc/include)/",                        # older Visual Studio layouts
+    re.I)
+NO_METHOD_LANES = ("Policy", "Other")
+
+
+def compiler_header(issue, extra):
+    """The main event's path when it is in a compiler's own headers, else None."""
+    p = (issue.get("mainEventFilePathname") or "").replace("\\", "/")
+    if COMPILER_HEADER_DIRS.search(p) or any(p.lower().startswith(e) for e in extra):
+        return p
+    return None
+
+
+def decided_before(paths):
+    """{merge key: tag} for every key an earlier release's records settled."""
+    done = {}
+    for path in paths:
+        try:
+            doc = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            raise SystemExit("[ERROR] --prior " + str(path) + ": " + str(e))
+        if doc.get("format") != "coverity-triage-records":
+            raise SystemExit("[ERROR] --prior " + str(path) + " is not a records file "
+                             "(tools/records.py assemble writes one)")
+        tag = ((doc.get("run") or {}).get("source") or {}).get("tag") or str(path)
+        for r in doc.get("records", []):
+            if r.get("verdict") is not None or r.get("lane") in NO_METHOD_LANES:
+                done.setdefault(r.get("mergeKey"), tag)
+    return done
 
 
 def load(path):
@@ -301,23 +349,30 @@ def files_needed(occ, strip):
     return need
 
 
-def select(issues, args):
+def select(issues, args, headers, prior):
+    """{merge key: why selected}, and how many keys --prior left out."""
     selected = {}
     for mk in args.merge_key:
         if mk not in issues:
             raise SystemExit("[ERROR] merge key not present in these findings: " + mk)
         selected[mk] = "named (unconditional)"
+    if not (args.per_checker or args.all):
+        return selected, 0
+    for mk in sorted(headers):
+        if mk not in prior:
+            selected.setdefault(mk, "compiler header (no triage)")
+    open_keys = [mk for mk in issues if mk not in prior and mk not in headers]
     if args.per_checker:
         by_checker = collections.defaultdict(list)
-        for mk, occ in issues.items():
-            by_checker[occ[0].get("checkerName", "?")].append(mk)
+        for mk in open_keys:
+            by_checker[issues[mk][0].get("checkerName", "?")].append(mk)
         for checker, mks in sorted(by_checker.items()):
             for mk in sorted(mks)[:args.per_checker]:
                 selected.setdefault(mk, "per-checker sample (" + checker + ")")
     if args.all:
-        for mk in issues:
+        for mk in open_keys:
             selected.setdefault(mk, "all findings")
-    return selected
+    return selected, sum(1 for mk in issues if mk in prior and mk not in selected)
 
 
 def main():
@@ -342,6 +397,12 @@ def main():
     ap.add_argument("--merge-key", action="append", default=[],
                     help="bundle this finding unconditionally; repeatable")
     ap.add_argument("--all", action="store_true", help="bundle every finding")
+    ap.add_argument("--prior", action="append", default=[],
+                    help="an earlier release's records (triage.json); keys it settled are "
+                         "left out, so only the delta is triaged; repeatable")
+    ap.add_argument("--compiler-header", action="append", default=[],
+                    help="another compiler's include directory: findings there are "
+                         "never triaged; repeatable")
     ap.add_argument("--plan", action="store_true",
                     help="print what the selection holds; write nothing")
     args = ap.parse_args()
@@ -362,9 +423,13 @@ def main():
         return 1
 
     issues = load(pathlib.Path(args.issues))
-    selected = select(issues, args)
+    extra = [e.replace("\\", "/").rstrip("/").lower() + "/" for e in args.compiler_header]
+    headers = {mk: h for mk, occ in issues.items() for h in [compiler_header(occ[0], extra)] if h}
+    prior = decided_before(args.prior)
+    selected, skipped = select(issues, args, headers, prior)
     if not selected:
-        print("[ERROR] nothing selected: pass --merge-key, --per-checker or --all",
+        print("[ERROR] nothing selected: pass --merge-key, --per-checker or --all"
+              + (" (--prior already settled " + str(skipped) + ")" if skipped else ""),
               file=sys.stderr)
         return 1
 
@@ -380,6 +445,8 @@ def main():
         print("selected: " + str(len(ordered)))
         for r, n in sorted(by_reason.items()):
             print("  " + str(n).rjust(5) + "  " + r)
+        if args.prior:
+            print("left out, settled at an earlier release (--prior): " + str(skipped))
         print("by checker:")
         for c, n in sorted(by_checker.items()):
             print("  " + str(n).rjust(5) + "  " + c)
@@ -422,6 +489,8 @@ def main():
                         "subcategory": issue.get("subcategory"),
                         "sites": [site(o, args.strip_prefix) for o in occ],
                         "selected_because": selected[mk]})
+        if mk in headers:
+            records[-1]["compiler_header"] = headers[mk]
     (out / "INDEX.md").write_bytes(("\n".join(index) + "\n").encode("utf-8"))
     (out / "index.json").write_bytes((json.dumps({
         "issues": str(args.issues),
@@ -430,9 +499,11 @@ def main():
                    else {"mode": "idir", "idir": str(args.idir),
                          "coverity": getattr(src, "version", None)}),
         "strip_prefix": args.strip_prefix, "findings_in_file": len(issues),
+        "prior": [str(p) for p in args.prior], "left_out_by_prior": skipped,
         "bundles": records}, indent=1) + "\n").encode("utf-8"))
 
-    print("wrote " + str(len(ordered)) + " bundles to " + str(out) + "/ (INDEX.md, index.json)")
+    print("wrote " + str(len(ordered)) + " bundles to " + str(out) + "/ (INDEX.md, index.json)"
+          + ("; " + str(skipped) + " left out, settled at an earlier release" if args.prior else ""))
     if missing:
         print("[WARN] " + str(missing) + " bundle(s) missing source -- check "
               + ("--git-repo, --tag" if args.git_repo else "--idir")

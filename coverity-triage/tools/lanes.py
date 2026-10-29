@@ -12,6 +12,8 @@ has a fixed lane takes it here, with no model. A finding whose checker
 lists candidate lanes is left pending, for inference to choose among them.
 A finding whose checker has no row is unplaced: the skill determines a row
 for that checker once, adds it to a table file, and runs assign again.
+A finding bundle.py marked as in a compiler header takes Other before any
+table is read: it is never triaged, and records.py records it Intentional.
 
 Nothing here spends model time, asks a question, or looks at a terminal:
 it writes lanes.json and prints what is done and what the next step needs.
@@ -31,6 +33,7 @@ ALL_LANES = METHOD_LANES + (POLICY, OTHER)
 ROW_METHOD = re.compile(r"^(LLM: \S.*|Execution: coverity-verify|Human)$")
 ROUTES = ("harness", "extraction")
 TABLE = "checker table"
+HEADER = "compiler header"
 
 
 def read_json(path, errors, what):
@@ -100,10 +103,17 @@ def assign(args):
     if errors:
         return fail(errors)
     fixed, pending, unplaced = [], [], collections.defaultdict(list)
+    n_hdr = 0
     for b in index.get("bundles", []):
         mk, checker = b["mergeKey"], b.get("checker")
         row = rows.get(checker)
-        if row is None:
+        if b.get("compiler_header"):
+            fixed.append({"mergeKey": mk, "checker": checker, "lane": OTHER,
+                          "reason": "the main site is in a compiler header ("
+                                    + b["compiler_header"] + "): a residual false positive",
+                          "assigned_by": HEADER})
+            n_hdr += 1
+        elif row is None:
             unplaced[checker].append(b)
             pending.append({"mergeKey": mk, "checker": checker, "unplaced": True})
         elif "lane" in row:
@@ -124,10 +134,11 @@ def assign(args):
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes((json.dumps({"tables": sources, "lanes": fixed, "pending": pending},
                                 indent=1, ensure_ascii=False) + "\n").encode("utf-8"))
-    counts = collections.Counter(e["lane"] for e in fixed)
+    counts = collections.Counter(e["lane"] for e in fixed if e["assigned_by"] == TABLE)
     n_inf = sum(1 for e in pending if not e.get("unplaced"))
-    print("wrote " + str(out) + ": " + str(len(fixed)) + " lane(s) from the checker table ("
+    print("wrote " + str(out) + ": " + str(len(fixed) - n_hdr) + " lane(s) from the checker table ("
           + ", ".join(l + " " + str(counts.get(l, 0)) for l in ALL_LANES) + "); "
+          + str(n_hdr) + " in a compiler header (Other, never triaged); "
           + str(n_inf) + " need inference; "
           + str(sum(len(v) for v in unplaced.values())) + " unplaced")
     if n_inf:

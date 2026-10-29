@@ -27,6 +27,7 @@ ROW_METHOD = re.compile(r"^(LLM: \S.*|Execution: coverity-verify|Human)$")
 EXECUTION = "Execution: coverity-verify"
 ROUTES = ("harness", "extraction")
 TABLE = "checker table"
+HEADER = "compiler header"
 INVARIANT = "false positive - global invariant"
 # verdict -> (classification, action, severity, comment label)
 MAPPING = {
@@ -98,9 +99,13 @@ def read_lanes(lanes, bundles, run, errors):
                           + ", ".join(ALL_LANES))
         elif not (a.get("reason") or "").strip():
             errors.append(where + ": no reason given for the lane")
-        elif who != TABLE and (not METHOD.match(who) or who == "None"):
-            errors.append(where + ": assigned_by must be '" + TABLE + "', an LLM or Human, got "
-                          + repr(who))
+        elif who not in (TABLE, HEADER) and (not METHOD.match(who) or who == "None"):
+            errors.append(where + ": assigned_by must be '" + TABLE + "', '" + HEADER
+                          + "', an LLM or Human, got " + repr(who))
+        elif (who == HEADER) != bool(bundles[mk].get("compiler_header")) or (
+                who == HEADER and a.get("lane") != OTHER):
+            errors.append(where + ": '" + HEADER + "' is the lane Other for, and only for, a "
+                          "finding bundle.py marked as in a compiler header")
         elif who == TABLE and a.get("candidates"):
             errors.append(where + ": the checker table fixes one lane; candidates mean "
                           "inference chose")
@@ -165,6 +170,9 @@ def assemble(args):
         if lane_of.get(mk, {}).get("lane") == POLICY:
             errors.append("run.json: override for " + mk + ": a Policy finding takes no "
                           "triage; the rule is the authority")
+        if lane_of.get(mk, {}).get("assigned_by") == HEADER:
+            errors.append("run.json: override for " + mk + ": a finding in a compiler header "
+                          "is never triaged")
 
     def method_for(mk):
         """The user's choice, then the checker's own method, then the lane's."""
@@ -189,6 +197,7 @@ def assemble(args):
         else:
             for mk, a in lane_of.items():
                 if (a["lane"] not in (expected["lane"], POLICY) and mk not in overrides
+                        and a.get("assigned_by") != HEADER
                         and method_for(mk) != expected["method"]):
                     errors.append(bundles[mk]["bundle"] + " (" + mk + "): assigned " + a["lane"]
                                   + ", not the expected " + expected["lane"] + ", and the user's "
@@ -260,6 +269,13 @@ def assemble(args):
         lane = a["lane"]
         method = method_for(mk)
         v = verdict_of.get(mk, (None, None))[0]
+        if a["assigned_by"] == HEADER:
+            if v is not None:
+                errors.append(b["bundle"] + " (" + mk + "): a verdict for a finding in a "
+                              "compiler header, which is never triaged")
+                continue
+            records.append(header_record(b, a, index.get("tag"), date))
+            continue
         if v is None and method not in ("None", "Human"):
             errors.append(b["bundle"] + " (" + mk + "): " + lane + " finding ran " + method
                           + " but has no verdict")
@@ -334,6 +350,24 @@ def assemble(args):
     return 0
 
 
+def header_record(b, a, tag, date):
+    """A finding in a compiler header: Intentional by rule, with no method."""
+    cls, act, sev, label = MAPPING["intentional"]
+    comment = (label + ": the main site is in a compiler header (" + b["compiler_header"]
+               + "), outside the analyzed code: a residual false positive.\n[coverity-triage "
+               + date + "] Lane: Other (" + HEADER + "). Method: None; classified by rule.")
+    return {"mergeKey": b["mergeKey"], "checker": b.get("checker"),
+            "judged": {"tag": tag, "sites": b.get("sites", [])},
+            "lane": OTHER, "lane_reason": a["reason"].strip(), "lane_assigned_by": HEADER,
+            "method": "None", "verdict": "intentional",
+            "triageState": {"classification": cls, "action": act, "severity": sev,
+                            "comment": comment,
+                            "customTriage": {"Defect Category": OTHER, "Triage Method": "None"}},
+            "evidence": {"bundle": b["bundle"], "selected_because": b.get("selected_because"),
+                         "status": "compiler header: Intentional by rule",
+                         "compiler_header": b["compiler_header"]}}
+
+
 def read_bycatch(bc_dir, bundles, errors):
     """The by-catch folder's files -> one list of items; never part of the records."""
     items = []
@@ -383,7 +417,11 @@ def check(doc):
             p.append(w + "bad method " + repr(method))
         if lane == POLICY and (method != "None" or verdict is not None):
             p.append(w + "Policy takes method None and no verdict")
-        if (lane == OTHER and (method != "None" or verdict is not None)
+        if r.get("lane_assigned_by") == HEADER:
+            if (lane, method, verdict) != (OTHER, "None", "intentional"):
+                p.append(w + "a finding in a compiler header is Other, method None, "
+                         "verdict intentional")
+        elif (lane == OTHER and (method != "None" or verdict is not None)
                 and not r.get("method_reason")):
             p.append(w + "Other takes method None and no verdict, unless an override says why")
         if ct != {"Defect Category": lane, "Triage Method": method}:
@@ -411,13 +449,16 @@ def render_report(doc):
     run, recs = doc["run"], doc["records"]
     src = run.get("source") or {}
     by_table = sum(1 for r in recs if r.get("lane_assigned_by") == TABLE)
+    by_header = sum(1 for r in recs if r.get("lane_assigned_by") == HEADER)
     L = ["# Triage report", "",
          "- **Who and where:** " + str(run.get("who")) + "; Connect AI-Assisted Triage: "
          + ("yes" if run.get("connect_ai_triage") else "not used") + "; nothing written to Connect",
          "- **Version:** `" + str(src.get("tag")) + "`, " + str(len(recs)) + " of "
          + str(src.get("findings_in_file")) + " findings (" + str(run.get("selection")) + ")",
          "- **Lanes:** " + str(by_table) + " from the checker table ("
-         + ", ".join(run.get("tables") or []) + "), " + str(len(recs) - by_table)
+         + ", ".join(run.get("tables") or []) + "), " + str(by_header)
+         + " in a compiler header (Other, Intentional by rule), "
+         + str(len(recs) - by_table - by_header)
          + " by inference or a person (" + str(run.get("assigner")) + ")",
          "- **Plan:** " + "; ".join(l + ": " + str(run["lanes"].get(l)) for l in METHOD_LANES)
          + "; Policy: no triage; Other: None"
@@ -444,7 +485,9 @@ def render_report(doc):
           "|---|---|---|---|---|---|---|---|"]
     for r in recs:
         s = (r["judged"]["sites"] or [{}])[0]
-        if r["verdict"]:
+        if r.get("lane_assigned_by") == HEADER:
+            shown = "intentional (compiler header, by rule)"
+        elif r["verdict"]:
             shown = r["verdict"]
         elif r["lane"] == POLICY:
             shown = "not triaged (Policy)"
@@ -504,11 +547,14 @@ def check_lanes(args):
     overrides = read_overrides(run, bundles, [])
     off = [(bundles[mk], a) for mk, a in assigned.items()
            if mk in bundles and a.get("lane") not in (exp.get("lane"), POLICY)
-           and a.get("method") != exp.get("method")]
+           and a.get("assigned_by") != HEADER and a.get("method") != exp.get("method")]
     print("expected by " + str(exp.get("by")) + ": " + str(exp.get("lane")) + " with "
           + str(exp.get("method")) + "; " + str(len(off)) + " finding(s) landed elsewhere")
     if counts.get(POLICY):
         print("  " + str(counts[POLICY]) + " in Policy: not triaged, and no choice to make")
+    n_hdr = sum(1 for a in assigned.values() if a.get("assigned_by") == HEADER)
+    if n_hdr:
+        print("  " + str(n_hdr) + " in a compiler header: Intentional by rule, no choice to make")
     for b, a in sorted(off, key=lambda x: x[0]["n"]):
         choice = overrides.get(a["mergeKey"])
         print("  " + b["bundle"] + "  " + str(a.get("lane")) + "  -- " + str(a.get("reason")))

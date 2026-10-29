@@ -129,7 +129,7 @@ unplaced checker gets a row in a table file, and `assign` runs again. Before
 |---|---|
 | `lane` | one of `Construction`, `Intent`, `Contract`, `Value or path`, `Policy`, `Other` |
 | `reason` | required: the row's `why`, or the sentence inference wrote naming the events |
-| `assigned_by` | `checker table`, the plan's `assigner` (with `candidates`, and a lane among them), or `Human` (a person moving a finding, with the reason) |
+| `assigned_by` | `checker table`, the plan's `assigner` (with `candidates`, and a lane among them), `Human` (a person moving a finding, with the reason), or `compiler header` (always lane `Other`, and only for a finding `index.json` marks with `compiler_header`) |
 | `method`, `route` | copied from the checker's row, when it has them |
 
 ## `verdicts/*.json`: one per reader batch
@@ -329,11 +329,19 @@ shares `bycatch/` with it, and the folder's name says so.
 | `false positive - global invariant` | False Positive | Ignore | null |
 | `false positive - heuristic misfire` | False Positive | Ignore | null |
 | `unresolved`; Policy; Other; method `None`; awaiting a person | null | null | null |
+| a compiler header (Other, by rule) | Intentional | Ignore | null |
 
 The comment is set on every record that has a verdict, `unresolved`
 included, so the argument reaches whoever opens the finding. A record with
 no verdict sets only the two custom attributes: Policy, Other, method `None`,
 or awaiting a person.
+
+**A finding in a compiler header** is the one record with a verdict and no
+method. `assemble` writes it without a verdict file: lane `Other`,
+`lane_assigned_by` `compiler header`, method `None`, verdict `intentional`,
+and a comment naming the header. Classification Intentional takes it out of
+every view of outstanding findings for good. A tracker with no Intentional
+classification takes False Positive instead.
 
 ### The comment
 

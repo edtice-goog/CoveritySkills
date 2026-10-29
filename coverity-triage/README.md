@@ -15,9 +15,10 @@ question triage has to answer depends on the kind of claim:
 | **Other** | not a claim about the code, or nothing fits | none: no method, no verdict |
 
 **Most findings get their lane from a checker table**, with no model
-involved: one row per checker, covering the C checkers of Coverity
-2025.9.0 and eleven C++-only checkers. **Inference runs only for the few checkers whose findings vary**,
-and chooses among that checker's candidate lanes. A custom checker is placed
+involved: one row per checker, covering every checker Coverity 2026.9.0
+lists, in every language. A checker met later gets its row then.
+**Inference runs only for the few checkers whose findings vary**, and
+chooses among that checker's candidate lanes. A custom checker is placed
 once, with a row of its own, and a producer can ship the rows for its
 checkers.
 
@@ -74,6 +75,12 @@ Connect's own attribute names, and two tools take it there over REST:
 
 ## What the skill knows that saves time
 
+- **Releases are triaged one at a time, oldest first, and a later release
+  only for its delta.** `bundle.py --prior` takes the earlier releases'
+  records and leaves out every merge key they already settled.
+- **A finding in a compiler's own headers** (libstdc++, MSVC's and the
+  like) is a residual false positive. It is recorded Intentional by rule,
+  with no model and no method, so it never shows as outstanding again.
 - **The source is read from git at the analyzed version**, never from the
   working tree, and split on the line terminators a C compiler counts: one
   form feed in a file otherwise shifts every excerpt after it a line away
@@ -104,11 +111,11 @@ coverity-triage/
 ├── CALIBRATION.md               # what was run, on what, and what was not
 ├── references/
 │   ├── lanes.md                 # the six lanes, the tests, the table, custom checkers, methods
-│   ├── checker-lanes.json       # the checker table: a lane, or candidates, per C checker
+│   ├── checker-lanes.json       # the checker table: a lane, or candidates, per checker
 │   ├── reading.md               # each lane's questions, the verdict set and its discipline
 │   └── records.md               # the table format, run.json, lanes.json, verdict files, triage.json
 ├── tools/
-│   ├── bundle.py                # selection (--merge-key, --per-checker, --all), --plan, bundles
+│   ├── bundle.py                # selection (--merge-key, --per-checker, --all, --prior), --plan, bundles
 │   ├── lanes.py                 # lanes from the checker table; pending and unplaced; check-table
 │   ├── records.py               # assemble (all checks before any write) and validate
 │   ├── connect_attributes.py    # check / create Defect Category and Triage Method on a Connect

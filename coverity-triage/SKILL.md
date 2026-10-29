@@ -106,7 +106,9 @@ lane's method, and writes the records and a report.
 - **Decide what is in scope.** Which code was captured and which checkers
   were enabled were decided before analysis (`coverity` skill, rules 2 and
   9-11). A finding in code that should not have been captured is a capture
-  question, not a verdict.
+  question, not a verdict. The one exception is a finding in a compiler's
+  own headers: it is recorded Intentional by rule, with no method
+  (*Step 1*).
 - **Rank severity or judge exploitability.** The verdict set has one
   severity word, *low severity*, and nothing more.
 - **Second-guess a policy.** Policy findings carry their lane and nothing
@@ -165,6 +167,7 @@ triages because a step in its procedure came up.
 | the source at the analyzed version | **the default:** a git repository and the tag or commit the idir was built from. **Read from git, never from the working tree**: a working tree holds whatever was checked out last, which is the wrong source in a way that reads as entirely plausible. **The backup, when there is no git source** (an analyzed tree with no tag or commit to read): the intermediate directory, with the `bin/` of the installation that wrote it (rule 3) |
 | the build root | the path prefix to strip from recorded paths (`--strip-prefix`) |
 | the selection | `--merge-key` for named findings (repeatable), `--per-checker N` for rule 26's stratified sample, `--all` for every finding |
+| earlier releases' records | for every release after the first: the `triage.json` of each earlier release (`--prior`, *Step 1*), so only the delta is triaged |
 | the checker tables | the skill's own `references/checker-lanes.json`, plus any organization or producer table (`--table`, *Step 2*) |
 | the plan | the method per lane (*Step 3*), the model for inference, and optionally a verify route for the whole plan |
 | the by-catch folder | where defects noticed outside the selected findings go: `<out>/bycatch/`, beside the records and never in them, or a folder the caller names (`references/records.md`, *By-catch*) |
@@ -174,8 +177,26 @@ triages because a step in its procedure came up.
 ```
 python3 tools/bundle.py --issues <findings.json> --git-repo <repo> --tag <tag> \
     --strip-prefix <build-root> [--per-checker N] [--merge-key K ...] [--all] \
+    [--prior <earlier triage.json> ...] [--compiler-header <dir> ...] \
     --out <dir> [--plan]
 ```
+
+**One release at a time, oldest first.** Never select across a dataset's
+releases in one run. Triage the first release. For each later release, pass
+the records of every earlier one with `--prior`. A merge key they already
+settled, with a verdict or a lane that takes no method (Policy, Other), is
+left out, and only the delta is triaged. A key with no verdict yet (method
+`None`, or awaiting a person) is bundled again. A key named with
+`--merge-key` is bundled whatever `--prior` says. `--plan` and `index.json`
+give the count left out.
+
+**Compiler headers are never triaged.** A finding whose main event is in a
+compiler's own headers (libstdc++, libc++, GCC's, Clang's, MSVC's) is a
+residual false positive. `--per-checker` and `--all` always include it, and
+it never takes a sample's place. `index.json` marks it `compiler_header`,
+and the next steps record it Intentional with no method (`references/
+lanes.md`, *Compiler headers*). `--compiler-header <dir>` adds another
+compiler's include directory.
 
 **With no git source,** replace `--git-repo` and `--tag` with `--idir <idir>
 --cov-bin <install>/bin`, plus `--tag <label>` if the idir's directory name
@@ -218,12 +239,12 @@ python3 tools/lanes.py assign --bundles <dir> [--table <file> ...] --out <dir>/l
 `references/lanes.md` has the lanes, the tests that decide one, and the
 rules below in full.
 
-1. **From the checker table, with no model.** A finding whose checker has a
-   fixed lane takes it. The skill's table covers the checkers whose
-   languages include C in Coverity 2025.9.0, and eleven C++-only checkers.
-   An organization's own table, or a producer's rows for its custom
-   checkers, follows it through `--table`, and a later row replaces an
-   earlier one.
+1. **From the checker table, with no model.** A finding in a compiler
+   header takes Other first, whatever its checker (*Step 1*). A finding whose
+   checker has a fixed lane takes it. The skill's table covers every checker
+   Coverity 2026.9.0 lists, in every language. An organization's own table,
+   or a producer's rows for its custom checkers, follows it through
+   `--table`, and a later row replaces an earlier one.
 2. **Inference, only where the table gives candidates.** For a checker whose
    findings vary (NEGATIVE_RETURNS: a callee's negative return, or a
    variable tested negative), `lanes.py` leaves the finding pending with its
@@ -233,10 +254,11 @@ rules below in full.
    `assigner` model, which the plan has fixed: the step reads event traces,
    and a misrouted finding gets the wrong method.
 3. **A checker with no row is placed once**, not per finding: a custom
-   checker, or a built-in one the table lacks (another language's, or a
-   C++-only checker not yet covered). Its row comes from the producer's
-   rows if it ships any, from the built-in checker it stands in for, or
-   from its description. A checker that is
+   checker, or a built-in one the table does not have yet (from a later
+   Coverity release, or a coding-standard rule). Its row comes from the
+   producer's rows if it ships any, from the built-in checker it stands in
+   for, or from its description. A built-in checker's row then belongs in
+   the skill's own table, so the next user is not asked. A checker that is
    noisy by design, built to be verified, carries the method
    `Execution: coverity-verify` in its row. Interactive, show the proposed
    rows and ask; otherwise report them and stop (rule 38). Either way, write
@@ -539,7 +561,7 @@ coverity-triage/
 ├── CALIBRATION.md               # what was run, on what, and what was not
 ├── references/
 │   ├── lanes.md                 # the six lanes, the tests, the table, custom checkers, methods
-│   ├── checker-lanes.json       # the checker table: C checkers in Coverity 2025.9.0, some C++
+│   ├── checker-lanes.json       # the checker table: every checker Coverity 2026.9.0 lists
 │   ├── reading.md               # the reading method: each lane's questions, the verdict set
 │   └── records.md               # the table format, run.json, lanes.json, verdict files, triage.json
 ├── tools/

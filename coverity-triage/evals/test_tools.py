@@ -395,6 +395,7 @@ def main():
 
         attribute_cases = test_connect_attributes(work)
         apply_cases = test_connect_apply(work, work / "good" / "triage.json")
+        release_cases = test_releases_and_headers(work, repo)
 
         print("ok: bundle plan, bundles (git at the tag, form feed, two sites), 6 bundle refusals, "
               "the checker table and 11 bad rows, lanes from the table (fixed, candidates, "
@@ -402,10 +403,134 @@ def main():
               + str(refusals) + " records refusals, verify in the Contract lane, expected-lane "
               "overrides, check-lanes, shortened comment, connect_attributes against a fake "
               "Connect (" + str(attribute_cases) + " cases), connect_apply against a fake "
-              "Connect (" + str(apply_cases) + " cases)")
+              "Connect (" + str(apply_cases) + " cases), compiler headers and the delta "
+              "of a later release (" + str(release_cases) + " cases)")
         return 0
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+def test_releases_and_headers(work, repo):
+    """Compiler headers are Intentional by rule; a later release triages only its delta."""
+    cases = 0
+
+    def at(mk, checker, path, line=6, fn="f"):
+        i = issue(mk, checker, line, fn, [("main", "the claim", line, True)])
+        i["mainEventFilePathname"] = i["strippedMainEventFilePathname"] = path
+        for e in i["events"]:
+            e["filePathname"] = e["strippedFilePathname"] = path
+        return i
+
+    src = ROOT + "/src/a.c"
+    libstdcxx = "/usr/include/c++/13/bits/stl_vector.h"
+    msvc = "C:\\Program Files\\Microsoft Visual Studio\\2022\\VC\\Tools\\MSVC\\14.38.33130\\include\\xmemory"
+    release1 = [at("a1", "NULL_RETURNS", src), at("a2", "FORWARD_NULL", src, 10, "g"),
+                at("p1", "MISRA_CAST", src), at("h1", "NULL_RETURNS", libstdcxx, 990, "push_back"),
+                at("h2", "UNINIT", msvc, 120, "alloc"), at("x1", "UNINIT", "/opt/acme/include/rt.h", 3),
+                at("s1", "UNINIT", "/usr/include/stdio.h", 40)]
+    release2 = [at("a1", "NULL_RETURNS", src), at("a2", "FORWARD_NULL", src, 10, "g"),
+                at("p1", "MISRA_CAST", src), at("h1", "NULL_RETURNS", libstdcxx, 990, "push_back"),
+                at("a3", "CHECKED_RETURN", src, 5)]
+    d = work / "releases"
+    d.mkdir()
+    f1, f2 = d / "r1.json", d / "r2.json"
+    wjson(f1, dict(FINDINGS, issues=release1))
+    wjson(f2, dict(FINDINGS, issues=release2))
+    src_args = ["--git-repo", repo, "--tag", "v1", "--strip-prefix", ROOT]
+
+    def bundle(findings, *extra, ok=True):
+        nonlocal cases
+        cases += 1
+        return run(TOOLS / "bundle.py", "--issues", findings, *src_args, *extra, ok=ok)
+
+    # A compiler's own headers, not the C library's: libstdc++ and MSVC, plus one added by hand.
+    p = bundle(f1, "--all", "--plan").stdout
+    assert "selected: 7" in p and "2  compiler header (no triage)" in p, p
+    p = bundle(f1, "--all", "--plan", "--compiler-header", "/opt/acme/include/").stdout
+    assert "3  compiler header (no triage)" in p, p
+    # A compiler header never takes a sample's place: a1 is NULL_RETURNS's sample, not h1.
+    p = bundle(f1, "--per-checker", "1", "--plan").stdout
+    assert "selected: 6" in p and "2  compiler header" in p and "2  NULL_RETURNS" in p, p
+    b1 = d / "b1"
+    bundle(f1, "--all", "--out", b1)
+    idx = {x["mergeKey"]: x for x in json.loads((b1 / "index.json").read_text())["bundles"]}
+    assert idx["h1"]["compiler_header"] == libstdcxx and "compiler_header" in idx["h2"]
+    assert "compiler_header" not in idx["s1"] and "compiler_header" not in idx["x1"]
+
+    l1 = d / "lanes1.json"
+    out = run(TOOLS / "lanes.py", "assign", "--bundles", b1, "--out", l1).stdout
+    assert "2 in a compiler header" in out and "5 lane(s) from the checker table" in out, out
+    lanes1 = json.loads(l1.read_text())
+    by = {e["mergeKey"]: e for e in lanes1["lanes"]}
+    assert by["h1"]["lane"] == "Other" and by["h1"]["assigned_by"] == "compiler header", by["h1"]
+
+    runj = {"date": "2026-10-29", "selection": "all", "assigner": "None", "who": "test",
+            "connect_ai_triage": False,
+            "lanes": {"Construction": "None", "Intent": "None", "Contract": "LLM: Sonnet 5.5",
+                      "Value or path": "None"}}
+    contract = {"lane": "Contract", "method": "LLM: Sonnet 5.5", "model": "test-model",
+                "verdicts": [{"mergeKey": "a1", "verdict": "real", "reason": "unchecked at src/a.c:6"}]}
+
+    def assemble(name, lanes_doc, run_doc, vdocs, ok=True):
+        nonlocal cases
+        cases += 1
+        r = d / name
+        (r / "v").mkdir(parents=True)
+        wjson(r / "lanes.json", lanes_doc)
+        wjson(r / "run.json", run_doc)
+        for i, v in enumerate(vdocs):
+            wjson(r / "v" / ("%d.json" % i), v)
+        run(TOOLS / "records.py", "assemble", "--bundles", b1, "--lanes", r / "lanes.json",
+            "--verdicts", r / "v", "--run", r / "run.json", "--out", r / "triage.json", ok=ok)
+        assert (r / "triage.json").exists() == ok, name
+        return r / "triage.json"
+
+    t1 = assemble("r1", lanes1, runj, [contract])
+    run(TOOLS / "records.py", "validate", t1)
+    recs = {r["mergeKey"]: r for r in json.loads(t1.read_text())["records"]}
+    h1 = recs["h1"]
+    assert (h1["verdict"], h1["method"], h1["lane"]) == ("intentional", "None", "Other"), h1
+    assert h1["triageState"]["classification"] == "Intentional" and h1["triageState"]["action"] == "Ignore"
+    assert "compiler header (" + libstdcxx + ")" in h1["triageState"]["comment"]
+    assert h1["triageState"]["customTriage"] == {"Defect Category": "Other", "Triage Method": "None"}
+    assert recs["a1"]["verdict"] == "real" and recs["a2"]["verdict"] is None
+    assert "in a compiler header (Other, Intentional by rule)" in (d / "r1" / "TRIAGE-REPORT.md").read_text()
+    # Refusals: a verdict for a header finding; an override on one; a header lane on a finding
+    # that is not in one; a header finding given a table lane instead.
+    assemble("verdict-for-header", lanes1, runj,
+             [contract, {"lane": "Other", "method": "LLM: Sonnet 5.5", "model": "m",
+                         "verdicts": [{"mergeKey": "h1", "verdict": "real", "reason": "x"}]}], ok=False)
+    assemble("override-header", lanes1, dict(runj, overrides=[
+        {"mergeKey": "h1", "method": "Human", "reason": "I want to read it"}]), [contract], ok=False)
+    swap = [dict(e, assigned_by="compiler header", lane="Other") if e["mergeKey"] == "a2" else e
+            for e in lanes1["lanes"]]
+    assemble("header-lane-elsewhere", dict(lanes1, lanes=swap), runj, [contract], ok=False)
+    swap = [dict(e, assigned_by="checker table", lane="Contract") if e["mergeKey"] == "h1" else e
+            for e in lanes1["lanes"]]
+    assemble("header-given-a-lane", dict(lanes1, lanes=swap), runj, [contract], ok=False)
+    tampered = json.loads(t1.read_text())
+    for r in tampered["records"]:
+        if r["mergeKey"] == "h1":
+            r["verdict"] = "real"
+    wjson(d / "tampered.json", tampered)
+    cases += 1
+    run(TOOLS / "records.py", "validate", d / "tampered.json", ok=False)
+
+    # Release 2 triages only its delta: a1 (a verdict), p1 (Policy) and h1 (a header) are
+    # settled; a2 had no verdict, so it comes back; a3 is new.
+    p = bundle(f2, "--all", "--prior", t1, "--plan").stdout
+    assert "selected: 2" in p and "settled at an earlier release (--prior): 3" in p, p
+    p = bundle(f2, "--per-checker", "5", "--prior", t1, "--plan").stdout
+    assert "selected: 2" in p, p
+    p = bundle(f2, "--merge-key", "a1", "--prior", t1, "--plan").stdout
+    assert "selected: 1" in p and "named (unconditional)" in p, p
+    b2 = d / "b2"
+    bundle(f2, "--all", "--prior", t1, "--out", b2)
+    idx2 = json.loads((b2 / "index.json").read_text())
+    assert sorted(x["mergeKey"] for x in idx2["bundles"]) == ["a2", "a3"], idx2
+    assert idx2["left_out_by_prior"] == 3 and idx2["prior"] == [str(t1)], idx2
+    bundle(f2, "--all", "--prior", f1, "--plan", ok=False)       # not a records file
+    return cases
 
 
 class FakeConnect:

@@ -57,6 +57,25 @@ what is reasoned rather than measured.
     - a by-catch item with no claim;
     - a by-catch item naming a finding that was not bundled;
     - a by-catch file with no method that noticed it.
+  - **Compiler headers and a later release**, on a fixture of its own, in 15
+    cases:
+    - A finding in libstdc++ (`/usr/include/c++/13/...`) and one in MSVC's
+      `VC/Tools/MSVC/<version>/include` are marked compiler headers. One in
+      `/usr/include/stdio.h` is not, and one in a directory given with
+      `--compiler-header` is.
+    - Under `--per-checker 1`, a compiler header does not take its checker's
+      sample.
+    - `assign` gives them Other, by `compiler header`. `assemble` records
+      them Intentional and Ignore, with method `None` and the header named in
+      the comment.
+    - Refused: a verdict for one, an override on one, the header lane on a
+      finding not in a header, a table lane on one in a header, and a
+      tampered record.
+    - A second release with `--prior` (the first release's records) leaves
+      out the keys with a verdict, a Policy key and a compiler header. It
+      bundles again a key with no verdict, and a new one. A key named with
+      `--merge-key` is bundled anyway, and a findings file passed as
+      `--prior` is refused.
 
     Shown working:
     - by-catch collected into `bycatch/bycatch.json` (from the default
@@ -220,7 +239,10 @@ what is reasoned rather than measured.
   reading of the run's 23 verdicts, against the code and callees each one
   cites, found every argument held. That is a reading, not a reference. The
   run tested the mechanics.
-- **The checker table.**
+- **The checker table.** Its 284 rows are exactly the checkers Coverity
+  2026.9.0 lists (`cov-analyze --list-checkers`), in every language.
+  Coding-standard rules (MISRA, AUTOSAR, CERT) are not in that list, and
+  have no rows.
   - Its 96 C rows were placed from each checker's description in the
     2025.9.0 checker reference, not from findings. Only 13 of them have met
     real findings, all on proftpd.
@@ -232,11 +254,30 @@ what is reasoned rather than measured.
     AUTO_CAUSES_COPY, MISSING_MOVE_ASSIGNMENT), placed in Policy like
     PASS_BY_VALUE; UNINIT_CTOR is Intent, since it reports a member left
     unset, not a read of it.
+  - The other 177 rows (C and C++, CUDA, Java and the JVM languages, C#,
+    and the scripting and web languages) were placed from their
+    descriptions in the 2026.9.0 checker reference. A model drafted them by
+    language family with the tests in `references/lanes.md`, and each row
+    was then reviewed. Two changed in review: DISTRUSTED_DATA_DESERIALIZATION
+    went to Policy (its reference calls it an audit checker that claims no
+    vulnerability), and CONFIG.ENABLED_DEBUG_MODE to Construction (like
+    CONFIG.ENABLED_TRACE_MODE). None of the 177 has met a real finding.
   - Which checkers vary enough to need candidates, and which candidates
     they get, is reasoned from those descriptions.
-  - Checkers outside C have no rows yet, nor do the other C++-only
-    checkers. A finding from one is unplaced, and its checker is placed
-    once before anything runs.
+  - A checker that is not in the table (one from a later release, a
+    coding-standard rule, a custom checker) is unplaced, and its checker is
+    placed once before anything runs.
+- **Compiler headers.** The directory list is written from the compilers'
+  documented layouts. On real findings only libstdc++'s and GCC's own were
+  met: 18 of 225 merge keys in a C++ analysis on Linux, all in
+  `/usr/include/c++/<version>/` or `/usr/lib/gcc/.../include/`. Clang's and
+  MSVC's directories have met only the fixture.
+- **Releases and the delta.** `--prior` has run only on the fixture. No
+  multi-release dataset has been triaged release by release yet. Not
+  measured: whether `connect_apply.py` finds a merge key that the stream's
+  latest snapshot no longer reports. Its search names no snapshot, so that
+  depends on Connect's default scope. Applying each release's records before
+  the next release's snapshot is committed avoids the question.
 - **The Intent lane's questions.** No reader has run them yet.
 - **Policy.** No Policy finding has gone through; none fired on proftpd at
   analysis defaults.
