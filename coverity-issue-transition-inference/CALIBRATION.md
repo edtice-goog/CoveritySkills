@@ -75,6 +75,39 @@ practice of one tree checked out in place is still right, for contamination
 reasons (stale generated files between versions), and the claim has been
 corrected in `coverity-demo-data/SKILL.md`, `tools/capture.sh`, and `README.md`.
 
+## Measured at scale: raw merge keys did not move across a second version pair
+
+A second pair was screened offline, with no new captures: the same 24 releases
+of one C project analyzed at **2025.9.0** and at **2026.9.0**, comparing the
+per-release finding exports of the older column against the published
+merge-key record of the newer one.
+
+```
+3134 key-releases shared      7 gained      0 lost
+union: 222 keys old / 223 new  -- shared 222, old-only 0, new-only 1
+```
+
+- **Zero keys were lost**, across 24 releases and a twelve-month, two-version
+  gap. Every key the older analyzer reported was reported by the newer one.
+- **Analyzer churn was 7 of 3141 key-releases, 0.2%.** This is the
+  low-churn-by-design property showing up as a measurement rather than a claim.
+- **The configuration share was predicted before the data was read.** Diffing
+  the two installations' enablement tables gave exactly one C change: a new
+  default-on checker, `INCONSISTENT_UNION_ACCESS`. It accounts for 3 of the 7
+  gains. The other 4 are one checker whose enablement did not change, so they
+  are candidate analyzer-behaviour changes.
+
+**This is a screen, not a correspondence.** It diffs raw merge keys between two
+local result sets, which cannot distinguish "newly reported" from "same
+finding, re-keyed" (rule 27). The result is therefore read as: there is almost
+nothing here for an antecedent relationship to explain, because 222 of 222 keys
+are present in both columns.
+
+So it raises the empirical floor under rule 27's premise considerably -- key
+stability now holds over 222 keys and two version pairs rather than 59 keys and
+one -- while still **not** demonstrating the antecedent mechanism, which only
+does anything when a key does move. Limit 1 below stands.
+
 ## Limits of the evidence
 
 These are the boundaries of what has been measured, kept here so a claim's
@@ -84,11 +117,14 @@ below tells you which specific claim to treat as reasoned rather than
 measured, and what would settle it.
 
 1. **Rule 27 is still unexercised.** Raw merge keys and Connect CIDs agreed
-   exactly (59/59), so the antecedent-merge-key path never fired. The exception
-   rate is measured at 0 of 59 *for this version pair*, which is not evidence
-   that the mechanism works. A case where a key genuinely moves is still owed,
-   and until one is found, "compare through Connect" rests on stated domain
-   knowledge rather than a demonstration.
+   exactly (59/59) on the first pair, and the second pair found 222 of 222 keys
+   present in both columns, so the antecedent-merge-key path has never fired.
+   Two pairs of measured stability are not evidence that the mechanism works
+   when a key *does* move -- they are evidence that it rarely has to. Until a
+   moving key is found, "compare through Connect" rests on stated domain
+   knowledge rather than a demonstration. Finding one plausibly needs a wider
+   version gap, a larger corpus, or a project whose code churns harder than the
+   ones measured here.
 2. **The production procedure has only been run in pieces.** The anchor step was
    validated against a result this project produced, not against a customer's
    pre-existing automated snapshot. The end-to-end shape -- user supplies build
