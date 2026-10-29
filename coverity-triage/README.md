@@ -54,8 +54,10 @@ finding, so nothing runs until the selection (which findings) and the plan
 `tools/lanes.py assign` show the counts for free. Unattended, the skill does
 those free steps, reports what it needs and stops, leaving the work on disk
 to resume from. A skill that hands its findings here, such as
-[coverity-demo-data](../coverity-demo-data/README.md), asks its user first,
-and "no triage" is always one of the answers.
+[coverity-pathout](../coverity-pathout/README.md), asks its user first,
+and "no triage" is always one of the answers. A dataset built by
+[coverity-demo-data](../coverity-demo-data/README.md) is triaged here as a
+separate step, when someone chooses to.
 
 **Write to Connect.** The output is a records file in Connect's own
 attribute names. Applying it, with or without the custom attributes, is the

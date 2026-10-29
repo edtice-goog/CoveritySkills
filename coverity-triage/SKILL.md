@@ -411,10 +411,11 @@ attributes as well.
 
 ## Handing off to this skill
 
-A skill that produces findings hands off with the inputs of Step 0, after
-its user has chosen the selection and the plan. Examples are
-`coverity-demo-data`'s datasets, `coverity-pathout`'s candidates, or a
-findings file from any run. With its findings, it gives:
+Most runs start from a user with a findings file: from any analysis, or
+from a dataset `coverity-demo-data` built. A skill that produces findings
+for triage, such as `coverity-pathout` with its candidates, hands off with
+the inputs of Step 0, after its user has chosen the selection and the plan.
+With its findings, it gives:
 
 - the rows for its own custom checkers, if it has any, as a table file;
 - which lane and method it expects, if any (*When the caller expects a
@@ -464,7 +465,7 @@ is any, `bycatch/bycatch.json`. It keeps its own concerns.
 | Question | Skill |
 |---|---|
 | Verify one finding by running it; "was this fixed or silenced?" | `coverity-verify` |
-| A defect history dated per release; a dataset for adoption or a demo, and which of its findings a story should show | `coverity-demo-data` |
+| A defect history dated per release; a dataset for adoption or a demo, and which of its findings a story should show (triage it afterwards, here, as a separate step) | `coverity-demo-data` |
 | Candidates from functions that reached the path bound | `coverity-pathout` |
 | The sample looks noisy: is the capture sound? A PARSE_ERROR? | `coverity` (rules 2, 9, 26) |
 | A CVSS score per finding | `coverity-cvss-report` |
