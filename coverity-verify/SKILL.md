@@ -49,7 +49,7 @@ description: >
   the list of callee behaviours to check against the real callees, which
   is where most of the false positives in a real batch were settled. Ten
   proftpd findings went through it: none confirmed, eight refuted with
-  execution evidence, and one real overflow found next to a false one.
+  execution evidence.
   Requires the Coverity installation that wrote the intermediate
   directory and clang with libFuzzer and AddressSanitizer: under WSL for
   an idir captured on Linux (LP64 and glibc, like the capture), clang-cl
@@ -71,9 +71,9 @@ whether the finding is a candidate for it (*Methods*); the rest are
 reported, not attempted. Run on a batch, verification is the execution
 method of `coverity-triage`, which assigns each finding a lane and hands
 the value-or-path ones here when the plan says so. On a real batch the
-method was better than a reading triage in one specific way: every refutation came with the
-behaviour the analyzer had assumed, and one real defect came out beside a
-false one. The same machinery, run twice, answers a second question that
+method was better than a reading triage in one specific way: every
+refutation came with the behaviour the analyzer had assumed. The same
+machinery, run twice, answers a second question that
 reading cannot: when a finding disappears between two versions, did the
 change fix the defect or silence the analyzer (Step 5).
 
@@ -412,8 +412,8 @@ choice trace, the pins, the per-input arena and the claim counter.
   `c->argv[0]` before the finding's line was ever reached. Three in a row
   on one function.
 - **Free mode** (no `--pin-normal`) is the bycatch run: what else the
-  models allow. It found a real one-byte stack overflow next to a false
-  OVERRUN in `glob_limited`, in a branch Coverity had not reported.
+  models allow, in branches the finding's path does not take. Anything it
+  turns up is reported separately from the finding, never credited to it.
 - **`--semantic`** gives named copy/alloc helpers their real semantics
   (`pstrdup`, `pstrndup`, `pstrcat`, `palloc`, `pcalloc`), because a stub
   that returns an unrelated buffer where the code copied a string
