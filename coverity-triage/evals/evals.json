@@ -31,7 +31,7 @@
       "id": 2,
       "eval_name": "policy-and-other-get-no-verdict",
       "prompt": "Triage these findings with Sonnet throughout: a MISRA_CAST on an implicit conversion, and a PARSE_ERROR saying an include file could not be opened.",
-      "expected_output": "The checker table places MISRA_CAST in Policy and PARSE_ERROR in Other, with no inference. Neither gets a reader. Each record sets only the two custom attributes (Triage lane Policy or Other, Triage method None). The PARSE_ERROR is pointed at the coverity skill as a capture question. No override can give the Policy finding a method.",
+      "expected_output": "The checker table places MISRA_CAST in Policy and PARSE_ERROR in Other, with no inference. Neither gets a reader. Each record sets only the two custom attributes (Defect Category Policy or Other, Triage Method None). The PARSE_ERROR is pointed at the coverity skill as a capture question. No override can give the Policy finding a method.",
       "assertions": [
         "Runs no lane method for a Policy or Other finding",
         "Does not argue with the MISRA rule",

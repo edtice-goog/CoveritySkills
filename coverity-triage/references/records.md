@@ -216,8 +216,8 @@ person sees it.
    "triageState": {"classification": "False Positive", "action": "Ignore",
                    "severity": null,
                    "comment": "False positive (global invariant): The else branch ...\n[coverity-triage 2026-10-28] Lane: Contract (assigned by checker table). Method: LLM: Sonnet 5.5, read, not executed.",
-                   "customTriage": {"Triage lane": "Contract",
-                                    "Triage method": "LLM: Sonnet 5.5"}},
+                   "customTriage": {"Defect Category": "Contract",
+                                    "Triage Method": "LLM: Sonnet 5.5"}},
    "evidence": {"reason": "...", "invariant": "...", "enforced_at": "...", "breaks_if": "...",
                 "sites_read": ["..."], "executed": false, "model": "claude-sonnet-5-5",
                 "bundle": "013-NULL_RETURNS.md"}}
@@ -285,8 +285,12 @@ with `<Label>` one of *Real defect*, *Real defect, low severity*,
 
 | attribute | Connect type | values |
 |---|---|---|
-| `Triage lane` | pick list | `Construction`, `Intent`, `Contract`, `Value or path`, `Policy`, `Other` |
-| `Triage method` | pick list | `LLM: <model>` (one value per model used), `Execution: coverity-verify`, `Human`, `None` |
+| `Defect Category` | pick list | `Construction`, `Intent`, `Contract`, `Value or path`, `Policy`, `Other` |
+| `Triage Method` | pick list | `LLM: <model>` (one value per model used), `Execution: coverity-verify`, `Human`, `None` |
+
+`Defect Category` holds the finding's lane. It is not Connect's built-in
+Category, which is the checker's category (for example "Null pointer
+dereferences"), and the two are set independently.
 
 They must exist on the instance, with every value the records use, before
 anything can set them. Whoever applies the records chooses, per apply,

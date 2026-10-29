@@ -221,8 +221,8 @@ def main():
         assert recs["k5"]["lane_assigned_by"] == "LLM: Sonnet 5.5"
         assert recs["k6"]["triageState"] == {"classification": None, "action": None,
                                              "severity": None, "comment": None,
-                                             "customTriage": {"Triage lane": "Policy",
-                                                              "Triage method": "None"}}
+                                             "customTriage": {"Defect Category": "Policy",
+                                                              "Triage Method": "None"}}
         assert recs["k6"]["evidence"]["status"] == "not triaged: Policy"
         assert recs["k8"]["lane"] == "Other" and recs["k8"]["method"] == "None"
         # The checker's own method wins over the lane's (Value or path is Human in this plan).
@@ -324,7 +324,7 @@ def main():
         assert recs["k1"]["method"] == "Execution: coverity-verify" and recs["k1"]["lane"] == "Contract"
         assert "run it anyway" in recs["k1"]["method_reason"]
         assert recs["k8"]["method"] == "None" and recs["k8"]["verdict"] is None
-        assert recs["k2"]["triageState"]["customTriage"]["Triage method"] == "Execution: coverity-verify"
+        assert recs["k2"]["triageState"]["customTriage"]["Triage Method"] == "Execution: coverity-verify"
         run(TOOLS / "records.py", "validate", d / "triage.json")
         refuse("override-no-reason", lanes,
                dict(chosen, overrides=[dict(o, reason="") if o["mergeKey"] == "k1" else o

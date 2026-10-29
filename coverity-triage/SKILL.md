@@ -14,7 +14,7 @@ description: >
   "triage these findings", "triage a sample of this run", "classify these
   defects", "are these false positives", "triage before I hand this off",
   "triage in lanes", "which lane does this finding belong in", "place this
-  custom checker", "set Triage lane and Triage method", and whenever
+  custom checker", "set Defect Category and Triage Method", and whenever
   another coverity-* skill that produces findings hands them off for
   verdicts. The skill never starts on a default: triage spends model time
   per finding, so which findings and which method per lane are fixed by
@@ -60,8 +60,8 @@ So triage runs in lanes:
   choice for a single finding overrides both. No lane restricts methods.
 - **The method returns a verdict,** and the verdict goes where verdicts
   already go: Classification, Action, Severity and the triage Comment.
-- **Two attributes record what happened:** `Triage lane` and `Triage
-  method`.
+- **Two attributes record what happened:** `Defect Category` (the lane) and
+  `Triage Method`.
 
 Lanes exist to choose a method for checkers that cannot say how they should
 be triaged. Methods can change lane by lane later, and the table can move a
@@ -82,7 +82,7 @@ flowchart LR
     L --> PO["Policy<br/>never triaged"]
     L --> O["Other<br/>no method"]
     M1 & M2 & M3 & M4 --> V["Verdict<br/>(override, else the checker's<br/>own method, else the lane's)"]
-    V --> R[("Records file<br/>Classification, Action,<br/>Severity, Comment<br/>+ Triage lane, Triage method")]
+    V --> R[("Records file<br/>Classification, Action,<br/>Severity, Comment<br/>+ Defect Category, Triage Method")]
     PO --> R
     O --> R
     R -.->|"applied by whoever<br/>owns the instance"| C["Coverity Connect"]
@@ -263,7 +263,7 @@ it.
 
 ## Step 3: Run each lane's method
 
-| method | `Triage method` value | what runs |
+| method | `Triage Method` value | what runs |
 |---|---|---|
 | **Reading by an LLM** | `LLM: <model>`, e.g. `LLM: Sonnet 5.5` | subagents on that model read the lane's bundles against the lane's questions in `references/reading.md` and return one verdict per finding |
 | **Execution** | `Execution: coverity-verify` | each finding goes to `coverity-verify`, whose router runs it on its harness or extraction route; its tier becomes the verdict (mapping in `references/records.md`). Needs the idir, the Coverity version that wrote it, and clang with libFuzzer |

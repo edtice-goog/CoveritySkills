@@ -256,7 +256,7 @@ def assemble(args):
                           "did not run (" + lane + ", None)")
             continue
         state = {"classification": None, "action": None, "severity": None, "comment": None,
-                 "customTriage": {"Triage lane": lane, "Triage method": method}}
+                 "customTriage": {"Defect Category": lane, "Triage Method": method}}
         evidence = {"bundle": b["bundle"], "selected_because": b.get("selected_because")}
         if route_for(mk):
             evidence["route_preference"] = route_for(mk)
@@ -334,8 +334,8 @@ def check(doc):
         if (lane == OTHER and (method != "None" or verdict is not None)
                 and not r.get("method_reason")):
             p.append(w + "Other takes method None and no verdict, unless an override says why")
-        if ct != {"Triage lane": lane, "Triage method": method}:
-            p.append(w + "customTriage must carry exactly Triage lane and Triage method")
+        if ct != {"Defect Category": lane, "Triage Method": method}:
+            p.append(w + "customTriage must carry exactly Defect Category and Triage Method")
         if verdict is None:
             if any(st.get(k) is not None for k in ("classification", "action", "severity",
                                                    "comment")):

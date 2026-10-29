@@ -28,9 +28,9 @@ built for a particular method takes that one, and a user can give any
 single finding any method.
 
 The verdict lands where verdicts already go: Classification, Action,
-Severity and Comment. Two custom attributes, `Triage lane` and `Triage
-method`, record which lane the finding took and which method produced its
-verdict.
+Severity and Comment. Two custom attributes, `Defect Category` (the lane)
+and `Triage Method`, record which lane the finding took and which method
+produced its verdict.
 
 ```mermaid
 flowchart LR
