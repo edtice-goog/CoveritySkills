@@ -57,6 +57,42 @@ Everything else in this skill is making that extra run trustworthy.
 
 ## Procedure
 
+### Ask only when interactive (rule 38)
+
+Several steps below need a decision that is the user's to make. Ask for it only
+in an interactive session. Otherwise -- and when you cannot tell -- **report
+exactly what is needed to continue, and stop.**
+
+**Do not infer interactivity from weak signals:** not a TTY, not an
+environment variable, not the shape of the invocation. Unsure means stop.
+
+Never default into the more expensive *or* the less reversible option. In this
+skill those are different branches: the expensive one is a capture and
+analysis, and the irreversible one is a write to someone's instance -- an
+annotation, or worse a backdated commit, since `date_originated` is write-once
+per merge key and no later commit can move it. The rule decides *when to ask*,
+never that an answer may be assumed, so "not interactive" does not license
+proceeding on whichever branch looks cheap or safe either.
+
+| Step | Needs a decision | Unattended | Resumes with |
+|---|---|---|---|
+| 1 | build instructions, and which existing result is the anchor | report what is missing; capture nothing | the build command, and the stream and snapshot that is the anchor |
+| 2 | the build does not run -- hand off to `coverity-recreate-from-emit`? | report that the build fails and what the hand-off would cost; do not start it | a working build command, or an explicit OK to replay from the old idir |
+| 3 | the original run's analysis options are not recoverable | report it; do not guess options, which silently redefines what you measured | the option set to use on both sides, or the snapshot to read it from |
+| 6 | the annotation scheme, and whether to backdate the commit | report the labels and the choices; write nothing | the scheme: classification and comment, a named custom attribute, or "we will write it ourselves" -- and the date to commit under, if any |
+| -- | whether anyone wants the fourth cell | three cells is the baseline procedure, not a choice you made; the fourth is an extra capture and analysis, and is only ever run on request | an explicit yes, at the cost of one more capture and analysis |
+
+**Stop without discarding the expensive part.** In this skill the costly
+artifacts are produced early and the decisions come late, so a stop that throws
+them away converts a one-line question into hours of recompute. Keep the
+intermediate directories and the per-cell exports, name their paths in the
+report, and say plainly what will *not* be redone: resuming at Step 6 re-reads
+the exports and writes annotations -- it captures nothing.
+
+A reported-and-stopped run is a useful result. Give the labels you could
+derive, name the decision that blocked the rest, and state the answer or
+command that continues it.
+
 ### Step 0. Rules, and pin two installations
 
 Read `coverity/RULES.md`. Pin **two** installs and name both in every artifact:
@@ -160,18 +196,103 @@ prediction rather than a rationalization.
 versions one release apart, 213 rows changed and nearly all were a documentation
 rename (`All Security` -> `Recommended Security Checkers`), not behaviour.
 
-### Step 6. Ask how to annotate, then annotate
+### Step 6. Ask how to record the attribution, then record it
 
 The deliverable is not only a report -- it is the findings marked in Connect so
-they do not read as regressions to whoever opens the dashboard next.
+they do not read as regressions to whoever opens the dashboard next. There are
+two axes to get right: what each finding is **labelled**, and what date it
+**carries**.
 
 **Ask the user how they want it done.** Installations vary: some will want a
 classification and comment, some have a **custom attribute** for exactly this,
 some want the write left to them. Do not assume a scheme, and do not write to
 their triage store before they have chosen one.
 
+**Unattended, annotate nothing.** Report the labels and the annotation choices
+and stop. Triage state is shared, outward-facing, and read by people who were
+not in the room: a scheme guessed by an unattended run is worse than no
+annotation at all, because it looks deliberate.
+
 When experimenting rather than servicing a real instance, create your own triage
 store and project so nothing lands in theirs.
+
+#### Fix the dates, not just the labels
+
+A label explains a finding to whoever reads it. The **date** is what the
+dashboard sorts and alerts on, and by default it is wrong: commit a
+version-attributable finding today and Connect sets its first-detected to
+today, because that merge key has never been seen before. Fifty findings that
+were in the code all along arrive looking like this morning's regressions, and
+no annotation undoes that.
+
+`cov-commit-defects --backdate` sets it correctly. Commit the new-analyzer run
+with the date the **code** is from, and the findings it reports for the first
+time carry the date they were actually present.
+
+**This is honest here, and almost nowhere else.** The defect was in that code
+on that date; only the analyzer's ability to see it changed. What licenses the
+claim is the code-sameness evidence from Step 2 -- without it you would be
+asserting a first-detected date you cannot support, and backdating a genuinely
+new defect is a falsification that survives in the database. So the attribution
+comes first and the dates follow from it; never the other way round.
+
+Three mechanics that decide whether it works, all of them measured in
+`coverity-demo-data/references/backdating.md` -- read it rather than trusting
+this summary:
+
+- `--backdate` takes `yyyymmdd` and nothing else.
+- `date_originated` is **per CID, global to the instance, and write-once** --
+  set from the backdate only **for merge keys not previously seen**. So a
+  column spanning several releases must be committed **oldest first**, each
+  release carrying its own date.
+- The snapshot's code must be pinned to one known date. Do not backdate a
+  snapshot that mixes code versions -- within one release the code is fixed and
+  the date is a fact; across releases it is a guess.
+
+**Write-once is why this works, not a limitation of it.** The findings that
+need a date are the version-attributable ones, whose merge keys the instance has
+never seen -- so the backdate sets them. The findings already present under the
+old analyzer keep the dates they already had, because a later backdate cannot
+move them, and those dates were already correct. The no-op falls exactly on the
+findings that did not need fixing.
+
+**A separate stream is for rule 29, not for dates.** It does not give the new
+column its own first-detected dates: `date_originated` hangs off the per-CID
+record for the whole instance, and merge keys are mostly stable across analyzer
+versions, so a shared finding carries one date no matter which stream or project
+it is committed into. Genuinely independent dates would need a separate Connect
+instance. What the separate stream buys is a timeline that does not lie: the
+control run is *older code committed later*, so putting it in the user's
+existing stream moves that stream backwards and makes every finding absent from
+it read as fixed (rule 29).
+
+**Measured, incidentally rather than by design.** On a Connect instance holding
+two published datasets that share three vendored-zlib merge keys, the dataset
+committed second went into its own project and streams, and those three CIDs
+kept the first dataset's 2011-12-07 first-detected date although the second
+commit backdated them to 1999-04-01: write-once means **the first commit to
+report a key fixes its date, not the earliest date offered.** So the behaviour
+holds across projects, not merely across streams within one project. Three keys
+on one instance confirms the mechanism rather than bounding it.
+
+#### Therefore: attribute before the first commit, or lose the date half
+
+That measurement decides *when* this skill has to run. Dates are fixed by the
+first commit that reports a key, so they can be set correctly only once:
+
+- Attribute **first**, then commit the new-analyzer results with the right
+  dates, and the version-attributable findings carry the dates they were
+  actually present.
+- Commit first and attribute afterwards, and those findings are already stamped
+  with the day of the commit. **A later `--backdate` cannot correct it even
+  though the date it offers is earlier** -- that is exactly what the
+  measurement above shows. The remedy is a new instance or a database restore,
+  which is nobody's idea of a remedy.
+
+The label half survives either order: an annotation can be applied whenever.
+The date half does not, so if a team is mid-upgrade and has not yet committed,
+say so plainly -- that is the cheapest this will ever be, and it stops being
+available the moment they commit.
 
 ### Step 7. Report
 
@@ -218,7 +339,10 @@ The **four-cell** form adds `(C2,A1)`, the old analyzer on the new code. It buys
 two things and is worth the extra capture when either matters: it confirms the
 code-side labels independently, and it is the only way to detect
 `CONTROL_FAILURE`, whose patterns both involve `c`. Run it when calibrating the
-method, or when the code delta itself is under dispute.
+method, or when the code delta itself is under dispute -- and only when someone
+has asked for it. It is a whole extra capture and analysis, so it is never the
+unattended default; report that three cells cannot detect `CONTROL_FAILURE` and
+let the user decide whether that matters to them.
 
 ### `CONTROL_FAILURE` must be empty
 

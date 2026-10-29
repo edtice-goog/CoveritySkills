@@ -1,18 +1,50 @@
 # The files, and the records
 
-Four inputs to `tools/records.py assemble`, one output. All JSON is UTF-8.
-Every finding is identified by its **merge key**; CIDs are labels local to
-one Connect database and appear nowhere in these files (rule 27).
+The checker table and four inputs feed `tools/records.py assemble`, which
+writes one output. All JSON is UTF-8. Every finding is identified by its
+**merge key**. CIDs are labels local to one Connect database, and appear
+nowhere in these files (rule 27).
 
 ```
 <out>/
 ├── NNN-CHECKER.md, INDEX.md, index.json    # tools/bundle.py
 ├── run.json                                # the plan: written before any method runs
-├── lanes.json                              # the assignment
+├── lanes.json                              # tools/lanes.py, then inference for what it left pending
 ├── verdicts/<lane>-<n>.json                # one per reader batch (or per verify run)
 ├── triage.json                             # tools/records.py assemble
 └── TRIAGE-REPORT.md                        # tools/records.py assemble
 ```
+
+## The checker table
+
+`references/checker-lanes.json` holds the skill's own rows. An
+organization's table, or a producer's rows for its own checkers, has the
+same format and is passed with `lanes.py assign --table`. A later file's row
+replaces an earlier one for the same checker. `lanes.py check-table <file>`
+validates a table.
+
+```json
+{
+ "format": "coverity-triage-checker-lanes",
+ "schema": 1,
+ "checkers": {
+  "SIZEOF_MISMATCH": {"lane": "Intent", "why": "a sizeof that does not match the pointer beside it"},
+  "NEGATIVE_RETURNS": {"lanes": ["Contract", "Value or path"],
+                       "decide": "Contract when the negative value is a callee's return; Value or path when it is a variable tested negative along the path"},
+  "MY_SHAPE_NULL_DEREF": {"lane": "Value or path", "why": "a path-insensitive stand-in for FORWARD_NULL",
+                          "method": "Execution: coverity-verify", "route": "harness"}
+ }
+}
+```
+
+| field | rule |
+|---|---|
+| `lane` | a fixed lane, one of the six. Give `lane` or `lanes`, never both |
+| `why` | required with `lane`: what the checker claims, in a phrase. It becomes the finding's lane reason |
+| `lanes` | two or more candidate lanes, all from Construction, Intent, Contract and Value or path. Inference chooses among them per finding |
+| `decide` | required with `lanes`: what tells the candidates apart |
+| `method` | optional: the method the checker was built for (`LLM: <model>`, `Execution: coverity-verify` or `Human`). It overrides the lane's method in the plan. Never on a Policy or Other row; a checker that is never triaged is Policy |
+| `route` | optional, only beside `Execution: coverity-verify`: `harness` or `extraction`, the route verify should prefer |
 
 ## `run.json`: the plan
 
@@ -21,56 +53,84 @@ that was agreed is the plan on record.
 
 ```json
 {
- "date": "2026-10-24",
+ "date": "2026-10-28",
  "selection": "per-checker sample of 2, plus 1 named merge key",
  "assigner": "LLM: Sonnet 5.5",
- "lanes": {"Construction": "LLM: Opus 5.5",
-           "Contract": "LLM: Sonnet 5.5",
+ "lanes": {"Construction": "LLM: Sonnet 5.5",
+           "Intent": "LLM: Sonnet 5.5",
+           "Contract": "LLM: Opus 5.5",
            "Value or path": "Execution: coverity-verify"},
+ "verify_route": "extraction",
  "who": "4 local subagents in Claude Code",
  "connect_ai_triage": false,
  "expected": {"by": "coverity-pathout", "lane": "Value or path",
               "method": "Execution: coverity-verify"},
  "overrides": [
-  {"mergeKey": "9c1d...", "method": "Execution: coverity-verify",
-   "reason": "assigned Contract; user chose to run it anyway"},
+  {"mergeKey": "9c1d...", "method": "Execution: coverity-verify", "route": "harness",
+   "reason": "a closer look at this one finding"},
   {"mergeKey": "41aa...", "method": "None",
    "reason": "assigned Other; user chose to leave it untriaged"}
  ]
 }
 ```
 
-- `lanes` names the method for each of the three method lanes. A lane left
-  out of the plan has `"None"`. Other is never listed: it is always `None`.
-- A method is one of `LLM: <model>`, `Execution: coverity-verify`,
-  `Human`, `None`. `<model>` is the model's display name (`Opus 5.5`,
-  `Sonnet 5.5`, `Haiku 5.5`).
-- `who` says who and where, in words; `connect_ai_triage` is `false`
+- **`lanes`** names a method for each of the four method lanes. A lane
+  left out of the plan has `"None"`, written down: a missing lane is
+  refused, never defaulted. Policy and Other are never listed.
+- **A method** is one of `LLM: <model>`, `Execution: coverity-verify`,
+  `Human` or `None`. `<model>` is the model's display name (`Opus 5.5`,
+  `Sonnet 5.5`, `Haiku 5.5`). Any method may be planned for any of the four
+  lanes.
+- **`assigner`** is the method for inference on findings left pending. It
+  is `"None"` when the table settles every lane.
+- **`verify_route`** (optional) is the user's route for every finding verify
+  runs in this plan, for an application whose situation does not suit a
+  row's preference. It beats the rows' `route`, and loses to an override's.
+- **`who`** says who and where, in words. `connect_ai_triage` is `false`,
   because this skill never uses it.
-- `expected` (optional) is the lane and method the calling skill built its
-  findings for. Findings assigned elsewhere are reported to the user before
-  any method runs.
-- `overrides` (optional) are the user's per-finding choices for those
-  findings, or for any other: a method from the four forms and the reason.
-  An override is the only way a finding takes a method other than its
-  lane's, and the only way a finding in Other gets one. `Execution:
-  coverity-verify` is allowed on any lane's finding through an override;
-  verify then decides for itself whether the claim is one it can run.
+- **`expected`** (optional) is the lane and method the calling skill built
+  its findings for. A finding is off-lane when its lane differs and its
+  checker's own method differs too; off-lane findings are reported to the
+  user before any method runs. Policy findings are never off-lane, since
+  there is no choice to make for them.
+- **`overrides`** (optional) are the user's choices for single findings. Each
+  is a method from the four forms, with the reason, and a `route` when the
+  method is verify. An override is the strongest choice there is: it beats
+  the checker's own method and the lane's. It is also the only way a finding
+  in Other gets a method. A Policy finding takes none.
 
 ## `lanes.json`: the assignment
 
+`tools/lanes.py assign` writes it. Every finding whose checker has a fixed
+lane is under `lanes`. Every other finding is under `pending`, either with
+its candidates or marked `unplaced`.
+
 ```json
 {
- "assigned_by": "LLM: Sonnet 5.5",
+ "tables": ["references/checker-lanes.json", "acme-checkers.json"],
  "lanes": [
-  {"mergeKey": "6b0b0c...", "lane": "Contract",
-   "reason": "NULL_RETURNS on strchr; evidence is statistical (checked 68 of 71)"}
+  {"mergeKey": "6b0b0c...", "checker": "NULL_RETURNS", "lane": "Contract",
+   "reason": "a callee's NULL return is used", "assigned_by": "checker table"}
+ ],
+ "pending": [
+  {"mergeKey": "3fe1...", "checker": "NEGATIVE_RETURNS",
+   "candidates": ["Contract", "Value or path"], "decide": "..."},
+  {"mergeKey": "77aa...", "checker": "ACME_NEW_CHECK", "unplaced": true}
  ]
 }
 ```
 
-Every finding in `index.json` appears exactly once. `lane` is one of
-`Construction`, `Contract`, `Value or path`, `Other`.
+Inference moves each pending finding into `lanes`, with `lane` (one of its
+`candidates`), `reason` and `assigned_by` (the plan's `assigner`). An
+unplaced checker gets a row in a table file, and `assign` runs again. Before
+`assemble`, `pending` must be empty.
+
+| field | rule |
+|---|---|
+| `lane` | one of `Construction`, `Intent`, `Contract`, `Value or path`, `Policy`, `Other` |
+| `reason` | required: the row's `why`, or the sentence inference wrote naming the events |
+| `assigned_by` | `checker table`, the plan's `assigner` (with `candidates`, and a lane among them), or `Human` (a person moving a finding, with the reason) |
+| `method`, `route` | copied from the checker's row, when it has them |
 
 ## `verdicts/*.json`: one per reader batch
 
@@ -94,22 +154,24 @@ Every finding in `index.json` appears exactly once. `lane` is one of
 
 | field | rule |
 |---|---|
-| `lane`, `method` | the lane the findings were assigned to, and the method exactly as `run.json` names it for that lane, or as each finding's override names it. A file holds findings of one lane and one method |
+| `lane`, `method` | the lane the findings were assigned to, and the method each finding takes: its override's, its checker's own, or the plan's for the lane, in that order. A file holds findings of one lane and one method |
 | `model` | the model id the reader actually ran on, as it reports it |
 | `verdict` | a word from the verdict set (`reading.md`) |
-| `reason` | required; the argument, with `file:line` for each claim about the code. A reader that thinks the lane is wrong uses `unresolved` and starts the reason with `wrong lane: <lane>` |
-| `invariant`, `enforced_at`, `breaks_if` | required, non-empty, for `false positive - global invariant`; ignored otherwise |
+| `reason` | required: the argument, with `file:line` for each claim about the code. A reader that thinks the lane is wrong uses `unresolved`, and starts the reason with `wrong lane: <lane>` |
+| `invariant`, `enforced_at`, `breaks_if` | required and non-empty for `false positive - global invariant`; ignored otherwise |
 | `sites_read` | the code read, as `path:line` or `path:first-last` |
 | `executed` | `true` only when the verdict rests on running the code (the execution method) |
+| `route`, `route_reason`, `as_code`, `stubbed` | from `coverity-verify`'s record: the route that ran and why, what ran as code, and what was stubbed. Carried into the record's evidence |
 
-A finding in a lane whose method is `Human` may have no verdict yet; its
-record says it is awaiting a person. A later verdict file from that person
-(method `Human`) completes it.
+A finding in a lane whose method is `Human` may have no verdict yet. Its
+record says it is awaiting a person, and a later verdict file from that
+person (method `Human`) completes it.
 
 ## From `coverity-verify` to a verdict
 
-The execution method reports a tier per finding (`coverity-verify`, Step 4).
-Translate it into the verdict set before writing the verdict file:
+The execution method reports a tier for each finding (`coverity-verify`,
+Step 4). Both routes, harness and extraction, report the same tiers.
+Translate the tier into the verdict set before writing the verdict file:
 
 | verify's tier | verdict |
 |---|---|
@@ -119,12 +181,17 @@ Translate it into the verdict set before writing the verdict file:
 | *model says impossible* | `false positive - global invariant`: no callee model on the path produces the bad value; the models are `enforced_at` |
 | *model over-approximates the callee*; *model gap* | `false positive - global invariant`: what the real callee does, and where in its code, as `enforced_at` |
 | *refuted by reading* | `false positive - global invariant` with the guard's location, marked `executed: false` |
-| *parameter-, global-, hook-sourced*; *unconfirmed after N seconds*; *not a fuzz-triage candidate* | `unresolved`, with verify's tier as the reason |
+| *parameter-, global-, hook-sourced*; *unconfirmed after N seconds*; *not a fuzz-triage candidate*; *not verified: <route> does not apply* | `unresolved`, with verify's tier as the reason |
 
-Every case needs `breaks_if` too: the change that would make the claim
-reachable. Mark the verdict `executed: true` except where noted, and put the
-tier and the reach count or crash evidence in `reason`. A *bycatch* is not a
-verdict on the finding; mention it in `reason` so a person sees it.
+Every case needs `breaks_if` as well: the change that would make the claim
+reachable.
+
+- Mark the verdict `executed: true`, except where the table notes otherwise.
+- Put the tier, and the reach count or the crash evidence, in `reason`.
+- Copy verify's `route`, `route_reason`, `as_code` and `stubbed`.
+
+A *bycatch* is not a verdict on the finding. Mention it in `reason`, so a
+person sees it.
 
 ## `triage.json`: the records
 
@@ -132,7 +199,7 @@ verdict on the finding; mention it in `reason` so a person sees it.
 {
  "format": "coverity-triage-records",
  "schema": 1,
- "run": { ...run.json..., "assigned_by": "LLM: Sonnet 5.5",
+ "run": { ...run.json..., "tables": ["references/checker-lanes.json"],
           "source": {"issues": "v1.3.9.json", "git_repo": "...", "tag": "v1.3.9",
                      "source": {"mode": "git", "repo": "...", "rev": "v1.3.9"},
                      "strip_prefix": "/home/me/proftpd"} },
@@ -142,14 +209,15 @@ verdict on the finding; mention it in `reason` so a person sees it.
    "judged": {"tag": "v1.3.9",
               "sites": [{"file": "modules/mod_log.c", "line": 1324, "function": "log_openfile"}]},
    "lane": "Contract",
-   "lane_reason": "NULL_RETURNS on strchr; evidence is statistical (checked 68 of 71)",
+   "lane_reason": "a callee's NULL return is used",
+   "lane_assigned_by": "checker table",
    "method": "LLM: Sonnet 5.5",
    "verdict": "false positive - global invariant",
    "triageState": {"classification": "False Positive", "action": "Ignore",
                    "severity": null,
-                   "comment": "False positive (global invariant): The else branch ...\n[coverity-triage 2026-10-24] Lane: Contract (assigned by LLM: Sonnet 5.5). Method: LLM: Sonnet 5.5, read, not executed.",
-                   "customTriage": {"Triage lane": "Contract",
-                                    "Triage method": "LLM: Sonnet 5.5"}},
+                   "comment": "False positive (global invariant): The else branch ...\n[coverity-triage 2026-10-28] Lane: Contract (assigned by checker table). Method: LLM: Sonnet 5.5, read, not executed.",
+                   "customTriage": {"Defect Category": "Contract",
+                                    "Triage Method": "LLM: Sonnet 5.5"}},
    "evidence": {"reason": "...", "invariant": "...", "enforced_at": "...", "breaks_if": "...",
                 "sites_read": ["..."], "executed": false, "model": "claude-sonnet-5-5",
                 "bundle": "013-NULL_RETURNS.md"}}
@@ -160,6 +228,7 @@ verdict on the finding; mention it in `reason` so a person sees it.
 - **`run.source.source`** says where the bundles' source came from:
   `{"mode": "git", "repo", "rev"}` by default, or `{"mode": "idir", "idir",
   "coverity"}` when there was no git source.
+- **`run.tables`** lists the checker tables the lanes came from.
 - **`triageState`** uses the attribute names of Connect's triage-store
   export: `classification`, `action`, `severity`, `comment`, and
   `customTriage` for custom attributes. **`null` means leave that
@@ -168,9 +237,14 @@ verdict on the finding; mention it in `reason` so a person sees it.
   this version. A merge key does not depend on the file, so copy-pasted
   code in two files can share one key; a verdict on it covers all of them,
   and the reader is shown all of them.
-- **`evidence`** is for people and is never applied.
-- **`method_reason`** appears on a record whose method came from an
-  override, and carries the user's reason.
+- **`evidence`** is for people, and is never applied. When the method is
+  verify, `route_preference` is the route the finding was sent with: the
+  override's, the plan's `verify_route`, or the row's `route`, in that
+  order. `route` and the fields beside it are what verify reports actually
+  ran.
+- **`method_reason`** appears when the method did not come from the plan's
+  lane. It carries the override's reason, or "the checker's own method
+  (checker table)".
 
 ### The mapping
 
@@ -181,37 +255,44 @@ verdict on the finding; mention it in `reason` so a person sees it.
 | `intentional` | Intentional | Ignore | null |
 | `false positive - global invariant` | False Positive | Ignore | null |
 | `false positive - heuristic misfire` | False Positive | Ignore | null |
-| `unresolved`; Other; method `None`; awaiting a person | null | null | null |
+| `unresolved`; Policy; Other; method `None`; awaiting a person | null | null | null |
 
 The comment is set on every record that has a verdict, `unresolved`
 included, so the argument reaches whoever opens the finding. A record with
-no verdict (Other, `None`, awaiting a person) sets only the two custom
-attributes.
+no verdict sets only the two custom attributes: Policy, Other, method `None`,
+or awaiting a person.
 
 ### The comment
 
 ```
 <Label>: <reason>
-[coverity-triage <date>] Lane: <lane> (assigned by <assigner>). Method: <method>, <read, not executed | executed>.
+[coverity-triage <date>] Lane: <lane> (assigned by <checker table | assigner>). Method: <method>, <read, not executed | executed>.
 ```
 
 with `<Label>` one of *Real defect*, *Real defect, low severity*,
 *Intentional*, *False positive (global invariant)*, *False positive
-(heuristic misfire)*, *Unresolved*. For a global invariant the reason is
-followed by `Invariant: ... Enforced at: ... Breaks if: ...`. The comment
-is at most 4,000 characters (the reason is shortened, with a note, to
-fit) and carries no control character other than tab, LF and CR: a NUL
-copied from a C literal such as `'\0'` has been measured to make Connect
-answer HTTP 500 to the whole triage write.
+(heuristic misfire)*, *Unresolved*.
+
+- For a global invariant, the reason is followed by `Invariant: ...
+  Enforced at: ... Breaks if: ...`.
+- The comment is at most 4,000 characters. The reason is shortened to fit,
+  with a note.
+- It carries no control character other than tab, LF and CR. A NUL copied
+  from a C literal such as `'\0'` has been measured to make Connect answer
+  HTTP 500 to the whole triage write.
 
 ## The two custom attributes
 
 | attribute | Connect type | values |
 |---|---|---|
-| `Triage lane` | pick list | `Construction`, `Contract`, `Value or path`, `Other` |
-| `Triage method` | pick list | `LLM: <model>` (one value per model used), `Execution: coverity-verify`, `Human`, `None` |
+| `Defect Category` | pick list | `Construction`, `Intent`, `Contract`, `Value or path`, `Policy`, `Other` |
+| `Triage Method` | pick list | `LLM: <model>` (one value per model used), `Execution: coverity-verify`, `Human`, `None` |
+
+`Defect Category` holds the finding's lane. It is not Connect's built-in
+Category, which is the checker's category (for example "Null pointer
+dereferences"), and the two are set independently.
 
 They must exist on the instance, with every value the records use, before
-anything can set them. Whoever applies the records chooses per apply
-whether to set them or only the standard attributes; the records always
+anything can set them. Whoever applies the records chooses, per apply,
+whether to set them or only the standard attributes. The records always
 carry both, so the choice is the applier's and not this skill's.

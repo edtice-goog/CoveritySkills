@@ -77,6 +77,25 @@ auto`, which applies the last column of the table per checker.
 `bin/run_fixtures.sh <install>/bin` compiles `fixtures/` and checks each
 checker against the `HIT` markers in them.
 
+## The triage table
+
+`triage-lanes.json`, beside this file, is one row per checker in
+`coverity-triage`'s table format (`lanes.py assign --table
+shapes/triage-lanes.json`; `lanes.py check-table` validates it). The row
+carries the lane of the built-in the shape stands in for -- six rows fixed
+in Value or path, one in Intent, one that can be Contract or Value or
+path, and five that can be Construction or Value or path, each with what
+decides -- plus the method `Execution: coverity-verify` and the preferred
+route `extraction`. The method overrides the lane: these checkers are
+noisy by design and their hits are candidates until run, so no candidate
+is off-lane for standing in for a Contract or Construction checker. The
+route is extraction on every row because these shapes were built for the
+extraction chain (the function sliced from the emit, callees outside the
+slice stubbed from the derived models, then fuzzed) and do not work under
+harness-verification; a row would move to harness only on evidence that
+it does, and a user may override per application.
+The superseded `overflow_before_alloc` keeps a row for older runs.
+
 ## What they cannot do, on purpose
 
 No order (CodeXM's `sourceloc` has no fields and `happens-before` is only

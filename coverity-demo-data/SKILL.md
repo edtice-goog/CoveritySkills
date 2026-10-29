@@ -505,6 +505,20 @@ line (event count, files touched, interprocedural, statistical evidence),
 against the legibility rule. Keep both in the dataset; keep both off the
 slide.
 
+**By-catch never ships in a dataset.** A by-catch is a defect noticed while
+working on a different finding -- in effect a potential zero-day in someone
+else's code. A published dataset is delivered to demo instances and shown on
+screens, so a by-catch riding along in the triage material could be put in
+front of an audience by accident. Keep it out of `audit/` and out of any report
+the dataset carries; route it to whoever handles unreported vulnerabilities for
+your organisation, and record it there rather than here.
+
+`publish_dataset.py` refuses to publish audit material containing the word, as
+a backstop. Do not mistake that for a guarantee: `coverity-triage` records a
+by-catch in a record's free-text `reason`, so one described without the word
+passes the check. The check catches the conventional case and the convention is
+what actually protects you.
+
 ## Step 5: Publish the dataset to the archive
 
 A dataset is expensive to build and cheap to reuse, so it does not belong on
