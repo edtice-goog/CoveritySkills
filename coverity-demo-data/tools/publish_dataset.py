@@ -41,7 +41,11 @@ import datetime
 #   2: audit.present (a directory existed) replaced by audit.triaged
 #      (coverity-triage records exist). The old field read as "checked"
 #      for datasets that had not been.
-SCHEMA = 2
+#   3: per-release findings/<tag>.json and capture/<tag>.json retained,
+#      and listed under capture.findings and capture.inventory. A
+#      column needs both to be comparable to another column, and
+#      neither can be regenerated once the matching install is gone.
+SCHEMA = 3
 
 
 def fail(msg):
@@ -92,15 +96,24 @@ def idir_facts(idir, cov_bin):
     settings = idir / "output" / "analysis-settings.json"
     f["analysis_settings"] = settings if settings.is_file() else None
 
+    # list-json rather than list: one call serves both the path validation
+    # below and the capture inventory the dataset retains. It carries
+    # primaryFileHash as well as the size, which is what lets a later column
+    # prove it analyzed the same code rather than merely a same-sized file.
     r = subprocess.run([str(pathlib.Path(cov_bin) / "cov-manage-emit"),
-                        "--dir", str(idir), "list"],
+                        "--dir", str(idir), "list-json"],
                        capture_output=True, text=True)
-    tus = [m.group(1) for m in
-           (re.match(r"\s*\d+ -> (.+)$", ln) for ln in r.stdout.splitlines()) if m]
-    if not tus:
-        fail(f"{idir}: cov-manage-emit listed no translation units "
+    try:
+        records = json.loads(r.stdout)
+    except json.JSONDecodeError:
+        records = []
+    if not records:
+        fail(f"{idir}: cov-manage-emit list-json returned no translation units "
              f"(exit {r.returncode}): {r.stderr.strip()[:200]}")
-    f["tus"] = tus
+    f["tu_records"] = records
+    f["tus"] = [t["primaryFilename"] for t in records if t.get("primaryFilename")]
+    if not f["tus"]:
+        fail(f"{idir}: list-json records carry no primaryFilename")
     return f
 
 
@@ -110,8 +123,14 @@ def strip_root(path, root):
     return p[len(r):].lstrip("/") if r and p.startswith(r) else None
 
 
-def merge_keys(idir, cov_bin, scratch):
-    """mergeKey set for one idir, exporting JSON if it is not already there."""
+def findings_export(idir, cov_bin, scratch):
+    """Path to this idir's JSON v10 finding export, generating it if absent.
+
+    The export IS the column's finding set, and regenerating it later needs an
+    analyzer install whose version matches the idir -- installs get removed, so
+    a column that loses its export cannot be reproduced. It is therefore
+    retained in the dataset rather than treated as a scratch intermediate.
+    """
     cached = idir / "phase2-issues.json"
     src = cached
     if not cached.is_file():
@@ -124,6 +143,12 @@ def merge_keys(idir, cov_bin, scratch):
                 fail(f"{idir}: cov-format-errors failed (exit {r.returncode}). "
                      f"Note it needs a licence and checks AFTER printing a "
                      f"summary: {r.stderr.strip()[:200]}")
+    return src
+
+
+def merge_keys(idir, cov_bin, scratch):
+    """mergeKey set for one idir."""
+    src = findings_export(idir, cov_bin, scratch)
     data = json.loads(src.read_text(encoding="utf-8"))
     return {i["mergeKey"] for i in data.get("issues", []) if i.get("mergeKey")}
 
@@ -324,7 +349,7 @@ def main():
         fail(f"{dataset} already exists. Datasets are immutable; use a new slug.")
     dataset.mkdir(parents=True)
     try:
-        assemble(dataset, rows, facts, args, ws, idirs_root, version)
+        assemble(dataset, rows, facts, args, ws, idirs_root, version, scratch)
     except BaseException:
         shutil.rmtree(winlong(dataset), ignore_errors=True)
         parent = dataset.parent
@@ -337,8 +362,8 @@ def main():
     return 0
 
 
-def assemble(dataset, rows, facts, args, ws, idirs_root, version):
-    for sub in ("idirs", "tools", "provenance"):
+def assemble(dataset, rows, facts, args, ws, idirs_root, version, scratch):
+    for sub in ("idirs", "tools", "provenance", "findings", "capture"):
         (dataset / sub).mkdir()
     for r in rows:
         print(f"  copying {r['tag']} ...", flush=True)
@@ -355,9 +380,35 @@ def assemble(dataset, rows, facts, args, ws, idirs_root, version):
     shutil.copy2(here / "commit_template.sh", dataset / "commit.sh")
     os.chmod(dataset / "commit.sh", 0o755)
     for r in rows:
-        s = facts[r["tag"]]["analysis_settings"]
-        if s:
-            shutil.copy2(s, dataset / "provenance" / f"{r['tag']}-analysis-settings.json")
+        st = facts[r["tag"]]["analysis_settings"]
+        if st:
+            shutil.copy2(st, dataset / "provenance" / f"{r['tag']}-analysis-settings.json")
+
+    # The two artifacts a later column needs in order to be comparable to this
+    # one, and that cannot be regenerated once the matching analyzer install is
+    # gone. Both are small; both are derived from the idir rather than part of
+    # it, so they sit beside the manifest where publish can verify them.
+    emitted = {}
+    for r in rows:
+        tag = r["tag"]
+        shutil.copy2(findings_export(idirs_root / tag, args.cov_bin, scratch),
+                     dataset / "findings" / f"{tag}.json")
+        log = ws / "logs" / f"{tag}.build.log"
+        n = None
+        if log.is_file():
+            hits = re.findall(r"^Emitted (\d+) C/C\+\+ compilation units",
+                              log.read_text(encoding="utf-8", errors="replace"),
+                              re.M)
+            if hits:
+                n = int(hits[-1])
+        emitted[tag] = n
+        (dataset / "capture" / f"{tag}.json").write_text(json.dumps({
+            "tag": tag,
+            "tu_count": len(facts[tag]["tu_records"]),
+            "emitted_from_build_log": n,
+            "build_root": facts[tag]["build_root"],
+            "translation_units": facts[tag]["tu_records"],
+        }, indent=2) + chr(10), encoding="utf-8")
 
     url, shas = (None, {})
     if args.source_repo:
@@ -414,6 +465,12 @@ def assemble(dataset, rows, facts, args, ws, idirs_root, version):
             "tu_by_top_dir_at_tip": dict(sorted(tip_dirs.items(),
                                                 key=lambda kv: -kv[1])),
             "top_dirs_any_version": all_dirs,
+            # Per release: the finding set this column reported, and the
+            # inventory proving what it analyzed. Both retained because
+            # regenerating either needs an analyzer install matching the idir.
+            "findings": {r["tag"]: f"findings/{r['tag']}.json" for r in rows},
+            "inventory": {r["tag"]: f"capture/{r['tag']}.json" for r in rows},
+            "emitted_from_build_log": emitted,
         },
     }
     (dataset / "MANIFEST.json").write_text(
