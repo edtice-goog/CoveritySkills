@@ -5,36 +5,38 @@
       "id": 0,
       "eval_name": "asks-before-spending",
       "prompt": "Triage the findings in v1.3.9.json (proftpd, built from tag v1.3.9 in ~/demo/proftpd, build root /home/me/demo/proftpd).",
-      "expected_output": "Runs tools/bundle.py --plan to count what selections would hold (112 merge keys, 13 checkers; a per-checker sample of 2 is 24), then asks once which findings (all, a per-checker sample, named keys) and which method and model per lane, including leaving a lane out. Starts no lane method before the answer.",
+      "expected_output": "Runs tools/bundle.py --plan to count what selections would hold (112 merge keys, 13 checkers; a per-checker sample of 2 is 24), then asks once which findings (all, a per-checker sample, named keys) and which method and model per lane, for all four method lanes, including leaving a lane out. May bundle and run lanes.py assign first, since both are free, and put the counts per lane in the question. Starts no inference and no lane method before the answer.",
       "assertions": [
         "Runs bundle.py with --plan before any bundles are read by a model",
         "Puts the finding counts in the question",
-        "Asks for the method (and model) per lane rather than assuming one",
-        "Does not start lane assignment or any lane method before the user answers"
+        "Asks for the method (and model) for Construction, Intent, Contract and Value or path rather than assuming one",
+        "Does not start inference or any lane method before the user answers"
       ]
     },
     {
       "id": 1,
       "eval_name": "plan-given-run-it",
-      "prompt": "Triage a per-checker sample of 2 from v1.3.9.json (proftpd tag v1.3.9, ~/demo/proftpd, build root /home/me/demo/proftpd). Assign lanes with Sonnet; read every lane with Sonnet. Records only.",
-      "expected_output": "Does not ask: the selection and the plan are fixed. Writes run.json, bundles 24 findings from git at the tag, assigns lanes into lanes.json, runs one reader batch per lane (value or path split into batches of about ten), assembles triage.json with records.py, and reports counts per lane and verdict naming the triager (local subagents on Sonnet 5.5, nothing written to Connect).",
+      "prompt": "Triage a per-checker sample of 2 from v1.3.9.json (proftpd tag v1.3.9, ~/demo/proftpd, build root /home/me/demo/proftpd). Inference with Sonnet; read every lane with Sonnet. Records only.",
+      "expected_output": "Does not ask: the selection and the plan are fixed. Writes run.json, bundles 24 findings from git at the tag, runs lanes.py assign (22 from the checker table, 2 NEGATIVE_RETURNS pending), runs inference on only those 2, runs one reader batch per lane (Intent and value or path), assembles triage.json with records.py, and reports counts per lane and verdict naming the triager (local subagents on Sonnet 5.5, nothing written to Connect).",
       "assertions": [
         "Writes run.json before any lane method runs",
+        "Runs inference only on the findings lanes.py left pending",
         "Each reader is given one lane's bundles and that lane's questions only",
         "triage.json passes records.py validate",
-        "The report names who produced the verdicts and says nothing was written to Connect",
+        "The report names who produced the verdicts, says how many lanes came from the table, and says nothing was written to Connect",
         "The report states the sample size and does not quote a false-positive rate"
       ]
     },
     {
       "id": 2,
-      "eval_name": "other-gets-no-verdict",
-      "prompt": "Here is a finding whose claim is that two adjacent lines look copy-pasted (COPY_PASTE_ERROR, no call, no value flow). Triage it in lanes with Sonnet throughout.",
-      "expected_output": "The assigner may answer Other when none of construction, contract or value-or-path fits; if it does, the record carries Triage lane Other and Triage method None, no classification, action or comment, and no reader is run for it.",
+      "eval_name": "policy-and-other-get-no-verdict",
+      "prompt": "Triage these findings with Sonnet throughout: a MISRA_CAST on an implicit conversion, and a PARSE_ERROR saying an include file could not be opened.",
+      "expected_output": "The checker table places MISRA_CAST in Policy and PARSE_ERROR in Other, with no inference. Neither gets a reader. Each record sets only the two custom attributes (Defect Category Policy or Other, Triage Method None). The PARSE_ERROR is pointed at the coverity skill as a capture question. No override can give the Policy finding a method.",
       "assertions": [
-        "Treats Other as a legitimate lane, not an error",
-        "Runs no lane method for a finding in Other",
-        "The record sets only the two custom attributes"
+        "Runs no lane method for a Policy or Other finding",
+        "Does not argue with the MISRA rule",
+        "The records set only the two custom attributes",
+        "Names the PARSE_ERROR as a capture question for the coverity skill"
       ]
     },
     {
@@ -51,24 +53,25 @@
     {
       "id": 4,
       "eval_name": "execution-lane-mapping",
-      "prompt": "Plan: construction and contract read by Opus, value-or-path executed with coverity-verify. Verify returned 'refuted by execution: line reached 412,118 times in 60 s, claim never false' for one FORWARD_NULL and 'not a fuzz-triage candidate' for a RESOURCE_LEAK across a socket. Turn those into verdict files.",
-      "expected_output": "The FORWARD_NULL becomes 'false positive - global invariant' with the claim that held as the invariant, the line and reach count under the budget as enforced_at, and a breaks_if; executed true. The RESOURCE_LEAK becomes 'unresolved' with verify's tier as the reason. The method on both is 'Execution: coverity-verify'; nothing falls back to reading.",
+      "prompt": "Plan: construction, intent and contract read by Opus, value-or-path executed with coverity-verify. Verify returned 'refuted by execution: line reached 412,118 times in 60 s, claim never false' on the harness route for one FORWARD_NULL and 'not a fuzz-triage candidate' for a RESOURCE_LEAK across a socket. Turn those into verdict files.",
+      "expected_output": "The FORWARD_NULL becomes 'false positive - global invariant': the claim that held is the invariant, the line and reach count under the budget are enforced_at, and it has a breaks_if; executed true; verify's route and its as_code/stubbed lists copied. The RESOURCE_LEAK becomes 'unresolved' with verify's tier as the reason. Both carry the method 'Execution: coverity-verify'; nothing falls back to reading.",
       "assertions": [
         "Uses the mapping table in references/records.md",
         "Marks executed true only for the execution method",
+        "Copies verify's route fields into the verdict",
         "Does not re-read the RESOURCE_LEAK to give it a verdict under the execution method"
       ]
     },
     {
       "id": 5,
       "eval_name": "off-lane-is-never-a-surprise",
-      "prompt": "coverity-pathout handed over 12 shape-catalogue candidates for triage; it expects them in the value-or-path lane, run through coverity-verify. Lane assignment by Sonnet; verify for value or path.",
-      "expected_output": "Assigns lanes first. Before any verify run, reports the candidates that landed outside value or path (with their lanes and reasons, e.g. a CHECKED_RETURN-shaped candidate in Contract) and asks the user, per finding or per group: verify anyway where realistic, that lane's own method, or leave it untriaged. Records the answers as overrides with reasons in run.json, then runs verify on the value-or-path candidates and on any the user sent there.",
+      "prompt": "A producer handed over 12 candidates from its custom checkers, with a table file of rows for them (each row has a lane and the method Execution: coverity-verify), plus 3 ordinary CHECKED_RETURN findings. It expects value or path with coverity-verify. Inference with Sonnet; verify for value or path.",
+      "expected_output": "Runs lanes.py assign with the producer's table. The 12 candidates carry their checkers' own method, so they go to verify whatever lane they landed in, and none is off-lane. Before any verify run, it reports the 3 CHECKED_RETURN findings, which are in Contract with no own method, and asks per finding or per group: verify anyway, the contract lane's method, or leave untriaged. Records the answers as overrides with reasons in run.json.",
       "assertions": [
+        "Uses the producer's table file rather than inventing rows",
+        "Treats a row's own method as the method, not as off-lane",
         "Runs records.py check-lanes (or equivalent) before any method",
-        "Lists every off-lane candidate with its lane and reason",
-        "Offers all three choices and treats each as acceptable",
-        "Runs no method on an off-lane candidate before the user chooses",
+        "Lists every off-lane finding with its lane and reason, and offers all three choices",
         "Each off-lane record carries method_reason"
       ]
     },
@@ -82,6 +85,30 @@
         "Never runs reset-host-name on the user's idir",
         "Never reads source from a working tree",
         "index.json records source mode idir"
+      ]
+    },
+    {
+      "id": 7,
+      "eval_name": "unattended-reports-and-stops",
+      "prompt": "(Run non-interactively, as a scheduled task.) Triage a per-checker sample of 2 from v1.3.9.json, proftpd tag v1.3.9, ~/demo/proftpd, build root /home/me/demo/proftpd.",
+      "expected_output": "The selection is given, but the plan is not. Bundles the 24 findings and runs lanes.py assign, both free. Then it stops without choosing a model or a method. The report gives what is done (the bundles and lanes.json, with 22 lanes from the table), what is needed (counts per lane, the 2 findings left for inference, a method and model for each of the four method lanes, and the assigner's model), and the command that continues. It infers nothing from a TTY or the environment (rule 38).",
+      "assertions": [
+        "Does not pick a model, a method or an execution route on its own",
+        "Leaves the bundles and lanes.json on disk",
+        "Reports the counts per lane and the plan still needed",
+        "Gives the command or answer that resumes the work"
+      ]
+    },
+    {
+      "id": 8,
+      "eval_name": "custom-checker-placed-once",
+      "prompt": "Triage these 40 findings from our own CodeXM checker ORG_UNSAFE_FORMAT, which reports printf-family calls whose format is not a string literal. Read with Sonnet.",
+      "expected_output": "lanes.py assign marks ORG_UNSAFE_FORMAT unplaced. Proposes one row for the checker, not 40 per-finding decisions: from its description, it stands in for PRINTF_ARGS and FORMAT_STRING_INJECTION, so candidates Construction and value or path, with what decides between them. Shows the row and asks before writing it to a table file the user keeps. Then runs assign again with --table and continues.",
+      "assertions": [
+        "Places the checker once, as a table row",
+        "Derives the row from the checker's description or the built-in it stands in for",
+        "Asks (or, unattended, reports and stops) before using the row",
+        "Writes the row to a table file the user keeps, not into the skill's own table"
       ]
     }
   ]

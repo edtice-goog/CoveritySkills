@@ -521,6 +521,12 @@ The denominator includes the build system's own throwaway compilations (CMake
 rejects good builds; a `= 100% → pass` gate accepts empty ones. Reconcile
 against *product* translation units, in both directions.
 
+A partial percentage is sometimes the whole finding. An unsupported compiler
+option makes the front end refuse the translation unit while the real compiler
+still runs, so the object, the link, the binary and the exit status all look
+right and only the count moves — and the files missing are exactly the ones
+carrying the flag. See `references/capture-fidelity.md`.
+
 Source: verified — `coverity-build-fidelity`.
 
 ### 12. Always pass `--all` to `coverity list`
