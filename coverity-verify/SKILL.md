@@ -128,14 +128,42 @@ Before Step 1, decide whether the finding is a candidate for it:
 | the finding's claim | decision |
 |---|---|
 | a property of one function's own state that a sanitizer or an inserted assertion can judge at a line: null dereference (`FORWARD_NULL`, `NULL_RETURNS`, `REVERSE_INULL`), overrun and underrun (`OVERRUN`, `STRING_OVERFLOW`, `BUFFER_SIZE`), `DIVIDE_BY_ZERO`, `USE_AFTER_FREE`, double free, `NEGATIVE_RETURNS`, `INTEGER_OVERFLOW` feeding a size, `DEADCODE` and `UNUSED_VALUE` through an assertion, and every candidate from the shape catalogue | **a fuzz-triage candidate**: continue with Step 1 |
-| untrusted data reaching a sink unneutralised (`SQLI`, `OS_CMD_INJECTION`, `PATH_MANIPULATION`, `XSS`, the `TAINTED_*` family), a property of a resource outside the process (`RESOURCE_LEAK` across a connection, a file-system race), a concurrency claim (`LOCK`, `ATOMICITY`, `MISSING_LOCK`), or anything else a clang harness cannot instrument and no sanitizer judges | **not a fuzz-triage candidate; suggest external verification.** Report that as the verdict, with the reason (which sink, which property, what a harness cannot observe), and stop. Do not deliver a payload, drive a server, or improvise an oracle |
+| untrusted data reaching a sink unneutralised (`SQLI`, `OS_CMD_INJECTION`, `PATH_MANIPULATION`, `XSS`, the `TAINTED_*` family), a property of a resource outside the process (`RESOURCE_LEAK` across a connection, a file-system race), a concurrency claim (`LOCK`, `ATOMICITY`, `MISSING_LOCK`), or anything else a clang harness cannot instrument and no sanitizer judges | **not a fuzz-triage candidate; suggest external verification.** Report that as the verdict, with the reason (which sink, which property, what a harness cannot observe) and the external verification that fits (*What "external" means*, below), and stop. Do not deliver a payload, drive a server, or improvise an oracle |
 
 The second row is deliberate, not a gap to fill here: delivering an SQL
 injection payload is a job for the specialty tools that exist for it, and
-not a good use of a Coverity skill. **Open item**: whether and how other
-verifications are suggested, named, or wired in is under discussion and
-not designed; nothing in this skill should be read as a plan for it. Until
-that is settled the output for such a finding is the verdict tier above.
+not a good use of a Coverity skill.
+
+**What "external" means, by class.** The verdict names the kind of tool
+and, where this skill can, what it would hand that tool:
+
+- **Injection and taint claims in a web application** (`SQLI`,
+  `OS_CMD_INJECTION`, `PATH_MANIPULATION`, `XSS`, the `TAINTED_*` family
+  behind an HTTP surface): an *interactive application security tester*,
+  a tool that instruments the running application and delivers neutered
+  payloads, so a weakness is shown real without harm. This skill's
+  contribution is the **target**: the slice set behind a minimal HTTP
+  wrapper whose request fields map onto the function's parameters, with
+  stubs outside the set pinned to the finding's path, so the tester's
+  payload reaches the sink without driving the whole application. Those
+  testers instrument Java and .NET, so the target is a Java or .NET
+  application, and building it needs extraction for those languages,
+  which this bundle does not have yet; until it does the verdict names
+  the tool and the target that would be built, and stops.
+- **Protocol-level claims** (parsing of packets or messages, anything
+  whose input is a network protocol): a *protocol fuzzer*, run against
+  the real server build. No target is built here, by design: the slice
+  removes the front end, and the front end is what a protocol fuzzer
+  tests; a target that could receive malformed packets would be a
+  reimplementation of the protocol. The verdict is a recommendation with
+  the protocol and the entry point named.
+- **Concurrency and out-of-process resources** (`LOCK`, `ATOMICITY`,
+  `MISSING_LOCK`, a leak across a connection, a file-system race): no
+  execution-based verification is offered here; the verdict says what an
+  external check would have to observe.
+
+Vendor tools are not named in this skill; when skills for particular
+testers exist, they will be cited here as worked examples.
 
 ### Then the route: the caller's preference, and whether it applies
 
@@ -409,7 +437,7 @@ itself.
 
 | verdict | meaning |
 |---|---|
-| **not a fuzz-triage candidate; suggest external verification** | decided before Step 1 (*Methods*): the claim is about a sink, a resource outside the process, or anything a clang harness cannot instrument. Say which, and what an external verification would have to observe. The skill stops here for this finding |
+| **not a fuzz-triage candidate; suggest external verification** | decided before Step 1 (*Methods*): the claim is about a sink, a resource outside the process, or anything a clang harness cannot instrument. Say which, which kind of external tool fits (an interactive application security tester with a wrapped target; a protocol fuzzer against the real server; or none offered), and what it would have to observe. The skill stops here for this finding |
 | **refuted by reading** | the finding's variable is reassigned, asserted, or otherwise guarded in a way the analyzer did not see; say what |
 | **refuted by execution** | focused run: the finding's line reached N times, the claim never false, with real libc semantics or `--semantic` copies where the claim depended on them. Evidence, not proof: say N and the budget |
 | **refuted by execution, a path the analyzer missed** | the claim was false at the line in a way that refutes the *finding* (REVERSE_INULL on `dolist`: the check is reachable with `arg == NULL`, so it is not redundant) |

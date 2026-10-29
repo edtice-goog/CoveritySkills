@@ -256,36 +256,66 @@ python3 ../coverity-triage/tools/bundle.py --issues <triage>/survivors.json --al
 # so run reset-host-name on a copy first):
 python3 ../coverity-triage/tools/bundle.py --issues <triage>/survivors.json --all --out <triage> \
     --idir <idir> --cov-bin $BIN
-#   assign lanes (its Step 2), then, before any method runs:
+#   assign lanes (its Step 2) WITH THIS SKILL'S SHAPE TABLE, then, before any method runs:
+python3 ../coverity-triage/tools/lanes.py assign --table shapes/triage-lanes.json ...
 python3 ../coverity-triage/tools/records.py check-lanes --bundles <triage> --lanes <triage>/lanes.json --run <triage>/run.json
 ```
 
 The idir route exists because a PATHOUT user usually has the idir and the
 sources at the paths the emit recorded, not a tag; offer git when the
 user has one. `survivors.json` is in cov-format-errors v10 shape, merge
-keys intact;
-`run.json` carries `"expected": {"by": "coverity-pathout", "lane": "Value
-or path", "method": "Execution: coverity-verify"}`. Lane assignment is
-cheap and runs first; it is the one check that each candidate's claim is
-what the shape assumed. `check-lanes` lists every candidate that landed
-elsewhere, with its lane and reason, **before any method runs**, and the
+keys intact, each candidate annotated with the built-in checkers its
+shape stands in for; `run.json` carries `"expected": {"by":
+"coverity-pathout", "lane": "Value or path", "method": "Execution:
+coverity-verify"}`.
+
+**The shape table, `shapes/triage-lanes.json`**, is one row per shape
+checker in triage's own table format, and it is how triage knows what
+this skill's checkers are without naming them itself: each row gives the
+lane of the built-in the shape stands in for (or the two lanes it can
+fall in and what decides between them), the method `Execution:
+coverity-verify`, and the preferred route, harness on every row. **A
+row's method overrides its lane**: a candidate whose row names the
+method that `run.json`'s `expected` names is never off-lane, so the
+catalogue's candidates do not trip the report below merely for standing
+in for a Contract or a Construction checker. Lane assignment is still
+cheap and still runs first; it is the one check that each candidate's
+claim is what the shape assumed. `check-lanes` lists every candidate
+that landed elsewhere, with its lane and reason, **before any method
+runs**, and the
 user chooses for each: run `coverity-verify` anyway where that is
 realistic, run that lane's reader, or leave it untriaged. Any of those is
 fine; what must not happen is a candidate taking a different method, or
 none, by surprise. The method itself is execution through
-`coverity-verify`, and `coverity-verify` has a routing step of its own:
-per finding it chooses between extraction-verification (the function
-sliced out of the emit, callees outside the slice stubbed from the
-derived models, then fuzzed) and harness-verification (the translation
-unit's real source compiled as it is, driven by a real driver, with only
-the externals stubbed). This skill's candidates usually route to
-extraction, because they sit in large functions whose state depends on
-values earlier calls produced, but the choice is verify's, not this
-skill's: hand the candidate over and report the route it took. The
-user's choice goes into `run.json` as an override with its
+`coverity-verify`, which has two routes: harness-verification (the
+translation unit's real source compiled as it is, driven by a real
+driver, with only the externals stubbed) and extraction-verification (the
+function sliced out of the emit, callees outside the slice stubbed from
+the derived models, then fuzzed). The caller sends a *preferred* route,
+and this skill's table of shapes (one row per shape; see *Step 3*'s
+hand-off files) carries it: **harness by default**, because it is the
+cheaper method; a row moves to extraction only on evidence that harness
+is insufficient for that shape; and a user may override the route per
+application when their situation does not suit it. When the preferred
+route cannot be applied to a candidate, `coverity-verify` asks in an
+interactive session, and otherwise reports what it needed and stops; it
+never falls back to the other route on its own. Report the route each
+verdict came from. The user's choice goes into `run.json` as an override with its
 reason, and the triage records name the method that produced each
 verdict. Triage costs per candidate, so the choice of how many to send is
 the user's (see *Budget*).
+
+**Writing the two files is the hand-off; running the triage is a
+decision.** Each candidate that goes through `coverity-triage` costs a
+lane assignment and then a build and a run in `coverity-verify`, and a
+plan that did not say so has not chosen it, however few candidates there
+are and however cheap the route looks (rule 26, rule 38). So after the
+filter: say how many survivors there are, in how many functions, and what
+the triage of each costs; in an interactive session ask whether to run it
+on all of them, on some, or on none; unattended, or unsure, report that
+and stop, leaving `survivors.json` and `run.json` in place -- the command
+that continues is the `bundle.py` line above, and nothing done so far is
+lost. Never start the triage because it seemed small enough not to ask.
 
 Why no reading here: reading is inference, and it is what this skill
 exists to replace where inference cannot reach a verdict. On subversion
@@ -347,7 +377,22 @@ So, whenever the PATHOUT count is more than a couple of dozen:
    60,000 tokens; the 18 would be about 1.1 M tokens and three hours;
    all 4,000 about 240 M."* Then wait. Do not continue past the pilot
    without an answer, and do not silently take the cheaper option either;
-   the choice is the user's.
+   the choice is the user's. Ask only when the session is interactive.
+   Not interactive, or unsure, report the pilot's result and the two
+   prices and stop: an interactive session can be prompted to continue,
+   an unattended one cannot be asked, and the one thing never to do is
+   default into the expensive option (rule 38). Not interactive means
+   report and stop, never "go ahead on the default"; the choice stays the
+   user's. Nothing a skill can observe tells it reliably that nobody is
+   there, so do not test for it -- a TTY, an environment variable or the
+   shape of the invocation decides nothing; unsure means stop. **Stop
+   resumably:**
+   everything up to the pilot is done and stays on disk (the report
+   tool's table, the catalogue's `candidates.json`, `survivors.json`,
+   `run.json`, the pilot's slice and its triage record), and the report
+   ends with the three answers that continue it -- *survivors only*,
+   *all*, or a named list of functions -- and the command each one
+   runs (the per-function steps from Step 4 for that set).
 4. **At scale, skip what does not scale.** Restructure experiments (Step
    6) and reading every dropped candidate are pilot-only unless asked.
    The cost-of-the-limit measurement (`--paths N` on the whole project) is
@@ -500,11 +545,11 @@ user chose to spend (rule 22).
 | Question | Skill |
 |---|---|
 | The function's body, a file that compiles alone, an obfuscated twin | `coverity-function-slice` |
-| A verdict on a survivor | `coverity-triage`, with `run.json` expecting value or path and `Execution: coverity-verify`; it reports anything that lands elsewhere before a method runs, then hands each candidate to `coverity-verify`, whose routing step chooses extraction-verification or harness-verification |
+| A verdict on a survivor | `coverity-triage`, given `shapes/triage-lanes.json` (`lanes.py assign --table`) and `run.json` expecting value or path with `Execution: coverity-verify`; a row's method overrides its lane, so the catalogue's candidates are never off-lane by construction; triage reports anything that still lands elsewhere before a method runs, then hands each candidate to `coverity-verify` with the row's preferred route (harness by default; extraction only on evidence; user override per application). A route that cannot be applied is asked about when interactive, reported otherwise; never switched silently |
 | A survivor the lane check puts outside value or path | the user: verify it anyway where realistic, run that lane's reader, or leave it; recorded as an override in `run.json` |
 | "Was the function even captured?" / the file is not in the emit | `coverity` (capture fidelity, rule 34) |
 | "Would checker X have found the bug the cut-off hid?" | `coverity-defect-detectability` |
-| The idir is from a version you do not have installed | stop and ask. This skill is for current development, where the version that wrote the idir (`emit/version`, line 1) is installable; say which version is needed and let the user install it or re-run the capture. `coverity-recreate-from-emit` rebuilds an analyzable idir without the toolchain and is expensive; it is a last resort the user must ask for, not a step to take on your own |
+| The idir is from a version you do not have installed | stop and ask (interactive), or report and stop (unattended); rule 38. The report names the version `emit/version` requires and the installations found, keeps whatever Step 1 read from the log, and says that installing that version and re-running the same command continues from Step 0. This skill is for current development, where the version that wrote the idir (`emit/version`, line 1) is installable; say which version is needed and let the user install it or re-run the capture. `coverity-recreate-from-emit` rebuilds an analyzable idir without the toolchain and is expensive; it is a last resort the user must ask for, not a step to take on your own |
 
 The skills are meant to sit side by side under the same skills directory;
 the relative paths above assume that.
@@ -527,6 +572,7 @@ coverity-pathout/
 │   └── pathout_filter.py                # keep candidates in PATHOUT functions; writes survivors.json + run.json for coverity-triage
 ├── shapes/                              # the shape catalogue: thirteen path-insensitive CodeXM checkers
 │   ├── README.md                        # checker -> shape -> relevant components
+│   ├── triage-lanes.json                # one row per shape for coverity-triage: lane, method (overrides lane), route
 │   ├── checkers/*.cxm
 │   ├── fixtures/*.c                     # HIT markers per checker
 │   └── bin/run_all.sh, run_fixtures.sh  # the whole catalogue in one cov-analyze; the fixture check

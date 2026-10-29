@@ -15,23 +15,71 @@ stands on the code.
 
 ### Construction
 
-The claim is that a construct is present: something built in a way that
-is disallowed whatever data reaches it.
+The claim is that a construct is present that does the wrong thing, or
+something undefined, for some input it can receive, whatever input actually
+arrives.
 
-1. **Is the construct the checker names actually there?** For an
-   injection-construction checker: is the string reaching the interpreter
-   call really assembled from a part that is not a compile-time constant,
-   and is the call really the interpreter? Read the operand back to where
-   it is built.
-2. **Feasibility does not enter.** Whether attacker data can reach the
-   site is a different claim; this one holds whatever data arrives. Do not
-   dismiss a construction finding by arguing about callers.
+1. **Is the construct the checker names actually there?** Read the operand
+   back to where it is built. For an injection-construction checker: is the
+   string really assembled from a part that is not a compile-time constant,
+   and is the call really the interpreter? For a checker that asserts a
+   property of a value: does the value have it? A literal reported as a
+   hard-coded secret may be a placeholder, a test value or an identifier.
+2. **Feasibility does not enter.** Whether bad input reaches the site is a
+   different claim; this one holds whatever data arrives. Do not dismiss a
+   construction finding by arguing about callers, about how large a value
+   can get in practice, or about how long it would take to get there. A
+   narrowing that is safe only while a value stays small is a defect, and
+   the fix is to handle the large value: report it, refuse it, or widen the
+   type.
 
-Verdicts: the construct is present → `real`. It is present and the code
-shows it is deliberate (a documented exception at the site) →
-`intentional`. The checker misread the code and the construct is not
-there (the operand is constant after all; the call is not the
-interpreter) → `false positive - heuristic misfire`.
+Verdicts:
+
+- The construct is present → `real` (`real, low severity` when the
+  consequence is cosmetic, such as a wrong figure in a log line). The
+  consequence may decide the severity; it never decides whether the finding
+  is real.
+- The construct is present, and the code shows it is deliberate → `intentional`.
+  That means a documented exception at the site, or an algorithm whose
+  definition is the wrap or truncation (a hash, a checksum, some
+  cryptography).
+- The checker misread the code and the construct is not there (the operand
+  is constant after all, the call is not the interpreter, the "secret" is a
+  placeholder) → `false positive - heuristic misfire`.
+
+### Intent
+
+The claim is that well-defined code may not be what its author meant. The
+checker inferred that doubt from a pattern: a case that falls through, two
+adjacent checks that look copied, a branch no value can reach, a stored
+value that is never used, a sizeof that does not match the pointer beside
+it. It cannot know what was meant, and the reader's job is to find out.
+
+1. **What does the code do?** State it as behaviour, not as the checker's
+   pattern.
+2. **What did the author mean?** The evidence is in the code: comments,
+   names, the code around the site, the same idiom elsewhere in the tree,
+   the encoding or protocol the code implements, the conventions of the
+   API it calls. Give `file:line` for each piece.
+3. **Does the code do what was meant?**
+
+Feasibility does not decide this lane. A DEADCODE branch is unreachable by
+definition. The question is whether it is a deliberate fallback or the
+symptom of a condition written wrong.
+
+Verdicts:
+
+- The code does not do what was meant → `real`, or `real, low severity`
+  when the consequence is cosmetic.
+- It does, the pattern the checker saw is really there, and it is
+  deliberate → `intentional` (a fall-through that the byte count needs, a
+  defensive fallback after an exhaustive switch). The real fix is an
+  annotation: `/* FALLTHRU */`, an explicit default, a `(void)` cast.
+- The pattern is not what it looks like (two adjacent checks that look
+  alike but test different things) → `false positive - heuristic
+  misfire`.
+- The code does not show the intent either way → `unresolved`. Never
+  guess at intent.
 
 ### Contract
 
@@ -79,8 +127,13 @@ Verdicts: feasible and unhandled → `real` or `real, low severity`.
 Infeasible, or handled at the point by code the analysis did not connect
 → `false positive - global invariant`, with the guard or the handling as
 the located invariant. The detection is accurate and the code is
-deliberate (a DEADCODE on a defensive fallback after an exhaustive
-switch) → `intentional`.
+deliberate (a null check after a dereference, kept as a defensive guard
+that no caller can make fail) → `intentional`.
+
+### Policy
+
+Not read. A Policy finding is a match against a rule set, a list or a
+threshold, and its record carries the lane and nothing else.
 
 ## The verdict set
 
@@ -113,9 +166,10 @@ Two kinds, and the distinction changes what is done about it:
 - **Environment invariant**: a fact about the world, not the program. A
   loop searching for a free DMA channel can, on paper, exit with its result
   unassigned; a machine with no working DMA never finished POST, so the
-  code is not running. `(int) uptime_secs` truncates a `time_t` only after
-  about 68 years of uptime. These get triaged, annotated with the
-  invariant, and stay triaged.
+  code is not running. These get triaged, annotated with the invariant,
+  and stay triaged. A global invariant answers a value-or-path claim. It
+  never answers a construction claim: "the value never gets that large" is
+  the argument Construction rules out.
 
 **The discipline: name it, locate it, say what would break it.** "Global
 invariant" is also the easiest way to wave away a real defect, so a
