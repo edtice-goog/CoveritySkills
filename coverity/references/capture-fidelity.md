@@ -585,7 +585,7 @@ Compare the three frozen results. Let **C** be the expected product set,
 | `A` matches `C`, B empty, every `capture-percentage` 100 | Capture is sound | `CONSISTENT` |
 | `A` much smaller than `C`, B empty | **The build did not compile them.** Incremental build with nothing to do, compiler-cache hits, wrong target, or a build that failed early and continued | Clean the tree and re-capture. The most common real failure |
 | `A` much smaller than `C`, B non-empty | Unconfigured compiler | `coverity-compiler-configuration` |
-| `A` short of `C` by exactly the files carrying one compiler flag, B empty, exit status 0 | **An unsupported compiler option.** `cov-build`'s command-line translation rejects the invocation; the real compiler still runs, so the object and the binary appear | `SHORTFALL`. See below -- no build-success check can see this |
+| `A` short of `C` by exactly the files carrying one compiler flag, B empty, exit status 0 | **An unsupported compiler option.** The TU is not captured; the real compiler still runs, so the object and the binary appear | `SHORTFALL`. See below -- no build-success check can see this |
 | `A` near zero while the build reported success, B empty | **Vacuous capture.** A no-op incremental build, a build delegating to a persistent daemon or compile server (MSBuild node reuse, Gradle daemon), or `--record-only` with no `--replay` | `VACUOUS`. Never report as a pass |
 | `A` larger than `C` | Denominator inflation -- build probes, tests, generated or third-party sources | `SURPLUS`. Benign; name the surplus rather than celebrating the count |
 | `A` matches `C` but `had-recoverable-errors`, or `coverity list` says `Incomplete` | **Partial parse.** The TU is analyzed with individual functions missing — and `capture-percentage` may still read 100 | `DEGRADED`. Name the functions from the capture log's `#1563` warnings; a prime cause of "Coverity missed my defect" |
@@ -597,12 +597,11 @@ Compare the three frozen results. Let **C** be the expected product set,
 
 ### An unsupported compiler option drops the TU, and the build still succeeds
 
-`cov-build`'s translation of the compiler command line rejects some
-invocations. The option never reaches `cov-emit`, the translation unit is
-recorded as a failure with no ASTs, and **it is not captured at all** -- while
-the real compiler still runs, so the object appears, the link succeeds, the
-binary is produced byte-for-byte, and the exit status is 0. The only places it
-shows are the emitted count and the capture log.
+Some compiler options stop a translation unit being captured at all. The real
+compiler still runs, so the object appears, the link succeeds, the binary is
+produced byte-for-byte, and the exit status is 0. **The only places it shows
+are the emitted count and the capture log** -- which is the whole reason it
+belongs in a capture check.
 
 Measured on two releases, 2025.12.2 and 2026.9.0, with a paired same-file
 control on the first:
@@ -631,18 +630,11 @@ short by exactly the flagged file.
 `not supported in the current release`:
 
 ```
-COV_TRANSLATE EXPANDED ARGS: "-fpermissive" "-c" "lib.cpp" "-o" "lib.o"
 [ERROR] While compiling "lib.cpp": The following option is not supported in the current release:
 	-fpermissive
 Using these options may lead to invalid or misleading analysis
 results. This error may be suppressed by setting ...
 ```
-
-The translator is where it happens: that first line shows it received the
-flag, the `cov-emit` command line in the same log does not contain it, and the
-option appears in none of the installation's shipped `gnu` templates. The
-rejected set is built into the translation, not configuration you can inspect
-or change.
 
 Three things follow, and they are why this belongs in a capture check rather
 than a build check:
@@ -664,8 +656,9 @@ on the two releases named above. `clang`, MSVC, a non-template comptype and
 Windows were not tested, so read "some invocations" as covering what was
 measured and not as a claim about every compiler. "in the current release" is
 the tool's own wording rather than a difference observed between the two
-releases: treat the specific flag as an instance and the mechanism as the
-finding, and read the capture log rather than keeping a list of flags.
+releases: treat the specific flag as an instance and read the capture log
+rather than keeping a list of flags. There is no configuration to change
+either: the rejected options are not in the installation's templates.
 
 **The suppression variable is not a fix.** The error names an environment
 variable that silences it. Suppressing it means the analysis proceeds over an
