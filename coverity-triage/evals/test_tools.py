@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise tools/bundle.py, tools/lanes.py and tools/records.py on a generated fixture.
+"""Exercise the triage tools on a generated fixture and a fake Connect.
 
     python3 -I evals/test_tools.py
 
@@ -393,14 +393,156 @@ def main():
                  if r["mergeKey"] == "k1")["triageState"]["comment"]
         assert len(c) <= 4000 and "shortened" in c
 
+        attribute_cases = test_connect_attributes(work)
+
         print("ok: bundle plan, bundles (git at the tag, form feed, two sites), 6 bundle refusals, "
               "the checker table and 11 bad rows, lanes from the table (fixed, candidates, "
               "unplaced, a producer's row), one assembly, a plan-level route, "
               + str(refusals) + " records refusals, verify in the Contract lane, expected-lane "
-              "overrides, check-lanes, shortened comment")
+              "overrides, check-lanes, shortened comment, connect_attributes against a fake "
+              "Connect (" + str(attribute_cases) + " cases)")
         return 0
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+class FakeConnect:
+    """Just enough of /api/v2/triageAttributes, with HTTP Basic, to exercise the tool."""
+
+    def __init__(self, username, key):
+        import http.server
+        import threading
+        self.attrs, self.writes = {}, []
+        token = "Basic " + __import__("base64").b64encode(
+            (username + ":" + key).encode()).decode()
+        fake = self
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def reply(self, code, body=None):
+                data = json.dumps(body).encode() if body is not None else b""
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def name(self):
+                from urllib.parse import unquote
+                return unquote(self.path[len("/api/v2/triageAttributes/"):])
+
+            def handle_any(self, method):
+                if self.headers.get("Authorization") != token:
+                    return self.reply(401, {"message": "unauthorized"})
+                body = None
+                if method in ("POST", "PUT"):
+                    body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                    fake.writes.append((method, self.path, body))
+                if method == "GET" and self.path.startswith("/api/v2/triageAttributes/"):
+                    a = fake.attrs.get(self.name())
+                    return self.reply(200, a) if a else self.reply(404, {"code": 1200})
+                if method == "POST" and self.path == "/api/v2/triageAttributes":
+                    vals = [dict(v, id=i, displayValue=v["name"], deprecated=False)
+                            for i, v in enumerate(body["attributeValues"], 100)]
+                    fake.attrs[body["name"]] = dict(body, attributeValues=vals, builtIn=False)
+                    return self.reply(201)
+                if method == "PUT" and self.path.startswith("/api/v2/triageAttributes/"):
+                    vals = [dict(v, id=v.get("id", 900 + i), displayValue=v["name"],
+                                 deprecated=v.get("deprecated", False))
+                            for i, v in enumerate(body["attributeValues"])]
+                    fake.attrs[self.name()] = dict(body, attributeValues=vals, builtIn=False)
+                    return self.reply(200)
+                return self.reply(404, {"message": "not found"})
+
+            def do_GET(self):
+                self.handle_any("GET")
+
+            def do_POST(self):
+                self.handle_any("POST")
+
+            def do_PUT(self):
+                self.handle_any("PUT")
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+        self.url = "http://127.0.0.1:%d/" % self.server.server_address[1]
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def close(self):
+        self.server.shutdown()
+
+
+def test_connect_attributes(work):
+    """connect_attributes.py against FakeConnect: plan, create, add values, refusals."""
+    tool = TOOLS / "connect_attributes.py"
+    fake = FakeConnect("triager", "s3cret")
+    try:
+        key = work / "ak-test"
+        # The key's comments name another host: the tool must use --url, never this.
+        wjson(key, {"username": "triager", "key": "s3cret", "type": "auth_key",
+                    "comments": {"host": "elsewhere.invalid", "port": "443", "ssl": "true"}})
+        common = ["--url", fake.url, "--key-file", key]
+        cases = 0
+
+        def tool_run(*args, code):
+            nonlocal cases
+            cases += 1
+            p = subprocess.run([sys.executable, "-I", str(tool), *map(str, args)],
+                               capture_output=True, text=True)
+            assert p.returncode == code, (args, p.returncode, p.stdout, p.stderr)
+            return p
+
+        out = tool_run("check", *common, code=3).stdout
+        assert "Defect Category: create" in out and "Triage Method: create" in out, out
+        tool_run("setup", *common, "--model", "Sonnet 5.5", code=3)
+        assert fake.writes == [], "setup without --yes wrote to the instance"
+        res = json.loads(tool_run("setup", *common, "--model", "Sonnet 5.5", "--yes", "--json",
+                                  code=0).stdout)
+        assert res["applied"] is True and len(res["changes"]) == 2, res
+        dc, tm = fake.attrs["Defect Category"], fake.attrs["Triage Method"]
+        assert dc["defaultValueName"] == "Unassigned" and dc["attributeType"] == "LIST_OF_VALUES"
+        assert [v["name"] for v in dc["attributeValues"]] == [
+            "Unassigned", "Construction", "Intent", "Contract", "Value or path", "Policy", "Other"]
+        assert tm["defaultValueName"] == "None"
+        assert [v["name"] for v in tm["attributeValues"]] == [
+            "None", "Execution: coverity-verify", "Human", "LLM: Sonnet 5.5"]
+        tool_run("check", *common, "--model", "Sonnet 5.5", code=0)
+
+        # A triage.json that used a model the list lacks: setup adds only that value,
+        # and sends every existing value back with its id, so nothing is dropped.
+        recs = work / "attr-records.json"
+        wjson(recs, {"records": [{"triageState": {"customTriage": {
+            "Defect Category": "Intent", "Triage Method": "LLM: Haiku 5.5"}}}]})
+        tool_run("check", *common, "--records", recs, code=3)
+        before = [(v["id"], v["name"]) for v in fake.attrs["Triage Method"]["attributeValues"]]
+        n = len(fake.writes)
+        tool_run("setup", *common, "--records", recs, "--yes", code=0)
+        method, path, body = fake.writes[n]
+        assert method == "PUT" and path.endswith("Triage%20Method"), fake.writes[n:]
+        sent = [(v.get("id"), v["name"]) for v in body["attributeValues"]]
+        assert sent[:len(before)] == before and sent[-1] == (None, "LLM: Haiku 5.5"), sent
+        tool_run("check", *common, "--records", recs, code=0)
+
+        # Refusals, each changing nothing.
+        n = len(fake.writes)
+        wjson(work / "bad-records.json", {"records": [{"triageState": {"customTriage": {
+            "Defect Category": "Path", "Triage Method": "None"}}}]})
+        tool_run("setup", *common, "--records", work / "bad-records.json", "--yes", code=1)
+        fake.attrs["Triage Method"]["attributeValues"][1]["deprecated"] = True
+        tool_run("setup", *common, "--yes", code=1)
+        fake.attrs["Triage Method"]["attributeValues"][1]["deprecated"] = False
+        fake.attrs["Defect Category"]["attributeType"] = "STRING"
+        tool_run("setup", *common, "--yes", code=1)
+        fake.attrs["Defect Category"]["attributeType"] = "LIST_OF_VALUES"
+        wjson(work / "ak-wrong", {"username": "triager", "key": "wrong"})
+        tool_run("check", "--url", fake.url, "--key-file", work / "ak-wrong", code=1)
+        wjson(work / "ak-empty", {"comments": {"host": "x"}})
+        tool_run("check", "--url", fake.url, "--key-file", work / "ak-empty", code=1)
+        assert len(fake.writes) == n, "a refused run wrote to the instance"
+        return cases
+    finally:
+        fake.close()
 
 
 if __name__ == "__main__":

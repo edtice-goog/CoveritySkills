@@ -20,8 +20,9 @@ description: >
   per finding, so which findings and which method per lane are fixed by
   the user (or by the calling skill, which asks its user) before anything
   runs. Unattended, it reports what it needs and stops. It writes a records
-  file and touches no server; whoever owns the Connect instance applies the
-  records, with or without the custom attributes. Needs the findings as
+  file and never writes triage to a server. Whoever owns the Connect
+  instance applies the records, with or without the custom attributes, and a
+  setup tool creates those two attributes there on request. Needs the findings as
   cov-format-errors JSON and the source at the analyzed version, from git
   or, when there is no git source, from the intermediate directory itself.
   No Coverity Connect, and no build.
@@ -109,9 +110,11 @@ lane's method, and writes the records and a report.
   severity word, *low severity*, and nothing more.
 - **Second-guess a policy.** Policy findings carry their lane and nothing
   else.
-- **Write to Connect.** It writes a records file in Connect's attribute
-  names. Applying it, with or without the two custom attributes, belongs
-  to whoever owns the instance (*Records, and getting them to Connect*).
+- **Write triage to Connect.** It writes a records file in Connect's
+  attribute names. Applying it, with or without the two custom attributes,
+  belongs to whoever owns the instance (*Records, and getting them to
+  Connect*). The one thing it writes to an instance, and only when asked, is
+  the definition of those two attributes.
 - **Use Connect's AI-Assisted Triage.** Its methods run where this skill
   runs, and the records say which ones ran.
 - **Decide what is worth showing.** A correct verdict on a finding nobody
@@ -401,13 +404,31 @@ Applying it is not this skill's step. Whoever owns the instance decides,
 per apply, whether to set the standard attributes only or the two custom
 attributes as well.
 
-- The custom ones are pick lists that must exist on the instance before
-  anything can set them, with a value for every method that will be
-  recorded (one per model).
-- Creating an attribute definition takes the v9 SOAP configuration
-  service's `createAttribute`. `coverity-cvss-report/tools/cvss_attributes.py`
-  uses it for its own attributes. REST and `cov-manage-im` cannot create
-  them.
+- The custom ones, `Defect Category` and `Triage Method`, are pick lists. They
+  must exist on the instance, with a value for everything the records set
+  (one `Triage Method` value per model), before anything can set them.
+- `tools/connect_attributes.py` creates them over REST:
+
+  ```
+  python3 tools/connect_attributes.py check --url <connect-url> [--records triage.json] [--model "Sonnet 5.5"]
+  python3 tools/connect_attributes.py setup --url <connect-url> [--records triage.json] [--model "Sonnet 5.5"] [--yes]
+  ```
+
+  - **`check`** reads the instance and says what is missing. It exits 3 when
+    something is, and 0 when nothing is.
+  - **`setup`** prints the same plan and changes nothing. With `--yes` it
+    creates the missing attributes and adds the missing values. Run it once
+    per instance, and again when a records file uses a new model.
+  - **What it never does:** delete or rename an attribute or a value, or
+    change an attribute's type.
+  - **The two attributes are instance-global.** They appear in every
+    project's triage pane, so only whoever owns the instance runs `setup
+    --yes`. Interactive, ask them first; unattended, report the `check`
+    output and stop (rule 38).
+  - **Credentials and target:** an auth key file, by default
+    `~/.coverity/ak-<host>-<port>` (the `coverity` skill's `connect_auth.py`
+    writes it there). The URL comes from `--url` only, never from the key
+    file (rule 28).
 
 ## Handing off to this skill
 
@@ -458,7 +479,8 @@ is any, `bycatch/bycatch.json`. It keeps its own concerns.
   land in the lane its caller expected. Report it and let the user choose.
 - Writing by-catch into a `reason`, a verdict file, `run.json` or the
   report. Those travel with the records; by-catch goes to `bycatch/`.
-- Writing triage to Connect from this skill.
+- Writing triage to Connect from this skill, or running `connect_attributes.py
+  setup --yes` on an instance without its owner's say-so.
 
 ## Where other skills take over
 
@@ -485,8 +507,9 @@ coverity-triage/
 ├── tools/
 │   ├── bundle.py                # select + bundle: trace and source from git at the tag (or the idir); --plan
 │   ├── lanes.py                 # lanes from the checker table; what is left for inference; check-table
-│   └── records.py               # assemble + validate the records; check-lanes; TRIAGE-REPORT.md
+│   ├── records.py               # assemble + validate the records; check-lanes; TRIAGE-REPORT.md
+│   └── connect_attributes.py    # check / create Defect Category and Triage Method on a Connect (REST)
 └── evals/
     ├── evals.json
-    └── test_tools.py            # the three tools on a generated fixture, negatives included
+    └── test_tools.py            # the tools on a generated fixture and a fake Connect, negatives included
 ```

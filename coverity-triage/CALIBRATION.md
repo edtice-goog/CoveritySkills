@@ -116,6 +116,40 @@ what is reasoned rather than measured.
     The 2 NEGATIVE_RETURNS are pending, and the other 14 keep the lane the
     LLM gave them.
 
+- **Creating the two custom attributes, 2026-10-28,** against a Connect
+  2026.9.0 server, with its owner's agreement, using HTTP Basic with an auth
+  key.
+  - **The REST path.** The REST reference names `/api/v2/attributes`, and
+    that server answered both GET and OPTIONS on it with 404. OPTIONS reports
+    which methods a path allows, so a 404 there means the path is not served
+    at all. The server serves `/api/v2/triageAttributes` instead:
+    - on the collection, OPTIONS allows POST and GET, and both were used;
+    - on `/api/v2/triageAttributes/<name>`, OPTIONS allows GET, PUT and
+      DELETE. GET and PUT were used; DELETE was not called.
+    `/api/v2/standardAttributes` holds the compliance standards, not triage
+    attributes. The Swagger description needs a browser session, and turns
+    away a key.
+  - **Created.** POST, with `name`, `description`, `attributeType:
+    LIST_OF_VALUES`, `showInTriage`, `defaultValueName` and `attributeValues`,
+    returned 201 for both attributes. Read back, each had its type, default
+    and values exactly.
+  - **Checked.** `connect_attributes.py check` then found nothing missing,
+    and `setup` without `--yes`, given a new model, planned one added value
+    and changed nothing.
+  - **Adding a value.** `setup --yes --model "Haiku 5.5"`, with the key at its
+    default path, sent the PUT. The new value got a new id, and the five
+    existing values kept theirs.
+  - **Removing it again.** A PUT that left the value out removed it, and the
+    list was back to five values with their original ids. So a PUT replaces
+    the value list, which is why the tool sends every existing value back.
+    Not tested: removing a value that findings already use.
+  - **Fake Connect.** `evals/test_tools.py` runs the tool against a local fake
+    Connect in 12 cases: plan only; create; check; add a value by PUT, with
+    every existing value sent back; and refusals for a lane that is not a
+    lane, a deprecated value, the wrong type, a wrong key, and a file that is
+    not an auth key. A refused run writes nothing, and the key file's
+    `comments.host` is never used.
+
 - **The idir as the backup source, 2026-10-24.**
   - **Against git:** the same 24 proftpd v1.3.9 findings, bundled with
     `--idir` (the analyzed idir) and `--cov-bin` of the 2025.9.0 installation
@@ -201,8 +235,9 @@ what is reasoned rather than measured.
 - **Applying records to Connect.**
   - The records use the attribute names of Connect's triage-store export and
     the REST triage write.
-  - No apply was run from this skill, which writes files only.
-  - The two custom attributes must exist, with every value, before anything
-    can set them.
+  - No apply was run from this skill, which writes no triage.
+- **Other Connect versions.** The REST path and the request bodies were
+  measured on one 2026.9.0 server only. An older Connect may serve
+  `/api/v2/attributes` instead, or neither.
 - **Model choice per lane.** One model was used for every step. Whether a
   cheaper model suffices for some lanes is untested.

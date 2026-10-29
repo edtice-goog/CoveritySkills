@@ -59,9 +59,12 @@ and "no triage" is always one of the answers. A dataset built by
 [coverity-demo-data](../coverity-demo-data/README.md) is triaged here as a
 separate step, when someone chooses to.
 
-**Write to Connect.** The output is a records file in Connect's own
+**Write triage to Connect.** The output is a records file in Connect's own
 attribute names. Applying it, with or without the custom attributes, is the
-job of whoever owns the instance.
+job of whoever owns the instance. `tools/connect_attributes.py` creates the
+two custom attributes, `Defect Category` and `Triage Method`, on an
+instance over REST. `check` reads and reports what is missing; `setup
+--yes` is the only step that writes, and only the attribute definitions.
 
 ## What the skill knows that saves time
 
@@ -101,7 +104,8 @@ coverity-triage/
 ├── tools/
 │   ├── bundle.py                # selection (--merge-key, --per-checker, --all), --plan, bundles
 │   ├── lanes.py                 # lanes from the checker table; pending and unplaced; check-table
-│   └── records.py               # assemble (all checks before any write) and validate
+│   ├── records.py               # assemble (all checks before any write) and validate
+│   └── connect_attributes.py    # check / create Defect Category and Triage Method on a Connect
 └── evals/
     ├── evals.json               # behaviour: asks before spending, unattended stop, Policy, refusals
     └── test_tools.py            # the three tools on a generated fixture, refusals and overrides included
@@ -115,3 +119,5 @@ coverity-triage/
 - Python 3, standard library only; git.
 - For the execution method only: what `coverity-verify` needs (the idir, the
   Coverity version that wrote it, clang with libFuzzer and ASan).
+- For `connect_attributes.py` only: the Connect's URL and an auth key with
+  permission to manage triage attributes.

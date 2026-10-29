@@ -356,10 +356,15 @@ with `<Label>` one of *Real defect*, *Real defect, low severity*,
 
 ## The two custom attributes
 
-| attribute | Connect type | values |
-|---|---|---|
-| `Defect Category` | pick list | `Construction`, `Intent`, `Contract`, `Value or path`, `Policy`, `Other` |
-| `Triage Method` | pick list | `LLM: <model>` (one value per model used), `Execution: coverity-verify`, `Human`, `None` |
+| attribute | Connect type | default | values |
+|---|---|---|---|
+| `Defect Category` | pick list | `Unassigned` | `Unassigned`, `Construction`, `Intent`, `Contract`, `Value or path`, `Policy`, `Other` |
+| `Triage Method` | pick list | `None` | `None`, `Execution: coverity-verify`, `Human`, `LLM: <model>` (one value per model used) |
+
+Connect gives every pick list a default, which is what a finding nobody has
+triaged shows. `Unassigned` is not a lane, and the records never set it.
+`None` means no method ran, which is also true of a finding nobody has
+triaged.
 
 `Defect Category` holds the finding's lane. It is not Connect's built-in
 Category, which is the checker's category (for example "Null pointer
@@ -369,3 +374,24 @@ They must exist on the instance, with every value the records use, before
 anything can set them. Whoever applies the records chooses, per apply,
 whether to set them or only the standard attributes. The records always
 carry both, so the choice is the applier's and not this skill's.
+
+**Creating them: `tools/connect_attributes.py`** (SKILL.md, *Records, and
+getting them to Connect*).
+
+- **The API it uses.** It works over REST at `/api/v2/triageAttributes`:
+  POST creates an attribute, and GET or PUT on
+  `/api/v2/triageAttributes/<name>` reads or changes one. That is what a
+  Connect 2026.9.0 server serves. Its REST reference names the path
+  `/api/v2/attributes`, which the same server answers with 404, so the tool
+  uses the path the server actually serves.
+- **Requests.**
+  - **Create:** a POST carrying `name`, `description`, `attributeType`
+    (`LIST_OF_VALUES`), `showInTriage`, `defaultValueName` and
+    `attributeValues` (`[{"name": ...}]`).
+  - **Add a value:** a PUT sending the definition back, with every value it
+    already has (ids included) plus the new ones. A PUT replaces the value
+    list, so a value left out of it is removed. Existing values keep their
+    ids.
+- **What it will not do:** delete or rename an attribute or a value, or
+  change an attribute's type. An attribute that already exists with another
+  type, or a needed value marked deprecated, stops it with a message.
