@@ -80,6 +80,12 @@ for each workflow, see [USE-CASES.md](USE-CASES.md).
 | [coverity-triage](coverity-triage/README.md) | Triaging a set of findings -- a sample of a run, the findings a story will show, a batch another skill produced | A lane per finding by the kind of claim it makes (construction, intent, contract, value or path, policy), mostly from a checker table, each lane's own method and model unless a checker names its own, and one record per finding with the verdict in Connect's own triage fields plus two attributes saying which lane and which method; nothing runs until the selection and the methods are chosen |
 | [coverity-cvss-report](coverity-cvss-report/README.md) | Putting CVSS scores on Coverity findings — or explaining why a CWE scored zero | The report run per the documentation, and an offline audit separating the zeros that were decided from the ones a lookup fell off the end of a CWE graph frozen in 2017 |
 
+Material that explains the skills rather than runs them is in
+[`collateral/`](collateral/README.md):
+[*Behind the Path Limit*](collateral/behind-the-path-limit/README.md), a
+worked example of `coverity-pathout`, `coverity-function-slice` and
+`coverity-verify` together.
+
 ## Requirements
 
 - A **local Coverity Analysis installation.** These skills interrogate real
