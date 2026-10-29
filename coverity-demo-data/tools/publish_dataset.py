@@ -153,6 +153,37 @@ def merge_keys(idir, cov_bin, scratch):
     return {i["mergeKey"] for i in data.get("issues", []) if i.get("mergeKey")}
 
 
+def bycatch_backstop(ws):
+    """Refuse to publish material that admits to carrying by-catch.
+
+    A by-catch is a defect noticed while working on a different finding,
+    i.e. a potential zero-day. Datasets are delivered to demo instances,
+    where one could be put on screen by accident, so it must not ship.
+
+    This is a BACKSTOP, not a detector. coverity-triage records a by-catch
+    in a record's free-text `reason`, so one described without the word is
+    invisible here. It fails loudly on the conventional case; it cannot
+    certify a dataset clean. Keep by-catch out of what you publish.
+    """
+    suspect = []
+    d = ws / "audit"
+    if d.is_dir():
+        for q in sorted(d.rglob("*")):
+            if q.is_file() and q.suffix.lower() in (".json", ".md", ".txt"):
+                try:
+                    txt = q.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                if re.search(r"by[-_ ]?catch", txt, re.I):
+                    suspect.append(q.relative_to(ws).as_posix())
+    q = ws / "TRIAGE-REPORT.md"
+    if q.is_file() and re.search(r"by[-_ ]?catch",
+                                 q.read_text(encoding="utf-8", errors="replace"),
+                                 re.I):
+        suspect.append("TRIAGE-REPORT.md")
+    return suspect
+
+
 def validate(rows, idirs_root, cov_bin, scratch):
     """Every check that can be made locally. Returns derived facts."""
     facts, problems = {}, []
@@ -236,6 +267,14 @@ def validate(rows, idirs_root, cov_bin, scratch):
                 f"{stream}: two releases on the same date {dupes} -- a stream "
                 f"is one branch moving forward; concurrent lines need separate "
                 f"streams")
+
+    for hit in bycatch_backstop(idirs_root.parent):
+        problems.append(
+            f"{hit}: contains by-catch text. A by-catch is a potential "
+            f"zero-day and must not ship -- datasets go to demo instances. "
+            f"Move it out of the audit material and send it to whoever tracks "
+            f"by-catch. (Backstop only: one described without the word is "
+            f"invisible to this check.)")
 
     if problems:
         print("[FATAL] dataset is not publishable:", file=sys.stderr)
