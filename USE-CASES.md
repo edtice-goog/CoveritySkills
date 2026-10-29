@@ -17,6 +17,7 @@ flowchart TB
     end
     subgraph analyzer["Questions about the analyzer"]
         DD["coverity-defect-detectability"]
+        MM["coverity-missing-models"]
         PO["coverity-pathout"]
         FS["coverity-function-slice"]
     end
@@ -35,6 +36,7 @@ flowchart TB
     CV -->|"verified capture"| BF
     PO -->|"body"| FS
     PO -->|"candidates"| TR
+    TR -->|"false positives:<br/>a function's behaviour"| MM
     DM -.->|"a published dataset,<br/>triaged separately"| TR
     TR -->|"execution method"| VE
     VE -->|"slice set, TU manifest"| FS
@@ -229,6 +231,46 @@ investigating a miss.
   while the answer is still "not found", then narrow to the minimal setting.
   It checks that the verdict carries over to the real code.
 
+## Teach the analyzer what a function does
+
+**You want:** fewer false positives, or defects the analyzer starts
+reporting, because it now knows what one function really does: it never
+returns, frees or keeps its argument, never returns NULL, initializes its
+output.
+
+```mermaid
+flowchart LR
+    FP["false positives from coverity-triage<br/>traced to what a function does"] --> Q{"A model question?"}
+    ESC["a defect a later phase caught<br/>fuzzing, review, pen test, production"] --> Q
+    Q -->|"no: an invariant no single function states;<br/>for an escape: capture, checker or option, path bound"| OTHER["the finding stays triaged;<br/>coverity, coverity-defect-detectability,<br/>coverity-pathout"]
+    Q -->|"yes"| B["what the analyzer believes now<br/>callgraph metrics, derived models"]
+    B --> W["the smallest model"]
+    W --> RA["re-analyze a copy of the idir"]
+    RA --> C["check: model applied, same code,<br/>target changed, canary did not,<br/>every other finding that moved"]
+    C --> O{"The owner decides:<br/>keep or drop"}
+    C -.->|"new findings, if you want verdicts"| TR["coverity-triage"]
+    C -.->|"a finding to run"| VE["coverity-verify"]
+```
+
+- `coverity-missing-models` does this. Two things start it: false positives
+  that `coverity-triage` traced to what a function does, and a defect that a
+  later phase caught because the analyzer did not know a function's behaviour.
+- For a false positive, it first checks that the invariant is a fact about
+  one function. One that is not, such as a relation between the caller's
+  values, stays a triaged finding.
+- For an escape, it first rules out the cheaper answers: the capture
+  (`coverity`), the checker or option (`coverity-defect-detectability`), the
+  path bound (`coverity-pathout`).
+- It proves what the model changed on a copy of the intermediate directory,
+  and the owner decides whether to keep it. Each re-analysis is a full
+  analysis of that copy, so it asks before each one; unattended, it writes and
+  builds the model and stops. Triaging the findings a model
+  surfaces is `coverity-triage`'s job and is opt-in: it is offered, with the
+  count.
+- What it learns is kept in the skill's `references/idioms.md`. It is the
+  detection loop's *write a model or fact, feed it back as analyzer input*
+  step ([`collateral/detection-loop/`](collateral/detection-loop/README.md)).
+
 ## Adopt Coverity on a codebase that already has history
 
 **You want:** findings dated to the release they arrived in, rather than to
@@ -321,6 +363,7 @@ and which came from a CWE with no mapping.
 | `coverity-compiler-configuration` | template configurations; cross-compilers, embedded toolchains and wrappers; diagnosing and regenerating a tainted configuration | verifying the capture; judging the build | `coverity` (capture verification) |
 | `coverity-build-fidelity` | native vs `cov-build` comparison of the product; capture coverage; a release-gate verdict and a profile draft | guessing at unexplained differences (it escalates to a person); work where the build cannot run | `coverity-recreate-from-emit` when the build cannot run |
 | `coverity-defect-detectability` | an empirical detectability verdict; the minimal configuration; a repro command | triaging real findings; speculating about what a checker would do instead of running it | `coverity-triage` for verdicts on findings |
+| `coverity-missing-models` | the smallest user model for a function whose behaviour the analyzer gets wrong; proof on a re-analyzed copy (model applied, same code, target, canary, every other finding that moved); what was learned, in `references/idioms.md` | deciding to keep a model (the owner does); triaging the findings a model surfaces; capture, checker selection and the path bound (ruled out first) | `coverity-triage` (new findings, opt-in), `coverity-verify` (a finding to run) |
 | `coverity-demo-data` | a multi-version history with real release dates; streams per branch; guarded oldest-first commits; a self-contained published dataset that keeps each release's findings export and capture inventory | triaging, on request or otherwise (run `coverity-triage` on a published dataset yourself); the customer narrative; backdating triage history | nothing: triage is run separately |
 | `coverity-pathout` | which functions reached the path bound and which checker; the shape catalogue there; the cost of raising the bound; restructuring; a priced pilot before a large run | judging its candidates; analyzing an idir from a version that is not installed (it stops and asks) | `coverity-function-slice` for bodies; `coverity-triage` for candidates, through its own shape table (method: execution through `coverity-verify`, extraction route); anything that lands elsewhere goes to the user |
 | `coverity-function-slice` | one function from the AST; a standalone file that compiles and analyzes; an obfuscated twin with proof; a manifest of a whole translation unit for the harness route | deciding whether a finding is real | `coverity-pathout`, `coverity-verify` (its callers) |

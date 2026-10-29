@@ -15,6 +15,9 @@ The skills that carry pieces of the loop are
 [`coverity-triage`](../../coverity-triage/README.md) (verdicts in lanes, with a
 record of the lane and the method),
 [`coverity-verify`](../../coverity-verify/README.md) (execution as a triage
-method) and
+method),
 [`coverity-defect-detectability`](../../coverity-defect-detectability/README.md)
-(the minimal configuration that reports a defect class).
+(the minimal configuration that reports a defect class) and
+[`coverity-missing-models`](../../coverity-missing-models/README.md) (a model
+fed back as analyzer input, from a false positive's invariant or a defect a
+later phase caught).
