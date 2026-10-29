@@ -68,17 +68,18 @@ environment variable, not the shape of the invocation. Unsure means stop.
 
 Never default into the more expensive *or* the less reversible option. In this
 skill those are different branches: the expensive one is a capture and
-analysis, the irreversible one is a write to someone's triage store. The rule
-decides *when to ask*, never that an answer may be assumed, so "not
-interactive" does not license proceeding on whichever branch looks cheap or
-safe either.
+analysis, and the irreversible one is a write to someone's instance -- an
+annotation, or worse a backdated commit, since `date_originated` is write-once
+per merge key and no later commit can move it. The rule decides *when to ask*,
+never that an answer may be assumed, so "not interactive" does not license
+proceeding on whichever branch looks cheap or safe either.
 
 | Step | Needs a decision | Unattended | Resumes with |
 |---|---|---|---|
 | 1 | build instructions, and which existing result is the anchor | report what is missing; capture nothing | the build command, and the stream and snapshot that is the anchor |
 | 2 | the build does not run -- hand off to `coverity-recreate-from-emit`? | report that the build fails and what the hand-off would cost; do not start it | a working build command, or an explicit OK to replay from the old idir |
 | 3 | the original run's analysis options are not recoverable | report it; do not guess options, which silently redefines what you measured | the option set to use on both sides, or the snapshot to read it from |
-| 6 | the annotation scheme | report the labels and the choices; write nothing | the scheme: classification and comment, a named custom attribute, or "we will write it ourselves" |
+| 6 | the annotation scheme, and whether to backdate the commit | report the labels and the choices; write nothing | the scheme: classification and comment, a named custom attribute, or "we will write it ourselves" -- and the date to commit under, if any |
 | -- | whether anyone wants the fourth cell | three cells is the baseline procedure, not a choice you made; the fourth is an extra capture and analysis, and is only ever run on request | an explicit yes, at the cost of one more capture and analysis |
 
 **Stop without discarding the expensive part.** In this skill the costly
@@ -195,10 +196,12 @@ prediction rather than a rationalization.
 versions one release apart, 213 rows changed and nearly all were a documentation
 rename (`All Security` -> `Recommended Security Checkers`), not behaviour.
 
-### Step 6. Ask how to annotate, then annotate
+### Step 6. Ask how to record the attribution, then record it
 
 The deliverable is not only a report -- it is the findings marked in Connect so
-they do not read as regressions to whoever opens the dashboard next.
+they do not read as regressions to whoever opens the dashboard next. There are
+two axes to get right: what each finding is **labelled**, and what date it
+**carries**.
 
 **Ask the user how they want it done.** Installations vary: some will want a
 classification and comment, some have a **custom attribute** for exactly this,
@@ -212,6 +215,43 @@ annotation at all, because it looks deliberate.
 
 When experimenting rather than servicing a real instance, create your own triage
 store and project so nothing lands in theirs.
+
+#### Fix the dates, not just the labels
+
+A label explains a finding to whoever reads it. The **date** is what the
+dashboard sorts and alerts on, and by default it is wrong: commit a
+version-attributable finding today and Connect sets its first-detected to
+today, because that merge key has never been seen before. Fifty findings that
+were in the code all along arrive looking like this morning's regressions, and
+no annotation undoes that.
+
+`cov-commit-defects --backdate` sets it correctly. Commit the new-analyzer run
+with the date the **code** is from, and the findings it reports for the first
+time carry the date they were actually present.
+
+**This is honest here, and almost nowhere else.** The defect was in that code
+on that date; only the analyzer's ability to see it changed. What licenses the
+claim is the code-sameness evidence from Step 2 -- without it you would be
+asserting a first-detected date you cannot support, and backdating a genuinely
+new defect is a falsification that survives in the database. So the attribution
+comes first and the dates follow from it; never the other way round.
+
+Three mechanics that decide whether it works, all of them measured in
+`coverity-demo-data/references/backdating.md` -- read it rather than trusting
+this summary:
+
+- `--backdate` takes `yyyymmdd` and nothing else.
+- `date_originated` is **global per merge key and write-once**. A later
+  backdate cannot move it, so a column spanning several releases must be
+  committed **oldest first**, each release carrying its own date.
+- The snapshot's code must be pinned to one known date. Do not backdate a
+  snapshot that mixes code versions -- within one release the code is fixed and
+  the date is a fact; across releases it is a guess.
+
+This also answers what to do with a regenerated corpus: a new-analyzer column
+over the same releases wants its own project or stream, committed oldest-first
+with each release's own `--backdate`. The separation keeps each column readable
+on its own, and the backdating keeps the dates true within it.
 
 ### Step 7. Report
 
