@@ -273,11 +273,14 @@ what is reasoned rather than measured.
   `/usr/include/c++/<version>/` or `/usr/lib/gcc/.../include/`. Clang's and
   MSVC's directories have met only the fixture.
 - **Releases and the delta.** `--prior` has run only on the fixture. No
-  multi-release dataset has been triaged release by release yet. Not
-  measured: whether `connect_apply.py` finds a merge key that the stream's
-  latest snapshot no longer reports. Its search names no snapshot, so that
-  depends on Connect's default scope. Applying each release's records before
-  the next release's snapshot is committed avoids the question.
+  multi-release dataset has been triaged release by release yet.
+  `connect_apply.py` assumes open findings in the stream's latest snapshot.
+  Triage for earlier snapshots is outside this skill, so how it treats a
+  merge key the latest snapshot no longer reports was not measured.
+- **A CID found in several places.** The rule to triage its latest
+  occurrence is written, not built. `coverity-verify/tools/cid_lookup.py`
+  looks a CID up inside one named stream, so finding every occurrence the
+  user's key can see is still the caller's work.
 - **The Intent lane's questions.** No reader has run them yet.
 - **Policy.** No Policy finding has gone through; none fired on proftpd at
   analysis defaults.

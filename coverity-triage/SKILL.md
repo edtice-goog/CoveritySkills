@@ -122,6 +122,10 @@ lane's method, and writes the records and a report.
 - **Decide what is worth showing.** A correct verdict on a finding nobody
   can follow in a demo is still a correct verdict; demo-worthiness belongs
   to `coverity-demo-data`.
+- **Write triage history.** It triages open findings in a stream's latest
+  snapshot. Putting triage onto a dataset's earlier snapshots, as when a
+  dataset is published release by release, is the job of whoever loads the
+  dataset into Connect.
 
 ## Cost: nothing starts on a default
 
@@ -163,7 +167,8 @@ triages because a step in its procedure came up.
 
 | input | where it comes from |
 |---|---|
-| the findings | `cov-format-errors --dir <idir> --json-output-v10 <file>` on the analyzed idir (rule 26 lists the fields). A Connect CID is turned into a merge key and the idir's findings with `coverity-verify/tools/cid_lookup.py` |
+| the findings | `cov-format-errors --dir <idir> --json-output-v10 <file>` on the analyzed idir (rule 26 lists the fields) |
+| or a Connect CID | the usual live start. Look for the CID in everything the user's key can see. It can come back several times (several streams, several snapshots). **Unless the user says otherwise, triage its latest occurrence**: the newest snapshot that reports it, and the idir that produced that snapshot. `coverity-verify/tools/cid_lookup.py` turns a CID into a merge key and the idir's findings, within a stream the caller names |
 | the source at the analyzed version | **the default:** a git repository and the tag or commit the idir was built from. **Read from git, never from the working tree**: a working tree holds whatever was checked out last, which is the wrong source in a way that reads as entirely plausible. **The backup, when there is no git source** (an analyzed tree with no tag or commit to read): the intermediate directory, with the `bin/` of the installation that wrote it (rule 3) |
 | the build root | the path prefix to strip from recorded paths (`--strip-prefix`) |
 | the selection | `--merge-key` for named findings (repeatable), `--per-checker N` for rule 26's stratified sample, `--all` for every finding |
@@ -469,7 +474,10 @@ python3 tools/connect_apply.py --url <connect-url> --records triage.json \
 
 - **Finding the CIDs.** It finds each record's finding in the stream by
   merge key and writes to the stream's own triage store. A record whose
-  merge key the stream does not have is listed, and not applied.
+  merge key the stream does not have is listed, and not applied. It assumes
+  open findings in the stream's latest snapshot. Anything else, such as
+  triage for snapshots a dataset has already moved past, is the caller's to
+  arrange.
 - **It writes only what differs.** A field the record leaves null (no
   verdict, no severity) is left alone. A field that already holds the
   record's value is skipped. The comment is skipped when it is already the
