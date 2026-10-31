@@ -21,6 +21,12 @@ Without --yes it prints the plan and changes nothing. With --yes it writes
 (one request per group of findings that get identical values), reads the
 findings back, and fails if any value did not take.
 
+Only the stream's latest snapshot is searched, and a CID holds one triage
+answer, which a reader takes to describe the version current when it was
+written. So records belong in Connect only while the version they were
+judged at is the stream's latest snapshot. The plan prints that version;
+checking it against the stream is the caller's job.
+
 Exit codes: 0 every record's finding now holds what the record sets; 3
 changes still pending (no --yes), or a record skipped (not found in the
 stream, or a value someone set, without --overwrite); 1 an error or a
@@ -255,6 +261,8 @@ def main():
               "applied": False, "verified": False}
     try:
         records = load_records(args.records)
+        result["judgedAt"] = sorted({str(r["judged"]["tag"]) for r in records
+                                     if (r.get("judged") or {}).get("tag")})
         conn = Connect(args.url, args.key_file or default_key_path(args.url), args.cafile)
         store, primary = triage_store(conn, args.stream)
         result["triageStore"] = store
@@ -303,6 +311,9 @@ def main():
         print("%d record(s) against %s / %s (triage store %s): %s" % (
             len(entries), args.project, args.stream, store,
             ", ".join("%s %d" % kv for kv in sorted(counts.items()))))
+        print("judged at %s: right for Connect only while that is the stream's latest "
+              "snapshot (one answer per CID, read as current)"
+              % (", ".join(result["judgedAt"]) or "an unrecorded version"))
         for e in entries:
             if e["status"] == "not-found":
                 print("  not found in the stream: " + str(e["mergeKey"]) + " " + str(e["checker"]))

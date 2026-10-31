@@ -417,6 +417,10 @@ sends.
   snapshot scope, so it returns only the findings in the stream's latest
   snapshot (measured on 2026.9.0). A merge key last reported in an earlier
   snapshot is reported as not found.
+- **The judged version.** The plan prints the records' `judged.tag`
+  (`judgedAt` in `--json`). Records belong in Connect only while that
+  version is the stream's latest snapshot (SKILL.md, *Step 6*). The tool
+  does not compare it with the stream.
 - **The triage store.** A GET on `/api/v2/streams/<name>` gives the stream's
   `triageStoreName`, and the write goes to that store.
 - **The write.** A PUT to `/api/v2/issues/triage?triageStoreName=<store>`

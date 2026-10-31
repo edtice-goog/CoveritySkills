@@ -747,6 +747,8 @@ def test_connect_apply(work, records):
         n = len(fake.writes)
         res = json.loads(tool_run(*common, "--json", code=3).stdout)
         assert len(fake.writes) == n, "a plan-only run wrote"
+        assert res["judgedAt"] == ["v1"], res.get("judgedAt")
+        assert "judged at v1" in tool_run(*common, code=3).stdout
         by = {e["mergeKey"]: e for e in res["plan"]}
         assert by["k2"]["status"] == "not-found" and by["k3"]["status"] == "conflict", by
         assert by["k6"]["set"] == {"Defect Category": "Policy"}, by["k6"]   # Triage Method is None already

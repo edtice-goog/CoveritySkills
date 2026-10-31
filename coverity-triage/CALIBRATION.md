@@ -297,8 +297,9 @@ what is reasoned rather than measured.
   - The records use the attribute names of Connect's triage-store export and
     the REST triage write.
   - `connect_apply.py` has run against the fake Connect in
-    `evals/test_tools.py` only, in 13 cases. They cover a plan that writes
-    nothing; an apply that skips a finding someone triaged; a second apply
+    `evals/test_tools.py` only, in 14 cases. They cover a plan that writes
+    nothing and prints the version the records were judged at; an apply
+    that skips a finding someone triaged; a second apply
     that writes nothing; `--overwrite`; a record not in the stream; a value
     that does not take, caught by the read-back; and refusals for a missing
     attribute or value, a file that is not a records file, an unknown
