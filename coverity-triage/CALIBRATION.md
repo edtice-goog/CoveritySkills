@@ -274,9 +274,12 @@ what is reasoned rather than measured.
   MSVC's directories have met only the fixture.
 - **Releases and the delta.** `--prior` has run only on the fixture. No
   multi-release dataset has been triaged release by release yet.
-  `connect_apply.py` assumes open findings in the stream's latest snapshot.
-  Triage for earlier snapshots is outside this skill, so how it treats a
-  merge key the latest snapshot no longer reports was not measured.
+  `connect_apply.py` covers open findings in the stream's latest snapshot,
+  and that was measured. A C++ project's dataset was committed as 17
+  backdated snapshots into one stream, and its records were applied release
+  by release. The 97 merge keys last reported before the latest snapshot
+  all came back not found, and nothing was written for them. Triage for
+  earlier snapshots belongs to whoever loads the dataset.
 - **A CID found in several places.** The rule to triage its latest
   occurrence is written, not built. `coverity-verify/tools/cid_lookup.py`
   looks a CID up inside one named stream, so finding every occurrence the
@@ -308,7 +311,15 @@ what is reasoned rather than measured.
   - The same server answers a project name it does not know with HTTP 500
     and "Project <name> not found", not an empty result. The tool's refusal
     adds the stream's own primary project to that message.
-  - The triage PUT itself has not been sent to a real server yet.
+  - The triage PUT was sent to a real Connect 2026.9.0, setting the custom
+    attributes only. `connect_attributes.py setup --yes` created the two
+    attributes there. Then a lanes-only records file of 128 records (no
+    verdicts) was applied to the stream's latest snapshot: all 128 were set,
+    and the read-back held. A separate REST read found Defect Category equal
+    to each record's lane for all 128 keys. Classification and the other
+    fields were left untouched.
+  - A write of Classification, Action, Severity or Comment has not been
+    sent to a real server yet. Lanes-only records carry none.
 - **Other Connect versions.** The REST path and the request bodies were
   measured on one 2026.9.0 server only. An older Connect may serve
   `/api/v2/attributes` instead, or neither.

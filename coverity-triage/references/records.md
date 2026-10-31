@@ -413,7 +413,10 @@ sends.
   filtered by the project and the stream, returns every finding in the
   stream with its CID, merge key, Classification, Action, Severity, last
   triage comment and the two custom attributes, in pages of 200. A merge key
-  that comes back with two CIDs stops the apply.
+  that comes back with two CIDs stops the apply. The search names no
+  snapshot scope, so it returns only the findings in the stream's latest
+  snapshot (measured on 2026.9.0). A merge key last reported in an earlier
+  snapshot is reported as not found.
 - **The triage store.** A GET on `/api/v2/streams/<name>` gives the stream's
   `triageStoreName`, and the write goes to that store.
 - **The write.** A PUT to `/api/v2/issues/triage?triageStoreName=<store>`
