@@ -59,10 +59,19 @@ def read_json(path, errors, what):
         return None
 
 
-def comment_for(label, v, lane, assigner, method, date):
+def triaged_against(judged):
+    """The line every comment ends with: what was triaged. None if judged cannot say."""
+    if not (judged.get("project") and judged.get("tag")
+            and re.match(r"^\d{4}-\d{2}-\d{2}$", str(judged.get("date") or ""))):
+        return None
+    return ("Triaged against " + str(judged["project"]) + " " + str(judged["tag"])
+            + " from " + judged["date"] + ".")
+
+
+def comment_for(label, v, lane, assigner, method, date, against):
     executed = "executed" if v.get("executed") else "read, not executed"
     tail = ("\n[coverity-triage " + date + "] Lane: " + lane + " (assigned by "
-            + assigner + "). Method: " + method + ", " + executed + ".")
+            + assigner + "). Method: " + method + ", " + executed + ".\n" + against)
     body = v["reason"].strip()
     if v["verdict"] == INVARIANT:
         body += ("\nInvariant: " + v["invariant"].strip() + "\nEnforced at: "
@@ -164,6 +173,9 @@ def assemble(args):
         return fail(errors)
 
     bundles = {b["mergeKey"]: b for b in index.get("bundles", [])}
+    ta = index.get("triaged_against") or {}
+    judged_as = {"tag": index.get("tag"), "project": ta.get("project"), "date": ta.get("date")}
+    against = triaged_against(judged_as)
     lane_of = read_lanes(lanes, bundles, run, errors)
     overrides = read_overrides(run, bundles, errors)
     for mk in overrides:
@@ -269,12 +281,17 @@ def assemble(args):
         lane = a["lane"]
         method = method_for(mk)
         v = verdict_of.get(mk, (None, None))[0]
+        if (v is not None or a["assigned_by"] == HEADER) and against is None:
+            errors.append(b["bundle"] + " (" + mk + "): its comment must end with what was "
+                          "triaged, and index.json does not say (project, version and date: "
+                          "bundle.py --name and --version-date)")
+            continue
         if a["assigned_by"] == HEADER:
             if v is not None:
                 errors.append(b["bundle"] + " (" + mk + "): a verdict for a finding in a "
                               "compiler header, which is never triaged")
                 continue
-            records.append(header_record(b, a, index.get("tag"), date))
+            records.append(header_record(b, a, judged_as, date, against))
             continue
         if v is None and method not in ("None", "Human"):
             errors.append(b["bundle"] + " (" + mk + "): " + lane + " finding ran " + method
@@ -292,7 +309,8 @@ def assemble(args):
         if v is not None:
             cls, act, sev, label = MAPPING[v["verdict"]]
             state.update(classification=cls, action=act, severity=sev,
-                         comment=comment_for(label, v, lane, a["assigned_by"], method, date))
+                         comment=comment_for(label, v, lane, a["assigned_by"], method, date,
+                                             against))
             if BAD_CHARS.search(state["comment"]):
                 errors.append(b["bundle"] + " (" + mk + "): the comment carries a control "
                               "character (a NUL from a C '\\0' is the usual one); Connect "
@@ -308,7 +326,7 @@ def assemble(args):
         elif method == "Human":
             evidence["status"] = "awaiting a person's verdict"
         rec = {"mergeKey": mk, "checker": b.get("checker"),
-               "judged": {"tag": index.get("tag"), "sites": b.get("sites", [])},
+               "judged": dict(judged_as, sites=b.get("sites", [])),
                "lane": lane, "lane_reason": a["reason"].strip(),
                "lane_assigned_by": a["assigned_by"],
                "method": method, "verdict": v["verdict"] if v else None,
@@ -328,7 +346,8 @@ def assemble(args):
     doc = {"format": "coverity-triage-records", "schema": 1,
            "run": dict(run, tables=lanes.get("tables"),
                        source={k: index.get(k) for k in ("issues", "git_repo", "tag", "source",
-                                                         "strip_prefix", "findings_in_file")}),
+                                                         "strip_prefix", "findings_in_file",
+                                                         "triaged_against")}),
            "records": records}
     problems = check(doc)
     if problems:
@@ -350,14 +369,15 @@ def assemble(args):
     return 0
 
 
-def header_record(b, a, tag, date):
+def header_record(b, a, judged_as, date, against):
     """A finding in a compiler header: Intentional by rule, with no method."""
     cls, act, sev, label = MAPPING["intentional"]
     comment = (label + ": the main site is in a compiler header (" + b["compiler_header"]
                + "), outside the analyzed code: a residual false positive.\n[coverity-triage "
-               + date + "] Lane: Other (" + HEADER + "). Method: None; classified by rule.")
+               + date + "] Lane: Other (" + HEADER + "). Method: None; classified by rule.\n"
+               + against)
     return {"mergeKey": b["mergeKey"], "checker": b.get("checker"),
-            "judged": {"tag": tag, "sites": b.get("sites", [])},
+            "judged": dict(judged_as, sites=b.get("sites", [])),
             "lane": OTHER, "lane_reason": a["reason"].strip(), "lane_assigned_by": HEADER,
             "method": "None", "verdict": "intentional",
             "triageState": {"classification": cls, "action": act, "severity": sev,
@@ -440,6 +460,10 @@ def check(doc):
         c = st.get("comment") or ""
         if not c or len(c) > COMMENT_MAX:
             p.append(w + "comment missing or longer than " + str(COMMENT_MAX))
+        against = triaged_against(r.get("judged") or {})
+        if against is None or not c.endswith("\n" + against):
+            p.append(w + "the comment must end with what was triaged (Triaged against "
+                     "<project> <version> from <date>.), from judged")
         if BAD_CHARS.search(c):
             p.append(w + "comment carries a control character")
     return p

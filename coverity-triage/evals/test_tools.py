@@ -214,6 +214,11 @@ def main():
         assert recs["k1"]["triageState"]["classification"] == "False Positive"
         assert "Enforced at: src/a.c:4" in recs["k1"]["triageState"]["comment"]
         assert "assigned by checker table" in recs["k1"]["triageState"]["comment"]
+        # By default the name is the repository's and the date the tagged commit's.
+        v1_date = subprocess.run(["git", "-C", str(repo), "log", "-1", "--format=%cs", "v1"],
+                                 capture_output=True, text=True).stdout.strip()
+        assert recs["k1"]["triageState"]["comment"].endswith(
+            "\nTriaged against repo v1 from " + v1_date + "."), recs["k1"]["triageState"]["comment"]
         assert recs["k3"]["triageState"]["severity"] == "Minor"
         assert recs["k4"]["lane"] == "Intent" and recs["k4"]["triageState"]["classification"] == "False Positive"
         assert recs["k2"]["method"] == "Human" and recs["k2"]["verdict"] is None
@@ -452,7 +457,10 @@ def test_releases_and_headers(work, repo):
     p = bundle(f1, "--per-checker", "1", "--plan").stdout
     assert "selected: 6" in p and "2  compiler header" in p and "2  NULL_RETURNS" in p, p
     b1 = d / "b1"
-    bundle(f1, "--all", "--out", b1)
+    bundle(f1, "--all", "--version-date", "2025-3-14", "--out", d / "bad-date", ok=False)
+    bundle(f1, "--all", "--name", "ProFTPD", "--version-date", "2025-03-14", "--out", b1)
+    assert json.loads((b1 / "index.json").read_text())["triaged_against"] == \
+        {"project": "ProFTPD", "version": "v1", "date": "2025-03-14"}
     idx = {x["mergeKey"]: x for x in json.loads((b1 / "index.json").read_text())["bundles"]}
     assert idx["h1"]["compiler_header"] == libstdcxx and "compiler_header" in idx["h2"]
     assert "compiler_header" not in idx["s1"] and "compiler_header" not in idx["x1"]
@@ -471,7 +479,7 @@ def test_releases_and_headers(work, repo):
     contract = {"lane": "Contract", "method": "LLM: Sonnet 5.5", "model": "test-model",
                 "verdicts": [{"mergeKey": "a1", "verdict": "real", "reason": "unchecked at src/a.c:6"}]}
 
-    def assemble(name, lanes_doc, run_doc, vdocs, ok=True):
+    def assemble(name, lanes_doc, run_doc, vdocs, ok=True, bdir=b1):
         nonlocal cases
         cases += 1
         r = d / name
@@ -480,7 +488,7 @@ def test_releases_and_headers(work, repo):
         wjson(r / "run.json", run_doc)
         for i, v in enumerate(vdocs):
             wjson(r / "v" / ("%d.json" % i), v)
-        run(TOOLS / "records.py", "assemble", "--bundles", b1, "--lanes", r / "lanes.json",
+        run(TOOLS / "records.py", "assemble", "--bundles", bdir, "--lanes", r / "lanes.json",
             "--verdicts", r / "v", "--run", r / "run.json", "--out", r / "triage.json", ok=ok)
         assert (r / "triage.json").exists() == ok, name
         return r / "triage.json"
@@ -492,6 +500,25 @@ def test_releases_and_headers(work, repo):
     assert (h1["verdict"], h1["method"], h1["lane"]) == ("intentional", "None", "Other"), h1
     assert h1["triageState"]["classification"] == "Intentional" and h1["triageState"]["action"] == "Ignore"
     assert "compiler header (" + libstdcxx + ")" in h1["triageState"]["comment"]
+    # Every comment ends with what was triaged.
+    for k in ("h1", "a1"):
+        assert recs[k]["triageState"]["comment"].endswith(
+            "\nTriaged against ProFTPD v1 from 2025-03-14."), recs[k]["triageState"]["comment"]
+    assert recs["a1"]["judged"]["project"] == "ProFTPD" and recs["a1"]["judged"]["date"] == "2025-03-14"
+    # Without a date, no comment can say it: every verdict is refused.
+    undated = d / "b1-undated"
+    shutil.copytree(b1, undated)
+    ix = json.loads((undated / "index.json").read_text())
+    ix["triaged_against"]["date"] = None
+    wjson(undated / "index.json", ix)
+    assemble("undated", lanes1, runj, [contract], ok=False, bdir=undated)
+    stripped = json.loads(t1.read_text())
+    for r in stripped["records"]:
+        if r["mergeKey"] == "a1":
+            r["triageState"]["comment"] = r["triageState"]["comment"].rsplit("\n", 1)[0]
+    wjson(d / "stripped.json", stripped)
+    cases += 1
+    run(TOOLS / "records.py", "validate", d / "stripped.json", ok=False)
     assert h1["triageState"]["customTriage"] == {"Defect Category": "Other", "Triage Method": "None"}
     assert recs["a1"]["verdict"] == "real" and recs["a2"]["verdict"] is None
     assert "in a compiler header (Other, Intentional by rule)" in (d / "r1" / "TRIAGE-REPORT.md").read_text()

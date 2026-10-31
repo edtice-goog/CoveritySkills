@@ -57,8 +57,8 @@ what is reasoned rather than measured.
     - a by-catch item with no claim;
     - a by-catch item naming a finding that was not bundled;
     - a by-catch file with no method that noticed it.
-  - **Compiler headers and a later release**, on a fixture of its own, in 15
-    cases:
+  - **Compiler headers, what was triaged, and a later release**, on a
+    fixture of its own, in 18 cases:
     - A finding in libstdc++ (`/usr/include/c++/13/...`) and one in MSVC's
       `VC/Tools/MSVC/<version>/include` are marked compiler headers. One in
       `/usr/include/stdio.h` is not, and one in a directory given with
@@ -71,6 +71,12 @@ what is reasoned rather than measured.
     - Refused: a verdict for one, an override on one, the header lane on a
       finding not in a header, a table lane on one in a header, and a
       tampered record.
+    - Every comment ends with `Triaged against <project> <version> from
+      <date>.`. By default the project is the repository's directory name
+      and the date is the tagged commit's; `--name` and `--version-date`
+      set them. Refused: a malformed `--version-date`, any verdict while
+      `index.json` lacks the date, and (in `validate`) a comment without
+      the line.
     - A second release with `--prior` (the first release's records) leaves
       out the keys with a verdict, a Policy key and a compiler header. It
       bundles again a key with no verdict, and a new one. A key named with

@@ -24,6 +24,11 @@ earlier releases' records with --prior (repeatable): a merge key one of them
 already settled (a verdict, or a lane that takes no method) is left out, so
 only the delta is triaged. A key named with --merge-key is still bundled.
 
+WHAT WAS TRIAGED: index.json's triaged_against names the project (--name,
+default the git repository's directory name), the version (--tag) and its
+date (--version-date, default the date of the commit the tag names). Every
+triage comment ends with them; with --idir, give --name and --version-date.
+
 COMPILER HEADERS ARE NEVER TRIAGED. A finding whose main event is in a
 compiler's own headers (libstdc++, libc++, GCC's, Clang's, MSVC's) is a
 residual false positive: --per-checker and --all always include it, it never
@@ -143,6 +148,16 @@ class GitSource:
 
     def prefetch(self, relpaths):
         pass
+
+    def version_date(self):
+        """The date (YYYY-MM-DD) of the commit the tag names, or None."""
+        try:
+            out = subprocess.run(["git", "-C", self.repo, "log", "-1", "--format=%cs",
+                                  self.tag + "^{commit}"],
+                                 check=True, capture_output=True, text=True)
+            return out.stdout.strip() or None
+        except subprocess.CalledProcessError:
+            return None
 
     def lines(self, relpath):
         if relpath not in self.cache:
@@ -390,6 +405,12 @@ def main():
     ap.add_argument("--cov-bin", help="with --idir: bin/ of the installation that wrote it")
     ap.add_argument("--strip-prefix", default="",
                     help="build path prefix to remove, e.g. /home/me/demo/proj")
+    ap.add_argument("--name", help="the project's name as readers know it, for the line every "
+                                   "triage comment ends with (default with git: the "
+                                   "repository's directory name)")
+    ap.add_argument("--version-date", help="YYYY-MM-DD, the date of the analyzed version "
+                                           "(default with git: the date of the commit --tag "
+                                           "names; with --idir, give it)")
     ap.add_argument("--out", help="directory for the bundles (not needed with --plan)")
     ap.add_argument("--context", type=int, default=12)
     ap.add_argument("--per-checker", type=int, default=0,
@@ -420,6 +441,10 @@ def main():
     if not args.git_repo and not args.idir and not args.plan:
         print("[ERROR] no source: pass --git-repo and --tag, or (when there is no git "
               "source) --idir and --cov-bin", file=sys.stderr)
+        return 1
+    if args.version_date and not re.match(r"^\d{4}-\d{2}-\d{2}$", args.version_date):
+        print("[ERROR] --version-date is YYYY-MM-DD, got " + repr(args.version_date),
+              file=sys.stderr)
         return 1
 
     issues = load(pathlib.Path(args.issues))
@@ -464,9 +489,16 @@ def main():
                                    for mk in ordered)))
     out = pathlib.Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
+    # What was triaged: every triage comment ends with it (references/records.md).
+    against = {"project": args.name or (pathlib.Path(args.git_repo).resolve().name
+                                        if args.git_repo else None),
+               "version": src.tag,
+               "date": args.version_date or (src.version_date() if args.git_repo else None)}
 
     index = ["# Triage bundles", "",
              "- Version: `" + src.tag + "`",
+             "- Triaged against: " + str(against["project"]) + " " + src.tag + " from "
+             + str(against["date"]),
              "- Source: " + src.describe(),
              "- Findings: " + str(len(ordered)), "",
              "| # | checker | location | why selected |",
@@ -499,11 +531,17 @@ def main():
                    else {"mode": "idir", "idir": str(args.idir),
                          "coverity": getattr(src, "version", None)}),
         "strip_prefix": args.strip_prefix, "findings_in_file": len(issues),
+        "triaged_against": against,
         "prior": [str(p) for p in args.prior], "left_out_by_prior": skipped,
         "bundles": records}, indent=1) + "\n").encode("utf-8"))
 
     print("wrote " + str(len(ordered)) + " bundles to " + str(out) + "/ (INDEX.md, index.json)"
           + ("; " + str(skipped) + " left out, settled at an earlier release" if args.prior else ""))
+    if not (against["project"] and against["date"]):
+        print("[WARN] index.json does not say what was triaged (" + ", ".join(
+            k for k in ("project", "date") if not against[k]) + " missing): records.py "
+            "will refuse every verdict until it does; pass --name and --version-date",
+            file=sys.stderr)
     if missing:
         print("[WARN] " + str(missing) + " bundle(s) missing source -- check "
               + ("--git-repo, --tag" if args.git_repo else "--idir")

@@ -185,8 +185,17 @@ triages because a step in its procedure came up.
 python3 tools/bundle.py --issues <findings.json> --git-repo <repo> --tag <tag> \
     --strip-prefix <build-root> [--per-checker N] [--merge-key K ...] [--all] \
     [--prior <earlier triage.json> ...] [--compiler-header <dir> ...] \
-    --out <dir> [--plan]
+    [--name <project>] [--version-date YYYY-MM-DD] --out <dir> [--plan]
 ```
+
+**Say what is being triaged.** Every triage comment ends with it, for
+example `Triaged against ProFTPD v1.3.9 from 2025-03-14.` A CID holds one
+answer, and Connect's "last triaged" date says when it was written, not
+which version it was about. `--name` is the project as its readers know it
+(default: the git repository's directory name). The version is `--tag`.
+`--version-date` is the version's date (default: the date of the commit the
+tag names). With `--idir`, give both `--name` and `--version-date`: without
+them the records step refuses every verdict.
 
 **One release at a time, oldest first.** Never select across a dataset's
 releases in one run. Triage the first release. For each later release, pass
@@ -447,6 +456,9 @@ when it was written. So:
 - **Apply records only while the version they were judged at is the
   stream's latest snapshot.** The plan prints that version (`judged.tag` in
   each record). Checking it against the stream is the caller's job.
+- **The comment says which version it was.** Its last line names the
+  project, the version and the version's date (*Step 1*), so a reader sees
+  what was triaged without relying on Connect's dates.
 - **Never put an older judgment over a later snapshot.** A record judged at
   an earlier release, for a CID a later snapshot still reports, would
   replace a decision about the later version with a fact about an earlier
