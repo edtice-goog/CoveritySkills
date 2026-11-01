@@ -58,7 +58,14 @@ def fail(msg):
 
 
 def read_tags(path, default_stream="default"):
-    """'<tag> <YYYY-MM-DD> [stream]' per line, sorted globally by date."""
+    """'<tag> <YYYY-MM-DD> [stream]' per line, sorted globally by date.
+
+    Date only, and stable: versions that share a date keep the file's order.
+    --backdate is day-granular, so a parent and child committed the same day
+    share a date, and only the file knows which came first. A tiebreak on the
+    tag would order them by label -- child-first for short SHAs, and wrong for
+    describe names once a count crosses a digit ("-10-" < "-9-").
+    """
     rows = []
     for line in pathlib.Path(path).read_text(encoding="utf-8").splitlines():
         line = line.strip()
@@ -74,7 +81,7 @@ def read_tags(path, default_stream="default"):
                      "stream": parts[2] if len(parts) > 2 else default_stream})
     if not rows:
         fail(f"no versions in {path}")
-    rows.sort(key=lambda r: (r["date"], r["tag"]))
+    rows.sort(key=lambda r: r["date"])
     return rows
 
 
@@ -157,7 +164,55 @@ def merge_keys(idir, cov_bin, scratch):
     return {i["mergeKey"] for i in data.get("issues", []) if i.get("mergeKey")}
 
 
-def validate(rows, idirs_root, cov_bin, scratch):
+def git_cmd(repo):
+    """safe.directory is overridden for these invocations only -- a repo
+    reached over a UNC path or a WSL share is "dubious ownership" to git, and
+    the global config is not ours to edit for the sake of a read."""
+    return ["git", "-c", "safe.directory=" + str(repo), "-C", str(repo)]
+
+
+def same_date_problems(stream, chain, source_repo):
+    """Equal dates in one stream are legal only as a strict ancestor chain.
+
+    A stream is one branch moving forward (rule 29), and two versions on one
+    date usually mean two lines. But --backdate is day-granular, so a parent
+    and child committed the same day collide too. Git can tell them apart: in
+    file order, each same-date version must be a proper ancestor of the next.
+    """
+    groups = collections.defaultdict(list)
+    for r in chain:
+        groups[r["date"]].append(r["tag"])
+    groups = {d: ts for d, ts in groups.items() if len(ts) > 1}
+    if not groups:
+        return []
+    if not source_repo:
+        return [f"{stream}: more than one version on the same date "
+                f"{sorted(groups)} -- concurrent lines need separate streams; "
+                f"same-day commits on one line are allowed only with "
+                f"--source-repo, which proves the ancestry"]
+    git, out = git_cmd(source_repo), []
+    for date, tags in sorted(groups.items()):
+        for a, b in zip(tags, tags[1:]):
+            sa = subprocess.run(git + ["rev-parse", "--verify", "-q", a + "^{commit}"],
+                                capture_output=True, text=True).stdout.strip()
+            sb = subprocess.run(git + ["rev-parse", "--verify", "-q", b + "^{commit}"],
+                                capture_output=True, text=True).stdout.strip()
+            if not sa or not sb:
+                out.append(f"{stream}: {date}: cannot resolve "
+                           f"{a if not sa else b} in {source_repo}")
+                continue
+            anc = subprocess.run(git + ["merge-base", "--is-ancestor", sa, sb],
+                                 capture_output=True).returncode == 0
+            if sa == sb or not anc:
+                out.append(
+                    f"{stream}: {a} and {b} share the date {date} but {a} is "
+                    f"not a proper ancestor of {b} -- concurrent lines need "
+                    f"separate streams; if they are one line, list them "
+                    f"parent first in the tags file")
+    return out
+
+
+def validate(rows, idirs_root, cov_bin, scratch, source_repo=None):
     """Every check that can be made locally. Returns derived facts."""
     facts, problems = {}, []
 
@@ -234,12 +289,7 @@ def validate(rows, idirs_root, cov_bin, scratch):
         dates = [r["date"] for r in chain]
         if dates != sorted(dates):
             problems.append(f"{stream}: dates are not monotonic: {dates}")
-        dupes = [d for d, n in collections.Counter(dates).items() if n > 1]
-        if dupes:
-            problems.append(
-                f"{stream}: two releases on the same date {dupes} -- a stream "
-                f"is one branch moving forward; concurrent lines need separate "
-                f"streams")
+        problems.extend(same_date_problems(stream, chain, source_repo))
 
     if problems:
         print("[FATAL] dataset is not publishable:", file=sys.stderr)
@@ -252,13 +302,8 @@ def validate(rows, idirs_root, cov_bin, scratch):
 
 
 def source_shas(repo, rows):
-    """Resolve the commit behind each tag, for reproducibility.
-
-    safe.directory is overridden for these invocations only -- a repo reached
-    over a UNC path or a WSL share is "dubious ownership" to git, and the global
-    config is not ours to edit for the sake of reading two dozen SHAs.
-    """
-    git = ["git", "-c", "safe.directory=" + str(repo), "-C", str(repo)]
+    """Resolve the commit behind each tag, for reproducibility."""
+    git = git_cmd(repo)
     out = {}
     for r in rows:
         p = subprocess.run(git + ["rev-parse", r["tag"] + "^{commit}"],
@@ -342,7 +387,7 @@ def main():
 
     rows = read_tags(tags)
     print(f"validating {len(rows)} versions ...")
-    facts = validate(rows, idirs_root, args.cov_bin, scratch)
+    facts = validate(rows, idirs_root, args.cov_bin, scratch, args.source_repo)
     print("validation passed")
     if args.validate_only:
         return 0

@@ -130,7 +130,10 @@ get them wrong.
 
 Run with `--validate-only` first. It reports every problem it can find without
 writing anything, which is the cheap way to discover that a corpus has mixed
-analyzer versions or a stream carrying two releases on one date.
+analyzer versions or a stream carrying two releases on one date. Two versions
+on one date in one stream pass only with `--source-repo`, and only when, in
+the tags file's order, each is a proper ancestor of the next. Same-date
+versions keep the file's order all the way into `commit.sh`.
 
 Choose `--slug` to name what distinguishes this dataset from another of the
 same project -- the version span, the checker configuration, the analyzer

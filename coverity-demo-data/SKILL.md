@@ -334,7 +334,12 @@ signals:
 
 - `git for-each-ref --sort=creatordate --format='%(refname:short) %(creatordate:short)' refs/tags`
 - **Two releases tagged on the same day** almost always means concurrent lines
-  -- a backport shipping alongside a new release
+  -- a backport shipping alongside a new release. The exception is
+  consecutive commits on one line made the same day (single-commit versions
+  beside releases): they may share a stream if the tags file lists them
+  parent first. `--backdate` keeps only the day, so the file's order is the
+  only record of which came first, and `publish_dataset.py --source-repo`
+  checks that it is a strict ancestor chain
 - `git branch --contains <tag>` and merge-base relationships, where the project
   keeps real branches
 - The project's own release notes, which usually name the lines outright

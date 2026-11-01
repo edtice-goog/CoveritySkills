@@ -40,7 +40,8 @@ def read_tags(path, default_stream):
     key, not per stream, so committing one stream to completion before starting
     the next would date every shared defect to whichever stream went first --
     and no later backdate can move it. Interleave by date; assign by branch.
-    (Rule 29.)
+    (Rule 29.) The sort is on the date alone and stable, so versions sharing a
+    date commit in file order -- parent first, as publish_dataset.py checks.
     """
     out = []
     for line in pathlib.Path(path).read_text(encoding="utf-8").splitlines():

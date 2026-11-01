@@ -79,7 +79,8 @@ def stream_aware(args):
             continue
         parts = line.split()
         rows.append((parts[0], parts[1], parts[2] if len(parts) > 2 else "default"))
-    rows.sort(key=lambda r: (r[1], r[0]))
+    # Date only, stable: same-day versions keep the file's (parent-first) order.
+    rows.sort(key=lambda r: r[1])
 
     sets = {}
     for tag, _, _ in rows:
