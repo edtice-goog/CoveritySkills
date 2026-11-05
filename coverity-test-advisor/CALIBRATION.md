@@ -5,7 +5,7 @@ by real runs. This file records what was run for `coverity-test-advisor`,
 on what, and what is taken from the documentation or reasoned rather than
 measured.
 
-`tools/ta/` is Test Advisor release v1.3, copied unchanged apart from line
+`tools/ta/` is Test Advisor release v1.4, copied unchanged apart from line
 endings, which the repository stores as LF. Except for the
 gap fixture's section, every measurement below was made by the Test
 Advisor project, on two open-source projects with
@@ -103,6 +103,13 @@ not count (below).
   version. Test Advisor sets `extra` to the function's name, so the
   issue's identity does not depend on its event text; how Connect matches
   imported issues was not measured.
+- **Events at the capture path** (release v1.4): with every file an
+  event names stored by the capture exactly as at the head commit, every
+  event names its file at the capture root and no source is exported from
+  git:
+  5 issues over jansson's four pairs, and 173 issues with 1,197 events on
+  jackson-core. One import with the capture tree checked out at another
+  version still attached the issues to the stored files.
 - **The judge:** the verdicts were made by Claude from the evidence and the
   tests, in-session or by subagents: Opus 5.5, with Sonnet 5.5 for the
   first 56 jackson-core verdicts. 33 judged verdicts on jansson, and 402
@@ -133,7 +140,7 @@ not count (below).
 ### This skill's eval: the gap fixture
 
 `evals/run.sh` on `cov-analysis-linux64-2026.9.0` under WSL 2, with
-`tools/ta/` as copied from Test Advisor release v1.3, gcc 13 for the
+`tools/ta/` as copied from Test Advisor release v1.4, gcc 13 for the
 Coverity build and gcc-14/gcov-14 for the coverage build. `analyze` exits
 0 in about 20 s (the install and the work directory both on a Windows
 drive; most of a full run's time is `cov-configure` and the two analyses
@@ -157,11 +164,12 @@ over that drive):
 - The `STRUTIL_VERSION` line in `strutil.h` is listed as in no function.
 - `finish` without verdicts writes one issue, `parse_len`'s, subcategory
   `insufficient`, imported into a copy of the head idir; the other four
-  are NOT_JUDGED.
+  are NOT_JUDGED. Its events name `strutil.c` at the head capture path,
+  and no source is exported from git into the import.
 - A copy of the head idir re-analyzed with `--all` exits 3, options
   differ; the head idir given the base's commit exits 3, not from its
   commit.
-- 28 of 28 cases as expected on a clean run with release v1.3,
+- 30 of 30 cases as expected on a clean run with release v1.4,
   2026-11-05.
 
 ## Read from the 2026.9.0 documentation, not re-measured

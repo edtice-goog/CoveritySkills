@@ -70,6 +70,12 @@ def finish(out):
           and "insufficient" in xml)
     check("the issues were imported into a copy of the head idir",
           os.path.isdir(os.path.join(out, "ta-idirs", "head")))
+    root = json.load(open(os.path.join(out, "run.json")))["head"]["capture_root"]
+    files = [line.split("<file>", 1)[1].split("<", 1)[0] for line in xml.splitlines() if "<file>" in line]
+    check("every event names its file at the head capture path (the capture stored it as at the head commit)",
+          bool(files) and all(f.startswith(root.rstrip("/") + "/") for f in files))
+    imp = json.load(open(os.path.join(out, "import.json")))
+    check("no source exported from git into the import", imp.get("sources") == [])
 
 
 if __name__ == "__main__":

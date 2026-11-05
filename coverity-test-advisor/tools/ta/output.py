@@ -1,15 +1,20 @@
 """Output: each gap as a Coverity defect through cov-import-results, and the report.
 
 The defect: checker TA.INSUFFICIENT_TEST_COVERAGE, subcategory = verdict, extra = the function's name (its link
-name in C), and the reasoning in the events. Sources are exported from git at the head commit, so the markers
-land on the head's code whatever the capture tree holds now.
+name in C), and the reasoning in the events. A file the capture stored as it is at the head commit is named at
+its capture path: cov-import-results attaches the defect to the stored copy without reading the disk, so the
+markers land on the head's code whatever the capture tree holds now, and the idir needs one --strip-path. Only a
+file the capture did not store that way is exported from git and imported as a source.
 """
 import collections
+import hashlib
 import json
 import os
 import re
 import shutil
 import subprocess
+
+from . import preflight
 
 CHECKER = "TA.INSUFFICIENT_TEST_COVERAGE"
 DEFECT = {"UNTESTED": "High", "INSUFFICIENT": "Medium", "WEAK": "Medium", "UNKNOWN": "Low"}
@@ -226,13 +231,25 @@ def finish(run, ds):
             "events": ev,
         })
 
+    stored = preflight.stored_sources(ds.cov_bin, ver.idir) if files else {}
+    named, exported = {}, []
     for f in files:
         rel = os.path.relpath(f, src_dir)
+        text = subprocess.run(["git", "-C", clone, "show", f"{head['sha']}:{rel}"], check=True,
+                              capture_output=True).stdout
+        cap = os.path.join(ver.capture_root, rel)
+        if hashlib.md5(text).hexdigest() in stored.get(cap, ()):
+            named[f] = cap
+            continue
         os.makedirs(os.path.dirname(f), exist_ok=True)
-        open(f, "w").write(subprocess.run(["git", "-C", clone, "show", f"{head['sha']}:{rel}"], check=True,
-                                          capture_output=True, text=True).stdout)
+        open(f, "wb").write(text)
+        exported.append(f)
+    for issue in issues:
+        issue["file"] = named.get(issue["file"], issue["file"])
+        for e in issue["events"]:
+            e["file"] = named.get(e["file"], e["file"])
     imp = {"header": {"version": 1, "format": "cov-import-results input"},
-           "sources": [{"file": f, "encoding": ds.encoding} for f in sorted(files)], "issues": issues}
+           "sources": [{"file": f, "encoding": ds.encoding} for f in sorted(exported)], "issues": issues}
     json.dump(imp, open(f"{run}/import.json", "w"), indent=1)
 
     xml = None

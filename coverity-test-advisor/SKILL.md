@@ -322,6 +322,13 @@ copy an earlier run left in `<out-dir>`.
   `<out-dir>/ta-idirs/head`, **a copy** of the head idir, in the same
   format as Coverity's own checkers. View it with `cov-format-errors`
   against that copy.
+  - Each event names its file at the capture path when the capture stored
+    that file exactly as it is at the head commit (checked per file, for
+    every file an event names, changed or not), and the issue attaches to
+    the stored copy, so the copy needs no source tree beside it and one
+    `--strip-path`, the capture root. Only a file stored differently, or
+    not stored at all, is exported from git into the import, and then the
+    copy needs a second `--strip-path`, the export's root.
   - **Always `--append`, always on a copy.** Without `--append`,
     `cov-import-results` deletes every issue in the idir before importing
     (2026.9.0 help).
