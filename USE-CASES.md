@@ -30,9 +30,14 @@ flowchart TB
         IT["coverity-issue-transition-inference"]
         RE["coverity-recreate-from-emit"]
     end
+    subgraph changes["Changes and tests"]
+        TA["coverity-test-advisor"]
+    end
     CVSS["coverity-cvss-report"]
 
     CC -->|"configuration"| CV
+    BF -->|"changed files captured"| TA
+    TA -.->|"a finding in the changed code"| TR
     CV -->|"verified capture"| BF
     PO -->|"body"| FS
     PO -->|"candidates"| TR
@@ -273,6 +278,51 @@ flowchart LR
   detection loop's *write a model or fact, feed it back as analyzer input*
   step ([`collateral/detection-loop/`](collateral/detection-loop/README.md)).
 
+## Find the changed behaviour your tests don't exercise
+
+**You want:** before pushing a change, to know which of the behaviour it
+introduces no test exercises, including when line coverage says the changed
+lines ran.
+
+```mermaid
+flowchart LR
+    BASE["base idir<br/>the commit the change starts from"] --> P{"Preflight: same analysis<br/>on both sides, each idir<br/>from its commit, C or Java"}
+    HEAD["head idir<br/>built and analyzed<br/>with the base's commands"] --> P
+    BF["coverity-build-fidelity<br/>capture coverage: the changed<br/>files reached the head"] --> P
+    COV["coverage of the head's tests<br/>gcov JSON or JaCoCo XML"] --> P
+    P -->|"fails"| STOP["stops, with the reason"]
+    P -->|"passes"| A["affected functions<br/>code changed, a callee's derived<br/>model changed, or its own model<br/>changed with no line changed"]
+    A --> R["fixed rules settle the clear cases<br/>the function never ran, or a changed line,<br/>or its call into a changed function, never ran"]
+    R --> J{"judge the rest against the tests?<br/>priced, and asked first"}
+    J -->|"yes"| JU["did a test exercise the<br/>changed behaviour, or only<br/>run the lines?"]
+    J -->|"no, or unattended"| OUT
+    JU --> OUT[("report, and a local errors.xml<br/>one issue per gap,<br/>with a suggested test")]
+```
+
+- `coverity-test-advisor` does this. A function is affected when its code
+  changed, when it calls an affected function whose Coverity derived model
+  changed (a callee that now may return NULL changes every caller, though
+  their code did not change), or when its own model changed though none of
+  its lines did (a header macro, an inline function or a type it uses).
+- You bring two analyzed intermediate directories, the base and the head,
+  analyzed with the same commands and Coverity version, plus coverage of the
+  head's tests. It builds nothing and runs no tests.
+- It needs `coverity-build-fidelity`'s capture-coverage check of the head
+  first, because a changed file the capture missed would look like a clean
+  result. Build fidelity's binary comparison applies only when the tests ran
+  on the build made under `cov-build`, and runs only when you ask.
+- Judging reads the tests function by function, so it is priced and asked
+  before it runs. Unattended, the skill stops after the fixed rules.
+- Each gap is a report entry and a Coverity issue
+  (`TA.INSUFFICIENT_TEST_COVERAGE`) in a local `errors.xml`, with the reason
+  and a suggested test. Nothing is committed to Coverity Connect.
+- This version covers C and Java, gcov JSON (measured on GCC 14) or JaCoCo
+  XML, and Coverity Analysis 2026.9.0 on Linux. C++ is refused, because callers through
+  a base class would be missed. A Connect snapshot as the base, clang
+  coverage, and other versions are not in it yet.
+- Whether a Coverity finding in the changed code is real is
+  `coverity-triage`'s question.
+
 ## Adopt Coverity on a codebase that already has history
 
 **You want:** findings dated to the release they arrived in, rather than to
@@ -374,3 +424,4 @@ and which came from a CWE with no mapping.
 | `coverity-issue-transition-inference` | the control run; per-finding code-vs-analyzer attribution; annotation, after asking how | comparing raw merge keys (Connect lines findings up); vendor-level cause as the headline | `coverity-build-fidelity`, `coverity-recreate-from-emit` for the control |
 | `coverity-recreate-from-emit` | an analyzable idir without the original build; fast-forward and local-update reuse, behind gates | reuse when a gate fails; the default path when the build can run | `coverity-issue-transition-inference` (its consumer) |
 | `coverity-cvss-report` | the report per the documentation; an audit of which scores were judged; the CVSS_Audited attribute | writing a security profile; judging exploitability | `coverity-verify` for whether a finding is real and reachable |
+| `coverity-test-advisor` | every function a change can affect (code changed, a callee's derived model changed, or its own model changed with none of its lines); fixed-rule verdicts, and judged ones behind a priced ask; a report and a local errors.xml with a reason and a suggested test per gap | building or running the tests; committing to Connect; a Connect snapshot as the base; C++; clang coverage; versions other than 2026.9.0 on Linux | `coverity-build-fidelity` (capture coverage of the head, required); `coverity-triage` (a finding in the changed code) |
