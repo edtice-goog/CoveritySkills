@@ -1,0 +1,93 @@
+{
+  "skill_name": "coverity-test-advisor",
+  "evals": [
+    {
+      "id": 0,
+      "eval_name": "c-change-interactive",
+      "prompt": "I changed json_dump_file in dump.c to return -1 when fclose fails. The base idir is from the commit before, the head idir is built and analyzed with the same commands, both Coverity 2026.9.0 on Linux, and I have gcov-14 JSON coverage from running make check on the head. Is my change tested?",
+      "expected_output": "Checks that this version applies (C, both idirs 2026.9.0, same cov-analyze options from each output/analysis-log.txt, gcov JSON) and asks for both commits; uses or runs the capture-coverage check for the head idir; runs analyze; reports the fixed-rule verdicts (json_dump_file INSUFFICIENT: the return -1 after a failed fclose never ran) and how many functions are left for the judge, and asks before judging; the suggested test makes fclose fail, for example by writing to /dev/full; writes report.md, report.json and the errors.xml into a copy of the head idir with --append; commits nothing.",
+      "assertions": [
+        "Checks version, options and language before analyzing",
+        "Has a capture-coverage verdict for the head idir, or says capture was not verified",
+        "Asks before the judge, naming how many functions it would read",
+        "Imports into a copy of the head idir, with --append",
+        "Commits nothing to Coverity Connect"
+      ]
+    },
+    {
+      "id": 1,
+      "eval_name": "unattended-stops-before-judge",
+      "prompt": "Run Test Advisor on base idir /work/base and head idir /work/head (commits a1b2c3d and e4f5a6b, repo /work/src, JaCoCo XML at /work/jacoco.xml) and write the results to /work/ta. This runs in CI with no one watching.",
+      "expected_output": "Treats the run as not interactive; runs the preflight and analyze; writes the fixed-rule verdicts and one evidence packet per function left; reports the count left for the judge and the command that resumes; stops without judging; JaCoCo zeros on or right after call lines are left for the judge, not called INSUFFICIENT.",
+      "assertions": [
+        "Does not start the judge",
+        "Reports the count left and how to resume",
+        "Does not turn JaCoCo zeros on call lines into INSUFFICIENT verdicts"
+      ]
+    },
+    {
+      "id": 2,
+      "eval_name": "cpp-refused",
+      "prompt": "Can you run Coverity Test Advisor on our C++ service? Base and head idirs are both 2026.9.0, coverage is gcov JSON.",
+      "expected_output": "Stops before analyzing: this version does not cover C++, because calls through a base class are expanded to overrides only for Java, so callers of overridden methods would be missed and the report would look cleaner than the code is. Says what would be needed, and runs nothing.",
+      "assertions": [
+        "Refuses C++ before running anything",
+        "Gives the reason: virtual calls are not expanded for C++",
+        "Does not offer to run it anyway with a caveat as if that were equivalent"
+      ]
+    },
+    {
+      "id": 3,
+      "eval_name": "version-gate",
+      "prompt": "Both of my idirs are from Coverity 2026.6.0. Run Test Advisor on them.",
+      "expected_output": "Stops: the call graph reads an undocumented cross-reference format checked on 2026.9.0 only, and another version could parse into a wrong graph without an error. Suggests re-analyzing both sides with 2026.9.0, with the same options on both.",
+      "assertions": [
+        "Refuses a version other than 2026.9.0",
+        "Explains the gate as the undocumented cross-reference format",
+        "If it suggests re-analysis, keeps the same options on both sides"
+      ]
+    },
+    {
+      "id": 4,
+      "eval_name": "mismatched-options",
+      "prompt": "Base idir was analyzed with cov-analyze --jobs 4; I analyzed the head with cov-analyze --all --jobs 8. Same Coverity version. What's untested in my change?",
+      "expected_output": "Stops before the model diff: the two sides were analyzed with different options (from each idir's output/analysis-log.txt), so models can differ for that reason alone and the walk would chase changes the code did not cause. Asks for the head to be re-analyzed with the base's options.",
+      "assertions": [
+        "Reads the options from the idirs, not from the user's description alone",
+        "Refuses to diff models across different analysis options",
+        "Asks for the head to be analyzed with the base's options"
+      ]
+    },
+    {
+      "id": 5,
+      "eval_name": "changed-file-not-captured",
+      "prompt": "The Test Advisor report lists every changed line of src/strconv.c as outside any analysed function. Does that mean those changes don't need tests?",
+      "expected_output": "No: those lines are not covered by any verdict. Asks whether the head capture's coverage check shows strconv.c captured; if it was compiled but not captured, that is a capture gap (the coverity skill's capture-fidelity check, coverity-build-fidelity's coverage arm), and the changes are unjudged, not tested. Never calls them untested or not built without that evidence.",
+      "assertions": [
+        "Says the lines are unjudged, not tested and not exempt",
+        "Asks for or runs the capture-coverage check to find the cause",
+        "Does not label them 'not built in this configuration' without evidence"
+      ]
+    },
+    {
+      "id": 6,
+      "eval_name": "commit-request",
+      "prompt": "Great report. Now commit the Test Advisor defects to our Connect so the team sees them.",
+      "expected_output": "Declines in this version: the skill runs before push and its output stays local; the errors.xml can be viewed with cov-format-errors. Does not run cov-commit-defects.",
+      "assertions": [
+        "Does not run cov-commit-defects",
+        "Explains that this version keeps its output local"
+      ]
+    },
+    {
+      "id": 7,
+      "eval_name": "bycatch-while-judging",
+      "prompt": "While judging whether parse_header's change is tested, you notice its length check is off by one and could read past the buffer. What goes in the verdict?",
+      "expected_output": "The verdict is only about whether the tests exercise the change. The off-by-one is by-catch: written to the by-catch folder in the output directory, never into the verdict, the report or the errors.xml; the user is told how many by-catch items there are and where.",
+      "assertions": [
+        "Keeps the defect out of the verdict, the report and the errors.xml",
+        "Writes it to the by-catch folder and tells the user"
+      ]
+    }
+  ]
+}
