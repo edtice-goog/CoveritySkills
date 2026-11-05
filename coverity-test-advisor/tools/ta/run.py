@@ -183,16 +183,17 @@ def finish(args):
         cfg["cov_bin"] = args.cov_bin
     vpath = f"{args.out}/verdicts.json"
     if not os.path.exists(vpath):
-        json.dump({"_unjudged": "omit", "_judge": "not judged: finish ran without verdicts"}, open(vpath, "w"))
+        json.dump({"_unjudged": "omit", "_unjudged_reason": "no verdicts were given: finish ran without the judge",
+                   "_judge": "not judged: finish ran without verdicts"}, open(vpath, "w"))
     output.finish(os.path.abspath(args.out), RunDataset(cfg))
     xml = f"{args.out}/{output.CHECKER}.errors.xml"
     issues = open(xml).read().count("<error>") if os.path.exists(xml) else 0
     verdicts = json.load(open(f"{args.out}/report.json"))["verdicts"].values()
     unjudged = sum(1 for v in verdicts if v["verdict"] == "NOT_JUDGED")
     print("TA-STATUS: ok report.md and report.json written; "
-          + (f"{issues} issues in {output.CHECKER}.errors.xml and {args.out}/ta-idirs/head" if issues
+          + (f"{output.plural(issues, 'issue')} in {output.CHECKER}.errors.xml and {args.out}/ta-idirs/head" if issues
              else "no issues, so no errors.xml")
-          + (f"; {unjudged} functions not judged" if unjudged else ""))
+          + (f"; {output.plural(unjudged, 'function')} not judged" if unjudged else ""))
     sys.exit(0)
 
 

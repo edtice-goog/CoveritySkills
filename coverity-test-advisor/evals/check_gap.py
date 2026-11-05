@@ -32,12 +32,17 @@ def analyze(out):
     check("field_len goes to the judge: its call to parse_len ran",
           aff.get(F + "field_len", {}).get("triage") == "JUDGE")
     check("strutil_name goes to the judge: its changed line ran", aff.get(F + "strutil_name", {}).get("triage") == "JUDGE")
-    check("strutil_name is a boundary: its model did not change, so describe is not walked",
-          aff.get(F + "strutil_name", {}).get("boundary") is True and F + "describe" not in aff)
+    check("strutil_name is a boundary: its model did not change, so its callers are not walked from it",
+          aff.get(F + "strutil_name", {}).get("boundary") is True
+          and not any(r[0] == "calls" and r[1] == F + "strutil_name"
+                      for v in aff.values() for r in v.get("reasons", [])))
     check("record_size is affected: it calls field_len, whose model changed in turn",
           any(r[0] == "calls" and r[1] == F + "field_len" for r in aff.get(F + "record_size", {}).get("reasons", [])))
-    check("describe: its model changed with none of its lines; listed as not reached, not judged",
-          "describe" in a["model_changes"] and "describe" in a["unexplained_model_changes"] and F + "describe" not in aff)
+    check("describe: its model changed with none of its lines changed, so it is affected for that reason alone",
+          "describe" in a["model_changes"] and aff.get(F + "describe", {}).get("reasons") == [["model"]])
+    check("describe goes to the judge: no line carries its change, and it ran",
+          aff.get(F + "describe", {}).get("triage") == "JUDGE")
+    check("no model change is left unreached", not a.get("unexplained_model_changes"))
     um = [u for u in a["unmapped_changes"] if u["file"] == "src/strutil.h"]
     check("the STRUTIL_VERSION line is listed as in no function", any(4 in u["lines"] for u in um))
     judge = [l for l in open(os.path.join(out, "judge.txt")) if l.strip()]
@@ -52,7 +57,7 @@ def finish(out):
     v = {k: x["verdict"] for k, x in r["verdicts"].items()}
     check("report.json: parse_len INSUFFICIENT", v.get(F + "parse_len") == "INSUFFICIENT")
     check("report.json: every function the judge did not see is NOT_JUDGED",
-          all(v.get(k) == "NOT_JUDGED" for k in (F + "field_len", F + "strutil_name")))
+          all(v.get(k) == "NOT_JUDGED" for k in (F + "field_len", F + "record_size", F + "strutil_name", F + "describe")))
     check("report.md written", os.path.exists(os.path.join(out, "report.md")))
     xml_path = os.path.join(out, "TA.INSUFFICIENT_TEST_COVERAGE.errors.xml")
     xml = open(xml_path).read() if os.path.exists(xml_path) else ""

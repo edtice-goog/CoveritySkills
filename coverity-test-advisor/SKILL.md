@@ -61,6 +61,10 @@ whether its lines ran.
   something that behaves differently, but its own callers are not.
 - A function in `S0` whose model did not change (a refactor, a log line)
   is judged itself. Its callers are not.
+- A function whose model changed although none of its lines did is
+  affected too, and its callers are walked. The cause is outside it: a
+  header macro, an inline function or a type it uses, or a call the graph
+  missed.
 
 ## What this version covers, and what it does not
 
@@ -219,16 +223,17 @@ Then, deterministically, with no model involved:
    - **Java:** calls through a base type are expanded to every override.
      Method references and lambdas are not recorded at all, and nothing
      flags them.
-   - **The check that costs nothing:** a model that changed but that the
-     walk never reaches from `S0` is listed, and that function is not
-     judged. It means an analysis mismatch between the sides, a call edge
-     the graph misses (a function pointer, a lambda), a module that
-     changes on edits that change no behaviour, or a change outside the
-     function's lines that reaches its compiled code. In the eval fixture,
-     `describe` is one: none of its lines changed, its one changed callee's
-     model did not, and its model changed anyway; the header macro it
-     passes and the string its callee returns both changed. Read each
-     listed function before calling the change tested.
+   - **Model changes the walk from `S0` does not reach** become seeds of
+     their own: each such function is affected, with the reason that its
+     model changed although none of its lines did, and its callers are
+     walked. Its evidence shows the model delta. In the eval fixture,
+     `describe` is one: none of its lines changed and its one changed
+     callee's model did not, but the header macro it passes and the
+     string its callee returns both changed, and so did its model. A seed
+     can also mean an analysis mismatch between the sides, or a module
+     that changes on edits that change no behaviour; the report lists the
+     seeds. What is left unreached after that is only removed functions,
+     whose callers changed and are walked already.
 4. **Coverage join** on path relative to the repository root, and line.
 5. **Fixed rules:**
    - **UNTESTED:** the function never ran.
@@ -354,7 +359,8 @@ not cover (rule 22), each with its count:
 - functions truncated by the depth or fan-out cap;
 - affected functions whose address is taken (C), and the Java blind spot
   for method references and lambdas;
-- model changes the walk never reached;
+- functions affected only because their model changed, with none of their
+  lines changed, and any model change still unreached;
 - functions NOT_JUDGED;
 - the by-catch count, and where it is.
 

@@ -57,7 +57,10 @@ def analyze(ds, base, head, run):
             return None
     unmapped = changes.unmapped(h_fns, file_hunks, head_source)
     graph = callgraph.load(h.idir, roots, h_fns)
-    affected = walk.walk(s0, graph, lambda fid: fid.split(":", 1)[1] in deltas)
+    # A function whose model changed with none of its lines changed: the cause is outside it (a header macro, an
+    # inline function, a type). It is affected, and so are its callers.
+    seeds = sorted(f.fid for f in h_fns if f.fid not in s0 and deltas.get(f.name, {}).get("status") == "changed")
+    affected = walk.walk(s0, graph, lambda fid: fid.split(":", 1)[1] in deltas, seeds=seeds)
 
     cov, per_test = ds.load_coverage(h)
 

@@ -43,6 +43,8 @@ def target_lines(fid, info, s0, graph, cov, fn):
 
     out = {}
     for reason in info["reasons"]:
+        if reason[0] == "model":
+            continue          # no line carries this change; the judge reads the model delta
         if reason[0] == "changed":
             lines, why = s0[fid]["lines"], "changed"
         else:
@@ -102,6 +104,11 @@ def packet(fid, fn, info, s0, deltas, graph, cov, per_test, targets, triaged, so
     out = [f"# {fid} (lines {fn.start}-{fn.end})", "", f"Triage: **{triaged[0]}**, {triaged[1]}", "",
            "## Why affected", ""]
     for reason in info["reasons"]:
+        if reason[0] == "model":
+            out.append("- Its derived model changed although none of its lines did, so the cause is outside it: a "
+                       "header macro, an inline function or a type it uses, or a callee the call graph does not see:")
+            out += [f"  - {line}" for line in M.describe(deltas[fn.name])]
+            continue
         if reason[0] == "changed":
             out.append(f"- Its own code changed ({s0[fid]['kind']}):")
             for h in s0[fid]["hunks"]:

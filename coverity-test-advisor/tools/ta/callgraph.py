@@ -111,7 +111,10 @@ class _Declared:
 
 
 def _java_file(g, declared, r, ents, syms, here, file_fns, resolve):
-    spans = sorted(file_fns, key=lambda f: (f.start, -f.end))
+    # The compiler generates a function for a method reference or lambda (its name holds "/<gen>"), with the line of
+    # the expression as its whole extent. As the innermost function on that line it would take the calls the real
+    # method makes there; a call is attributed to the innermost real method instead.
+    spans = sorted((f for f in file_fns if "/<gen>" not in f.name), key=lambda f: (f.start, -f.end))
 
     def enclosing(line):
         best = None

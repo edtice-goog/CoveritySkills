@@ -41,6 +41,10 @@ flowchart LR
   callee's edit into edges added and removed: the depth limit appears as
   `<arg 2> < 2048` in the models of the functions that gained it. The
   judge reads that delta, not a guess at what the diff means.
+- **A function can change with none of its lines changed.** A header
+  macro, an inline function or a type it uses changes, and so does its
+  derived model. The skill judges it too, with the model delta as the
+  reason, and walks its callers.
 - **Propagation stops where behaviour stops changing.** A caller whose
   own model did not change is judged, but its callers are not, so one
   change to a widely called utility does not flood the report.
@@ -48,8 +52,8 @@ flowchart LR
   a probe after it runs, so a line whose call threw reads 0 although it
   ran. Those zeros go to the judge rather than to a fixed rule.
 - **What it could not judge is listed.** The report lists changed lines no
-  analyzed function contains, functions cut off by the walk's caps, model
-  changes the walk never reached, and, in C, affected functions whose
+  analyzed function contains, functions cut off by the walk's caps, and,
+  in C, affected functions whose
   address is taken, so a caller through a pointer may be missing. Java
   method references and lambdas are not tracked.
 - **Every judged verdict is traceable.** It records the model, the

@@ -125,7 +125,7 @@ def main():
         if c in seen or c not in A:
             continue
         seen.add(c)
-        if any(y[0] == "changed" for y in A[c]["reasons"]):
+        if any(y[0] in ("changed", "model") for y in A[c]["reasons"]):
             roots.append(c)
         stack += [y[1] for y in A[c]["reasons"] if y[0] == "calls"]
     out += ["## Root changes: the methods whose own code changed, at the bottom of those chains", ""]

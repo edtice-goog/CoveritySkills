@@ -5,7 +5,7 @@ by real runs. This file records what was run for `coverity-test-advisor`,
 on what, and what is taken from the documentation or reasoned rather than
 measured.
 
-`tools/ta/` is Test Advisor release v1.1, copied unchanged apart from line
+`tools/ta/` is Test Advisor release v1.2, copied unchanged apart from line
 endings, which the repository stores as LF. Except for the
 gap fixture's section, every measurement below was made by the Test
 Advisor project, on two open-source projects with
@@ -70,9 +70,17 @@ not count (below).
   same 572 that documented `cov-manage-emit find --print-callees` lists,
   compared by function name, with none missing on either side.
 - **The walk:** on jansson every model change was reached from the changed
-  functions. On jackson-core, 20 model changes were not reached, and the
-  report lists them. The deepest chain was 6 on jackson-core and 1 on
+  functions. On jackson-core, up to release v1.1, 20 model changes were
+  not reached and were only listed; release v1.2 walks from each such
+  function (the gap fixture below). The deepest chain was 6 on jackson-core and 1 on
   jansson, so neither hit the depth cap of 8 or the fan-out cap of 200.
+- **Java method references:** the compiler generates a function for a
+  method reference, with the reference's line as its whole extent. Up to
+  release v1.1 it took the calls the real method makes on that line, so
+  three overloads of one jackson-core method showed model changes with no
+  caller. Release v1.2 attributes each call to the innermost real method:
+  the overloads are reached through the real edge, 404 functions go to
+  the judge instead of 402, and the issue count stays 173.
 - **Coverage join:** JaCoCo method names map to Coverity's for 2,687 of
   2,691 methods.
 - **The JaCoCo rule** (a 0 on or after a call line goes to the judge) moved
@@ -100,7 +108,8 @@ not count (below).
 
 - **`analyze`:** the jansson v2.15.0 to v2.15.1 pair (gcov JSON) exits 0
   with 15 functions left for the judge, in 4.5 s; the jackson-core pair
-  (JaCoCo) exits 0 with 402 left, in 69 s, mostly the two model dumps. A
+  (JaCoCo) exits 0 with 402 left, in 69 s, mostly the two model dumps
+  (404 with release v1.2). A
   pair settled by the fixed rules alone exits 0 with none left.
 - **`finish`** reproduces the earlier runs' verdicts and issues exactly on
   both projects: 2 issues on jansson, 173 on jackson-core.
@@ -119,7 +128,7 @@ not count (below).
 ### This skill's eval: the gap fixture
 
 `evals/run.sh` on `cov-analysis-linux64-2026.9.0` under WSL 2, with
-`tools/ta/` as copied from Test Advisor release v1.1, gcc 13 for the
+`tools/ta/` as copied from Test Advisor release v1.2, gcc 13 for the
 Coverity build and gcc-14/gcov-14 for the coverage build. `analyze` exits
 0 in about 20 s (the install and the work directory both on a Windows
 drive; most of a full run's time is `cov-configure` and the two analyses
@@ -133,18 +142,21 @@ over that drive):
   turn, so `record_size` is affected. Both calls ran: both go to the
   judge.
 - `strutil_name`'s model did not change: it goes to the judge, and is a
-  boundary, so `describe`, its caller, is not walked.
+  boundary, so its caller `describe` is not walked from it.
 - `describe`'s model changed anyway (`ptr_arith: + ptr_arith(<arg 0>)`)
-  with none of its lines changed: it is listed as a model change the walk
-  never reached, and not judged.
+  with none of its lines changed. It is affected for that reason alone,
+  its evidence shows the delta, and it goes to the judge. Release v1.1
+  only listed it as a model change the walk never reached; v1.2 leaves
+  none unreached.
 - The `STRUTIL_VERSION` line in `strutil.h` is listed as in no function.
 - `finish` without verdicts writes one issue, `parse_len`'s, subcategory
-  `insufficient`, imported into a copy of the head idir; the other three
+  `insufficient`, imported into a copy of the head idir; the other four
   are NOT_JUDGED.
 - A copy of the head idir re-analyzed with `--all` exits 3, options
   differ; the head idir given the base's commit exits 3, not from its
   commit.
-- 25 of 25 cases as expected on a clean run, 2026-11-05.
+- 27 of 27 cases as expected on a clean run with release v1.2,
+  2026-11-05.
 
 ## Read from the 2026.9.0 documentation, not re-measured
 

@@ -6,12 +6,20 @@ through a function only if its own model changed.
 import collections
 
 
-def walk(s0, graph, model_changed, max_depth=8, max_fanout=200):
-    """{fid: {"depth", "reasons", "boundary", "truncated"}}. A reason is ("changed",) for S0 or
-    ("calls", callee fid) for a caller of a model-changed callee."""
+def walk(s0, graph, model_changed, max_depth=8, max_fanout=200, seeds=()):
+    """{fid: {"depth", "reasons", "boundary", "truncated"}}. A reason is ("changed",) for S0, ("calls", callee fid)
+    for a caller of a model-changed callee, or ("model",) for a seed: a function whose derived model changed although
+    none of its lines did (a header macro, an inline function or a type it uses changed). Seeds are walked after S0,
+    and only those S0's walk did not reach."""
     affected = {}
     queue = collections.deque((fid, 0, ("changed",)) for fid in s0)
-    while queue:
+    pending = list(seeds)
+    while queue or pending:
+        if not queue:
+            fid = pending.pop(0)
+            if fid not in affected:
+                queue.append((fid, 0, ("model",)))
+            continue
         fid, depth, reason = queue.popleft()
         if fid in affected:
             if reason not in affected[fid]["reasons"]:

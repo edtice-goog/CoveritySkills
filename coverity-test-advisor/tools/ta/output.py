@@ -27,15 +27,24 @@ def _clip(s):
     return s if len(s) <= MAX_EVENT else s[:MAX_EVENT - 3] + "..."
 
 
+def plural(n, word, many=None):
+    return f"{n} {word if n == 1 else (many or word + 's')}"
+
+
+def unjudged_reason(verdicts):
+    return verdicts.get("_unjudged_reason") or "the judging was capped"
+
+
 def final_verdicts(analysis, verdicts):
     """A function that reached the judge and has no verdict is UNKNOWN ("not judged"), or, when verdicts.json says
-    "_unjudged": "omit" (the judging was capped by hand), NOT_JUDGED: listed in the report, no defect."""
+    "_unjudged": "omit", NOT_JUDGED: listed in the report, no defect, for the reason in "_unjudged_reason" (default:
+    the judging was capped by hand)."""
     out = {}
     omit = verdicts.get("_unjudged") == "omit"
     for fid, r in analysis["affected"].items():
         if r["triage"] == "JUDGE":
             if omit and not verdicts.get(fid):
-                out[fid] = {"verdict": "NOT_JUDGED", "reason": "reached the judge; judging was capped", "line": r["start"]}
+                out[fid] = {"verdict": "NOT_JUDGED", "reason": unjudged_reason(verdicts), "line": r["start"]}
                 continue
             v = dict(verdicts.get(fid) or {"verdict": "UNKNOWN", "reason": "not judged"})
         elif (verdicts.get(fid) or {}).get("verdict") == "UNREACHABLE_HERE":
@@ -112,6 +121,15 @@ def events(fid, r, v, analysis, src_dir, run, notes):
     ev = [{"tag": "test_advisor", "main": True, "file": path(r["file"]), "line": main,
            "description": _clip(f"{v['verdict']} ({how}): {plain(v['reason'])}")}]
     for reason in r["reasons"]:
+        if reason[0] == "model":
+            delta = analysis["model_changes"].get(r["name"], {}).get("lines", [])
+            ev.append({"tag": "why_affected", "file": path(r["file"]), "line": r["start"],
+                       "description": "Why affected: what this function does changed in this release although none of "
+                                      "its lines did; the cause is outside it (a macro, an inline function or a type it uses, or a call the call "
+                                      "graph missed)."})
+            ev.append({"tag": "context", "file": path(r["file"]), "line": r["start"],
+                       "description": _clip(f"Context: how it changed, in Coverity's derived model: {short_delta(delta)}")})
+            continue
         if reason[0] == "changed":
             lines = sorted(int(n) for n, why in r["targets"].items() if why == "changed")
             if lines:
@@ -291,7 +309,7 @@ def report(run, analysis, final):
     clusters = gap_clusters(analysis, final)
     if clusters:
         out += ["", "## Gaps by location", "",
-                f"{len(clusters)} places in the code that the change reaches and no test exercises, with every affected "
+                f"{plural(len(clusters), 'place')} in the code that the change reaches and no test exercises, with every affected "
                 "function whose verdict names them (a function can reach several).", "",
                 "| where | not exercised | verdicts | functions |", "|---|---|---|---:|"]
         for c in clusters:
@@ -315,9 +333,11 @@ def report(run, analysis, final):
                 "module (another library subclassing these classes) may still run them.", ""]
         out += [f"- `{n}`: {r}" for n, r in unreachable] + [""]
     unjudged = sorted(a[fid]["name"] for fid, v in final.items() if v["verdict"] == "NOT_JUDGED")
+    reason = next((v["reason"] for v in final.values() if v["verdict"] == "NOT_JUDGED"), "")
     if unjudged:
         out += ["## Not judged", "",
-                f"{len(unjudged)} functions reached the judge and were not judged (the judging was capped); they carry no defect:", ""]
+                f"{plural(len(unjudged), 'function')} reached the judge and {'was' if len(unjudged) == 1 else 'were'} not judged ({reason}); "
+                "they carry no defect:", ""]
         out += [f"- `{n}`" for n in unjudged] + [""]
     unmapped = analysis.get("unmapped_changes", [])
     if unmapped:
@@ -335,15 +355,20 @@ def report(run, analysis, final):
     for fid, v in sorted(final.items()):
         if v["verdict"] == "SUFFICIENT":
             r = a[fid]
-            why = "; ".join("changed" if x[0] == "changed" else f"calls {x[1].split(':')[1]}"
-                            for x in r["reasons"])
+            why = "; ".join("changed" if x[0] == "changed" else "model changed, no line did" if x[0] == "model"
+                            else f"calls {x[1].split(':')[1]}" for x in r["reasons"])
             out.append(f"| `{r['name']}` | {why} | {v['reason']} |")
     out += ["", "## The walk", "",
             f"- Changed functions (S0): {', '.join(f'`{f.split(':')[1]}`' for f in analysis['s0'])}.",
             "- Boundaries (affected, model unchanged, callers not walked): "
             + (", ".join(f"`{r['name']}`" for r in a.values() if r["boundary"]) or "none") + ".",
-            "- Model changes the walk never reached: "
-            + (", ".join(f"`{n}`" for n in analysis["unexplained_model_changes"]) or "none") + ".",
+            "- Functions whose model changed although none of their lines did (a macro, an inline function or a type "
+            "they use changed, or the call graph missed a call); each was walked from as well: "
+            + (", ".join(f"`{r['name']}`" for r in a.values() if ["model"] in r["reasons"] or ("model",) in r["reasons"])
+               or "none") + ".",
+            "- Model changes the walk never reached (for a removed function, its callers changed and are walked): "
+            + (", ".join(f"`{n}` ({analysis['model_changes'][n]['status']})" for n in analysis["unexplained_model_changes"])
+               or "none") + ".",
             "- Stopped by the depth or fan-out cap (callers not walked; the walk is incomplete here): "
             + (", ".join(f"`{r['name']}`" for r in a.values() if r.get("truncated")) or "none") + ".",
             "- Affected functions whose address is taken, so callers through that pointer are not in the walk: "
