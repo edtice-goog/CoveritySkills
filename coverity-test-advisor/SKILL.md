@@ -187,7 +187,8 @@ The checks:
   capture stored it, headers included (`cov-manage-emit
   print-source-files-stats`), against `git show <commit>:<file>`. A
   changed file that differs refuses; an unchanged one that differs warns
-  (a file generated or edited during the build).
+  (a file generated or edited during the build). No stored source
+  matching the commit at all refuses, however many files differ.
 - **Coverage matches the capture:** no captured file in the coverage
   refuses; captured product files missing from it warn.
 - **For gcov, the coverage's function extents against the capture's:** a
@@ -295,6 +296,12 @@ them is theirs.
 ```bash
 PYTHONPATH=<skill-dir>/tools python3 -m ta.run finish --out <out-dir> --cov-bin $BIN
 ```
+
+Its last line says what it wrote, for example `TA-STATUS: ok report.md and
+report.json written; 2 issues in TA.INSUFFICIENT_TEST_COVERAGE.errors.xml
+and ./out/ta-idirs/head`, or `...; no issues, so no errors.xml; 15
+functions not judged`. With no issues, it removes any `errors.xml` and head
+copy an earlier run left in `<out-dir>`.
 
 - **`report.md`** leads with the verdict counts and the changes not
   covered by any verdict, then the gaps grouped by location, the walk, the
