@@ -22,9 +22,8 @@ description: >
   nothing to Coverity Connect.
 ---
 
-<!-- DRAFT on the coverity-test-advisor branch: tools/ta/ is copied from
-the Test Advisor project when it says a version is done, and evals/fixtures
-follow. Remove this comment before landing. -->
+<!-- DRAFT on the coverity-test-advisor branch, awaiting review. Remove
+this comment before landing. -->
 
 # Coverity Test Advisor
 
@@ -221,10 +220,15 @@ Then, deterministically, with no model involved:
      Method references and lambdas are not recorded at all, and nothing
      flags them.
    - **The check that costs nothing:** a model that changed but that the
-     walk never reaches from `S0` is listed. It means an analysis mismatch
-     between the sides, a call edge the graph misses (a function pointer,
-     a lambda), or a module that changes on edits that change no
-     behaviour.
+     walk never reaches from `S0` is listed, and that function is not
+     judged. It means an analysis mismatch between the sides, a call edge
+     the graph misses (a function pointer, a lambda), a module that
+     changes on edits that change no behaviour, or a change outside the
+     function's lines that reaches its compiled code. In the eval fixture,
+     `describe` is one: none of its lines changed, its one changed callee's
+     model did not, and its model changed anyway; the header macro it
+     passes and the string its callee returns both changed. Read each
+     listed function before calling the change tested.
 4. **Coverage join** on path relative to the repository root, and line.
 5. **Fixed rules:**
    - **UNTESTED:** the function never ran.

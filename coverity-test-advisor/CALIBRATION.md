@@ -5,8 +5,10 @@ by real runs. This file records what was run for `coverity-test-advisor`,
 on what, and what is taken from the documentation or reasoned rather than
 measured.
 
-Every measurement below was made by the Test Advisor project, whose modules
-this skill's tools are copied from, on two open-source projects with
+`tools/ta/` is Test Advisor release v1.1, copied unchanged apart from line
+endings, which the repository stores as LF. Except for the
+gap fixture's section, every measurement below was made by the Test
+Advisor project, on two open-source projects with
 `cov-analysis-linux64-2026.9.0` under Linux (WSL 2, Ubuntu 24.04),
 `cov-analyze` at default options (jackson-core: `--java`), Python 3.12.
 
@@ -84,8 +86,10 @@ not count (below).
   --json-output-v10` on jansson v2.15.1 gives 57 issues, among them the 2
   Test Advisor issues with their events. Committed with
   `cov-commit-defects` to a Coverity Connect 2026.9 test instance, a
-  function's issue kept its CID across recommits: the merge key is the
-  checker, the function and `extra`.
+  function's issue kept its CID across three recommits of the same
+  version. Test Advisor sets `extra` to the function's name, so the
+  issue's identity does not depend on its event text; how Connect matches
+  imported issues was not measured.
 - **The judge:** the verdicts were made by Claude from the evidence and the
   tests, in-session or by subagents: Opus 5.5, with Sonnet 5.5 for the
   first 56 jackson-core verdicts. 33 judged verdicts on jansson, and 402
@@ -111,6 +115,36 @@ not count (below).
   jackson-core.
   - `list-json`'s documented `primaryFileHash` is a different digest: it
     matched the file at the commit for 0 of 26 jansson translation units.
+
+### This skill's eval: the gap fixture
+
+`evals/run.sh` on `cov-analysis-linux64-2026.9.0` under WSL 2, with
+`tools/ta/` as copied from Test Advisor release v1.1, gcc 13 for the
+Coverity build and gcc-14/gcov-14 for the coverage build. `analyze` exits
+0 in about 20 s (the install and the work directory both on a Windows
+drive; most of a full run's time is `cov-configure` and the two analyses
+over that drive):
+
+- `S0` is `parse_len` and `strutil_name`. `parse_len`'s new `return -1`
+  never ran: INSUFFICIENT from the fixed rules.
+- `parse_len`'s model changed (`dereference(<arg 0>)` gone; `<arg 0> ==
+  0`, `<return value> <- == -1` and `negative_return` added), so
+  `field_len`, its caller, is affected; `field_len`'s model changed in
+  turn, so `record_size` is affected. Both calls ran: both go to the
+  judge.
+- `strutil_name`'s model did not change: it goes to the judge, and is a
+  boundary, so `describe`, its caller, is not walked.
+- `describe`'s model changed anyway (`ptr_arith: + ptr_arith(<arg 0>)`)
+  with none of its lines changed: it is listed as a model change the walk
+  never reached, and not judged.
+- The `STRUTIL_VERSION` line in `strutil.h` is listed as in no function.
+- `finish` without verdicts writes one issue, `parse_len`'s, subcategory
+  `insufficient`, imported into a copy of the head idir; the other three
+  are NOT_JUDGED.
+- A copy of the head idir re-analyzed with `--all` exits 3, options
+  differ; the head idir given the base's commit exits 3, not from its
+  commit.
+- 25 of 25 cases as expected on a clean run, 2026-11-05.
 
 ## Read from the 2026.9.0 documentation, not re-measured
 
@@ -159,9 +193,9 @@ alternative, and does not replace it yet:
   how the datasets were built: one installation, one `cov-analyze` command
   line.
 - **C++.** Refused.
-- **gcov JSON from a GCC other than 14.** It is not rejected; GCC 13's has
-  no condition records, which are optional, so it would be read with less
-  detail.
+- **gcov JSON from a GCC other than 14.** It is not rejected. GCC 13's
+  JSON has no condition records, which Test Advisor's reader treats as
+  optional, so it would be read with less detail.
 - **Windows**, other Coverity versions, clang/llvm-cov coverage, Bullseye.
 - **Coverage built under `cov-build`.** Both projects' coverage came from
   a separate build, so `coverity-build-fidelity`'s binary comparison was
@@ -172,4 +206,6 @@ alternative, and does not replace it yet:
   here.
 - **The brief as the prompt for a whole run.** It distils the measured
   rounds, and was not the prompt for most of their verdicts.
-- **This skill's own evals.** Not yet run.
+- **What changed `describe`'s model:** the macro value it passes or the
+  string its callee returns. Not isolated.
+- **The behaviour evals in `evals/evals.json`.** Not yet run.

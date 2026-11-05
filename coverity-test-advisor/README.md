@@ -87,7 +87,10 @@ coverity-test-advisor/
 │   └── judge-brief.md       # the judge's instructions, versioned; cite it in every verdict
 ├── tools/ta/                # python3 -m ta.run analyze | finish, and its modules
 └── evals/
-    └── evals.json           # behaviour: what it refuses, when it asks, what it reports
+    ├── evals.json           # behaviour: what it refuses, when it asks, what it reports
+    ├── run.sh               # the gap fixture end to end: capture, analyze, gcov, analyze | finish, refusals
+    ├── check_gap.py         # what must be true of the output
+    └── fixtures/gap/        # a two-commit C library: base/, and head/ with its tests
 ```
 
 ## Requirements
@@ -103,3 +106,4 @@ coverity-test-advisor/
 - C or Java. C++ is refused: calls through a base class are expanded to
   overrides for Java only.
 - Python 3, standard library only; git.
+- For `evals/run.sh`: Linux, `gcc`, `gcc-14` and `gcov-14`.
