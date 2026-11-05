@@ -76,6 +76,18 @@ this skill's tools are copied from, on two open-source projects with
   the brief, in-session or by subagents. 415 verdicts on jackson-core, 15
   on jansson.
 
+### The driver and its preflight
+
+- **`analyze`:** the jansson v2.15.0 to v2.15.1 pair (gcov JSON) exits 0
+  with 15 functions left for the judge, in 4.5 s; the jackson-core pair
+  (JaCoCo) exits 0 with 402 left, in 69 s, mostly the two model dumps. A
+  pair settled by the fixed rules alone exits 0 with none left.
+- **`finish`** reproduces the earlier runs' verdicts and issues exactly on
+  both projects: 2 issues on jansson, 173 on jackson-core.
+- **Each refusal,** on a scratch copy: a wrong commit exits 3, differing
+  `cov-analyze` options exit 3, an idir analyzed by 2026.6.0 exits 4, and
+  a C++ capture exits 5.
+
 ## Read from the 2026.9.0 documentation, not re-measured
 
 - **`cov-import-results` without `--append`** deletes every issue in the
@@ -92,21 +104,29 @@ this skill's tools are copied from, on two open-source projects with
 
 ## Undocumented, and gated
 
-- **The call graph** is read from the emit database's cross-reference
-  data, a format reverse-engineered by the Test Advisor project and checked
-  byte for byte on 2026.9.0 linux64 only. Direct calls were checked
-  complete against independent counts. The skill refuses any other
-  version. `cov-manage-emit find --print-callees`, documented in
-  2026.9.0, lists the functions each function calls; whether it can supply
-  the edges, and the call-site lines the fixed rules need, is being
-  measured.
+The skill reads the emit database directly (SQLite, read only) for two
+things, and refuses any Coverity version but 2026.9.0 for both:
+
+- **The call graph** comes from the emit database's cross-reference data,
+  a format reverse-engineered by the Test Advisor project and checked byte
+  for byte on 2026.9.0 linux64 only. Direct calls were checked complete
+  against independent counts. `cov-manage-emit find --print-callees`,
+  documented in 2026.9.0, lists the functions each function calls; whether
+  it can supply the edges, and the call-site lines the fixed rules need,
+  is being measured.
+- **The source MD5s** the "built from its commit" check compares come from
+  the stored sources' content hashes. `list-json`'s documented
+  `primaryFileHash` is not that hash: on jansson 2.15.1 it matched the
+  file at the commit for 0 of 26 translation units. Documented
+  `print-source-files-stats` reports an MD5 sum per source file; whether
+  it is the content hash has not been measured.
 
 ## Not measured
 
-- **The preflight** (same version and options, idir built from the named
-  commit, coverage matching the capture). The measured runs were
-  consistent because of how the datasets were built: one installation, one
-  `cov-analyze` command line.
+- **The preflight on inputs that were not built consistently,** beyond
+  the scratch copies above. The measured pairs were consistent because of
+  how the datasets were built: one installation, one `cov-analyze` command
+  line.
 - **C++.** Refused.
 - **Windows**, other Coverity versions, clang/llvm-cov coverage, Bullseye.
 - **Coverage built under `cov-build`.** Both projects' coverage came from

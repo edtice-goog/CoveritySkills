@@ -84,7 +84,7 @@ coverity-test-advisor/
 ├── CALIBRATION.md           # what was run, on which versions, and what was not
 ├── references/
 │   └── judge-brief.md       # the judge's instructions, versioned; cite it in every verdict
-├── tools/                   # the analyze and finish driver, and its modules
+├── tools/ta/                # python3 -m ta.run analyze | finish, and its modules
 └── evals/
     └── evals.json           # behaviour: what it refuses, when it asks, what it reports
 ```
