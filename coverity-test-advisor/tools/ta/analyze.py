@@ -71,7 +71,7 @@ def analyze(ds, base, head, run):
         src = source_lines(ds.clone, h.sha, fn.file)
         verdict, detail = triage.triage(fn, targets, cov, src)
         text = triage.packet(fid, fn, info, s0, deltas, graph, cov, per_test, targets, (verdict, detail),
-                             src, ds.per_test_note)
+                             src, ds.per_test_note, unmapped)
         name = packet_name(fid)
         open(f"{run}/packets/{name}.md", "w").write(text)
         if verdict == "JUDGE":

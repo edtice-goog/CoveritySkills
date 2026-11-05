@@ -70,7 +70,8 @@ def triage(fn, targets, cov, source=None):
                              "call that throws leaves no trace in JaCoCo; the judge checks the tests")
         return "UNTESTED", "no test reaches this function"
     if not targets:
-        return "JUDGE", "no instrumented line carries the change; the judge reads the diff"
+        return "JUDGE", ("no instrumented line carries the change (its model changed with none of its lines, or its "
+                         "changed lines are not instrumented); the judge reads the model delta and the diff")
     missed = [n for n in targets if not cov.count(fn.file, n)]
     # A 0 right after an unprovable 0 is unprovable too: when that call always throws, the line after it
     # (`return null; // never gets here`) can never run, tested or not.
@@ -99,7 +100,8 @@ def tests_reaching(fn, lines, per_test):
     return out
 
 
-def packet(fid, fn, info, s0, deltas, graph, cov, per_test, targets, triaged, source, per_test_note=None):
+def packet(fid, fn, info, s0, deltas, graph, cov, per_test, targets, triaged, source, per_test_note=None,
+           unmapped=None):
     """Markdown for one function: why it is affected, the change, the tests, and its source with coverage."""
     out = [f"# {fid} (lines {fn.start}-{fn.end})", "", f"Triage: **{triaged[0]}**, {triaged[1]}", "",
            "## Why affected", ""]
@@ -108,6 +110,11 @@ def packet(fid, fn, info, s0, deltas, graph, cov, per_test, targets, triaged, so
             out.append("- Its derived model changed although none of its lines did, so the cause is outside it: a "
                        "header macro, an inline function or a type it uses, or a callee the call graph does not see:")
             out += [f"  - {line}" for line in M.describe(deltas[fn.name])]
+            if unmapped:
+                out.append("  - Changed lines outside every analysed function in this change, one of which may be the "
+                           "cause (a macro, a type, an inline function in a header):")
+                out += [f"    - {u['file']}: lines {', '.join(map(str, u['lines'][:12]))}"
+                        + (" and more" if len(u["lines"]) > 12 else "") + f" ({u['kind']})" for u in unmapped]
             continue
         if reason[0] == "changed":
             out.append(f"- Its own code changed ({s0[fid]['kind']}):")

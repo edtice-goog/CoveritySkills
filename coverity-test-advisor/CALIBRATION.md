@@ -5,7 +5,7 @@ by real runs. This file records what was run for `coverity-test-advisor`,
 on what, and what is taken from the documentation or reasoned rather than
 measured.
 
-`tools/ta/` is Test Advisor release v1.2, copied unchanged apart from line
+`tools/ta/` is Test Advisor release v1.3, copied unchanged apart from line
 endings, which the repository stores as LF. Except for the
 gap fixture's section, every measurement below was made by the Test
 Advisor project, on two open-source projects with
@@ -72,15 +72,20 @@ not count (below).
 - **The walk:** on jansson every model change was reached from the changed
   functions. On jackson-core, up to release v1.1, 20 model changes were
   not reached and were only listed; release v1.2 walks from each such
-  function (the gap fixture below). The deepest chain was 6 on jackson-core and 1 on
+  function. On jackson-core none remain (no seeds), and the 17 unreached
+  model changes are removed functions, whose callers changed and are
+  walked. The deepest chain was 6 on jackson-core and 1 on
   jansson, so neither hit the depth cap of 8 or the fan-out cap of 200.
 - **Java method references:** the compiler generates a function for a
   method reference, with the reference's line as its whole extent. Up to
-  release v1.1 it took the calls the real method makes on that line, so
-  three overloads of one jackson-core method showed model changes with no
-  caller. Release v1.2 attributes each call to the innermost real method:
-  the overloads are reached through the real edge, 404 functions go to
-  the judge instead of 402, and the issue count stays 173.
+  release v1.1, that function took the call the real method makes on its
+  line, so one call edge was lost and three overloads of one jackson-core
+  method had model changes the walk never reached. Release v1.2
+  attributes each call to the innermost real method: the three are
+  reached through the real edge and judged (all SUFFICIENT), the
+  generated function is no longer affected, 404 functions go to the judge
+  instead of 402, and the issue count stays 173. Under v1.2 jackson-core
+  has 423 affected functions.
 - **Coverage join:** JaCoCo method names map to Coverity's for 2,687 of
   2,691 methods.
 - **The JaCoCo rule** (a 0 on or after a call line goes to the judge) moved
@@ -128,7 +133,7 @@ not count (below).
 ### This skill's eval: the gap fixture
 
 `evals/run.sh` on `cov-analysis-linux64-2026.9.0` under WSL 2, with
-`tools/ta/` as copied from Test Advisor release v1.2, gcc 13 for the
+`tools/ta/` as copied from Test Advisor release v1.3, gcc 13 for the
 Coverity build and gcc-14/gcov-14 for the coverage build. `analyze` exits
 0 in about 20 s (the install and the work directory both on a Windows
 drive; most of a full run's time is `cov-configure` and the two analyses
@@ -145,9 +150,10 @@ over that drive):
   boundary, so its caller `describe` is not walked from it.
 - `describe`'s model changed anyway (`ptr_arith: + ptr_arith(<arg 0>)`)
   with none of its lines changed. It is affected for that reason alone,
-  its evidence shows the delta, and it goes to the judge. Release v1.1
-  only listed it as a model change the walk never reached; v1.2 leaves
-  none unreached.
+  and goes to the judge; its evidence shows the delta and lists this
+  change's lines outside every function (`src/strutil.h`, line 4) as
+  candidate causes. Release v1.1 only listed it as a model change the
+  walk never reached; from v1.2 none is left unreached.
 - The `STRUTIL_VERSION` line in `strutil.h` is listed as in no function.
 - `finish` without verdicts writes one issue, `parse_len`'s, subcategory
   `insufficient`, imported into a copy of the head idir; the other four
@@ -155,7 +161,7 @@ over that drive):
 - A copy of the head idir re-analyzed with `--all` exits 3, options
   differ; the head idir given the base's commit exits 3, not from its
   commit.
-- 27 of 27 cases as expected on a clean run with release v1.2,
+- 28 of 28 cases as expected on a clean run with release v1.3,
   2026-11-05.
 
 ## Read from the 2026.9.0 documentation, not re-measured

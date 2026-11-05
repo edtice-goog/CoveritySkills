@@ -42,6 +42,10 @@ def analyze(out):
           "describe" in a["model_changes"] and aff.get(F + "describe", {}).get("reasons") == [["model"]])
     check("describe goes to the judge: no line carries its change, and it ran",
           aff.get(F + "describe", {}).get("triage") == "JUDGE")
+    packet = aff.get(F + "describe", {}).get("packet")
+    text = open(os.path.join(out, packet)).read() if packet else ""
+    check("describe's evidence names the change outside every function as a candidate cause (strutil.h line 4)",
+          "outside every analysed function" in text and "src/strutil.h" in text and "4" in text.split("src/strutil.h", 1)[-1][:20])
     check("no model change is left unreached", not a.get("unexplained_model_changes"))
     um = [u for u in a["unmapped_changes"] if u["file"] == "src/strutil.h"]
     check("the STRUTIL_VERSION line is listed as in no function", any(4 in u["lines"] for u in um))

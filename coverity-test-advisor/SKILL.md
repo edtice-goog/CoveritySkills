@@ -22,9 +22,6 @@ description: >
   nothing to Coverity Connect.
 ---
 
-<!-- DRAFT on the coverity-test-advisor branch, awaiting review. Remove
-this comment before landing. -->
-
 # Coverity Test Advisor
 
 **This skill is part of the CoveritySkills repository.** It needs
@@ -232,8 +229,11 @@ Then, deterministically, with no model involved:
      string its callee returns both changed, and so did its model. A seed
      can also mean an analysis mismatch between the sides, or a module
      that changes on edits that change no behaviour; the report lists the
-     seeds. What is left unreached after that is only removed functions,
-     whose callers changed and are walked already.
+     seeds, and each seed's evidence lists this change's lines outside
+     every analyzed function as candidate causes. What is left unreached
+     after that is removed functions, whose callers changed and are
+     walked already, and in principle a function new to the head with no
+     changed line; neither measured project had one.
 4. **Coverage join** on path relative to the repository root, and line.
 5. **Fixed rules:**
    - **UNTESTED:** the function never ran.
