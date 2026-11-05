@@ -47,10 +47,11 @@ flowchart LR
 - **JaCoCo's zeros are not always gaps.** JaCoCo counts a line only when
   a probe after it runs, so a line whose call threw reads 0 although it
   ran. Those zeros go to the judge rather than to a fixed rule.
-- **Nothing is silently out of scope.** Changed lines no analyzed function
-  contains, functions cut off by the walk's caps, calls through function
-  pointers, and model changes the walk never reached are each listed in
-  the report.
+- **What it could not judge is listed.** The report lists changed lines no
+  analyzed function contains, functions cut off by the walk's caps, model
+  changes the walk never reached, and, in C, affected functions whose
+  address is taken, so a caller through a pointer may be missing. Java
+  method references and lambdas are not tracked.
 - **Every judged verdict is traceable.** It records the model, the
   brief's version and every source read, so after a defect escapes the
   reasoning can be examined and the brief adjusted.
@@ -97,8 +98,8 @@ coverity-test-advisor/
   versions are refused.
 - Two idirs of the same project, analyzed with the same `cov-analyze`
   options, and the git commit each was built from.
-- Coverage of the head's tests: GCC 14 `gcov --json-format --conditions`
-  for C, or JaCoCo XML for Java.
+- Coverage of the head's tests: gcov JSON (`gcov --json-format
+  --conditions`, measured on GCC 14 only) for C, or JaCoCo XML for Java.
 - C or Java. C++ is refused: calls through a base class are expanded to
   overrides for Java only.
 - Python 3, standard library only; git.

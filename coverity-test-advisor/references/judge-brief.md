@@ -1,9 +1,10 @@
-# Test Advisor judge brief (v1)
+# Test Advisor judge brief (v1.1)
 
 The instructions for Step 5 of [SKILL.md](../SKILL.md): the functions the
 fixed rules could not settle. Distilled from three judging rounds on
 jansson (C, gcov) and jackson-core (Java, JaCoCo), 415 verdicts. Cite this
-file's version as `prompt_version` in every verdict.
+file's version as `prompt_version` in every verdict. v1.1 adds the
+by-catch rule.
 
 ## The question
 
@@ -85,10 +86,20 @@ One entry per function, keyed by its id (the values here are made up):
  "uncovered": ["config.c:212: the branch taken when open_file returns NULL never ran"],
  "suggested_test": "a test anyone can write from this sentence alone",
  "model": "<your exact model id>",
- "prompt_version": "judge-brief v1",
+ "prompt_version": "judge-brief v1.1",
  "sources_read": ["the packet or view", "every test file, search or probe used for this verdict"]}
 ```
 
 The reason, `uncovered` and the suggested test become the defect's event
 text: write them for a developer who has not seen the evidence. No
 internal shorthand, no coverage jargon beyond what the sentence needs.
+
+## By-catch
+
+Reading the code and the tests, you may notice a defect in the code
+itself, not a missing test; earlier judging rounds did. Write each one to
+`<out>/bycatch/<short-name>.md`: where it is, what is wrong, how you know
+(the lines, a probe you ran), and how sure you are. Never put it in a
+verdict, the report or the errors.xml: a verdict is about the tests, and
+the person who owns the code decides what to do with a suspected defect,
+and whether it can be made public.

@@ -96,9 +96,9 @@ before them and says how to resume.
   `cov-analyze` commands, and the commit it was built from. A different
   option on one side shows up as model changes the code did not cause.
 - **The repository,** with both commits. Tags or SHAs.
-- **Coverage of the head's tests:** a directory of GCC 14 gcov JSON
-  (`gcov --json-format --conditions`, `.gcov.json` or `.gcov.json.gz`) for
-  C, or a JaCoCo XML report for Java. It may come from the build made
+- **Coverage of the head's tests:** a directory of gcov JSON (`gcov
+  --json-format --conditions`, `.gcov.json` or `.gcov.json.gz`; measured on
+  GCC 14 only) for C, or a JaCoCo XML report for Java. It may come from the build made
   under `cov-build` or from a separate build of the same commit.
 
 Ask for the commits: an idir does not reliably record the commit it was
@@ -184,9 +184,10 @@ The checks:
 - **Language,** from `cov-manage-emit list-json`: C or Java project
   sources, and no C++.
 - **Each idir built from its commit:** the MD5 of each source as the
-  capture stored it, against `git show <commit>:<file>`. A changed file
-  that differs refuses; an unchanged one that differs warns (a file
-  generated or edited during the build).
+  capture stored it, headers included (`cov-manage-emit
+  print-source-files-stats`), against `git show <commit>:<file>`. A
+  changed file that differs refuses; an unchanged one that differs warns
+  (a file generated or edited during the build).
 - **Coverage matches the capture:** no captured file in the coverage
   refuses; captured product files missing from it warn.
 - **For gcov, the coverage's function extents against the capture's:** a
@@ -210,9 +211,11 @@ Then, deterministically, with no model involved:
    cross-reference data. The walk applies the rule above, up to a depth of
    8 and 200 callers of one function; a function past either cap is marked
    truncated and its callers are not walked.
-   - **C:** a call through a function pointer has no known target, so its
-     callers are not walked. Every affected function whose address is
-     taken is flagged, in the report and in the judge's evidence.
+   - **C:** a call through a function pointer has no known target, so a
+     caller through a pointer is not walked. The report lists every
+     affected function whose address is taken, and the judge's evidence
+     says when a function's address is taken and when it calls through a
+     pointer.
    - **Java:** calls through a base type are expanded to every override.
      Method references and lambdas are not recorded at all, and nothing
      flags them.
@@ -282,9 +285,9 @@ without changing it.
 
 **A defect the judge notices in the code is by-catch,** not a test gap.
 Reading tests and callees closely finds real defects. Write each one to
-`<out-dir>/bycatch/`, one file per defect, and never into a verdict, the
-report or the `errors.xml`, so nothing that travels with the results
-carries it. Tell the user how many there are and where; whether to act on
+`<out-dir>/bycatch/<short-name>.md` (the brief says what it holds), and
+never into a verdict, the report or the `errors.xml`, so nothing that
+travels with the results carries it. Tell the user how many there are and where; whether to act on
 them is theirs.
 
 ## Step 6: Write the output

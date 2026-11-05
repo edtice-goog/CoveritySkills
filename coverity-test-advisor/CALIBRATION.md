@@ -8,7 +8,7 @@ measured.
 Every measurement below was made by the Test Advisor project, whose modules
 this skill's tools are copied from, on two open-source projects with
 `cov-analysis-linux64-2026.9.0` under Linux (WSL 2, Ubuntu 24.04),
-`cov-analyze` at default options, Python 3.12.
+`cov-analyze` at default options (jackson-core: `--java`), Python 3.12.
 
 - **jansson**, a C library: four base/head pairs, one release to the next
   and three single commits. Coverage from GCC 14, `-O0 -g --coverage
@@ -28,7 +28,10 @@ this skill's tools are copied from, on two open-source projects with
 | jansson, `json_dump_file` checks `fclose` (one commit) | 1 | 0 | 1 | 1 INSUFFICIENT, from the fixed rules |
 | jansson, `json_pack` scanner (one commit) | 1 | 14 | 16 | 2 INSUFFICIENT, 14 SUFFICIENT |
 | jansson, `json_array_grow` uses realloc (one commit) | 4 | 1 | 4 | 4 SUFFICIENT |
-| jackson-core 3.2.3 to 3.2.4 | | 365 | 421 | 415 judged, 60 WEAK; 402 of 421 needed the judge |
+| jackson-core 3.2.3 to 3.2.4 | 160 | 365, of which 347 count | 421 | 237 SUFFICIENT, 60 WEAK, 77 INSUFFICIENT, 36 UNTESTED, 11 not reachable in the module; 402 of 421 went to the judge; 173 issues |
+
+On jackson-core, 18 of the 365 model changes were concurrency-only and do
+not count (below).
 
 - **The two WEAK verdicts on v2.15.1.** The recursion-depth limit came with
   tests, all of which nest arrays. `json_object_deep_copy` and
@@ -52,14 +55,18 @@ this skill's tools are copied from, on two open-source projects with
 - **Function extents** from `output/FUNCTION.metrics.xml.gz` equal gcov's
   own function start and end lines (jansson, measured once). Java method
   names join Coverity's after dropping the return type: 2,842 of 2,842.
-- **Changed lines outside every function** are listed. On jansson v2.15.1:
-  14 changed functions, plus version macros, a build-file line and three
-  prototypes listed as outside any function.
+- **Changed lines outside every function** are listed. On jansson v2.15.1,
+  besides the 14 changed functions: version macros, a build-file line, two
+  preprocessor lines of a header with no function bodies, and three
+  prototypes.
 - **Model dumps:** one `cov-find-function --save` run per idir, 2-8 s each,
   for 1,230 functions (jansson) and 3,050 (jackson-core).
 - **The concurrency module is ignored.** On jackson-core, 18 of 365 model
   changes were concurrency-only; ignoring them took 6 functions out of the
   affected set.
+- **The call graph:** on jansson 2.15.1 its 572 project call edges are the
+  same 572 that documented `cov-manage-emit find --print-callees` lists,
+  compared by function name, with none missing on either side.
 - **The walk:** on jansson every model change was reached from the changed
   functions. On jackson-core, 20 model changes were not reached, and the
   report lists them. The deepest chain was 6 on jackson-core and 1 on
@@ -67,14 +74,23 @@ this skill's tools are copied from, on two open-source projects with
 - **Coverage join:** JaCoCo method names map to Coverity's for 2,687 of
   2,691 methods.
 - **The JaCoCo rule** (a 0 on or after a call line goes to the judge) moved
-  161 of 173 fixed-rule verdicts to the judge on jackson-core, and three
-  judging rounds confirmed it.
-- **`errors.xml`** was produced for both projects with `cov-import-results
-  --append` into a copy of the head idir, and read with
-  `cov-format-errors`.
-- **The judge:** every judged verdict so far was made by Claude following
-  the brief, in-session or by subagents. 415 verdicts on jackson-core, 15
-  on jansson.
+  161 fixed-rule verdicts to the judge on jackson-core. The judges found
+  34 of them exercised (a call that threw) and 127 real gaps, now with a
+  reason: 14 WEAK, 66 INSUFFICIENT, 47 UNTESTED. A later fix to the call
+  test (`if (` and `while (` lines are not calls) returned 7 to the fixed
+  rules. Most of the moved verdicts were gaps; the rule made each of them
+  get checked.
+- **`errors.xml`:** `cov-format-errors --dir <out>/ta-idirs/head
+  --json-output-v10` on jansson v2.15.1 gives 57 issues, among them the 2
+  Test Advisor issues with their events. Committed with
+  `cov-commit-defects` to a Coverity Connect 2026.9 test instance, a
+  function's issue kept its CID across recommits: the merge key is the
+  checker, the function and `extra`.
+- **The judge:** the verdicts were made by Claude from the evidence and the
+  tests, in-session or by subagents: Opus 5.5, with Sonnet 5.5 for the
+  first 56 jackson-core verdicts. 33 judged verdicts on jansson, and 402
+  on jackson-core under the final rules. `references/judge-brief.md`
+  distils those rounds; it was not the prompt for most of them.
 
 ### The driver and its preflight
 
@@ -87,6 +103,14 @@ this skill's tools are copied from, on two open-source projects with
 - **Each refusal,** on a scratch copy: a wrong commit exits 3, differing
   `cov-analyze` options exit 3, an idir analyzed by 2026.6.0 exits 4, and
   a C++ capture exits 5.
+- **"Built from its commit"** compares the "MD5 sum" that documented
+  `cov-manage-emit --dir <idir> --tu-pattern 'file(".*")'
+  print-source-files-stats` reports for each stored source with `git show
+  <commit>:<file>`. It is the MD5 of the stored file: equal for all 19
+  project files of jansson 2.15.1, 6 of them headers, and all 138 of
+  jackson-core.
+  - `list-json`'s documented `primaryFileHash` is a different digest: it
+    matched the file at the commit for 0 of 26 jansson translation units.
 
 ## Read from the 2026.9.0 documentation, not re-measured
 
@@ -104,22 +128,29 @@ this skill's tools are copied from, on two open-source projects with
 
 ## Undocumented, and gated
 
-The skill reads the emit database directly (SQLite, read only) for two
-things, and refuses any Coverity version but 2026.9.0 for both:
+**The call graph's cross-reference data.** The skill reads it from the
+emit database directly (SQLite, read only), in a format reverse-engineered
+by the Test Advisor project and checked byte for byte on 2026.9.0 linux64
+only, and refuses any other Coverity version.
 
-- **The call graph** comes from the emit database's cross-reference data,
-  a format reverse-engineered by the Test Advisor project and checked byte
-  for byte on 2026.9.0 linux64 only. Direct calls were checked complete
-  against independent counts. `cov-manage-emit find --print-callees`,
-  documented in 2026.9.0, lists the functions each function calls; whether
-  it can supply the edges, and the call-site lines the fixed rules need,
-  is being measured.
-- **The source MD5s** the "built from its commit" check compares come from
-  the stored sources' content hashes. `list-json`'s documented
-  `primaryFileHash` is not that hash: on jansson 2.15.1 it matched the
-  file at the commit for 0 of 26 translation units. Documented
-  `print-source-files-stats` reports an MD5 sum per source file; whether
-  it is the content hash has not been measured.
+Documented `cov-manage-emit find --print-callees` was measured as the
+alternative, and does not replace it yet:
+
+- **C:** the same 572 edges on jansson 2.15.1, in 0.07 s for the whole
+  idir.
+- **Java:** on jackson-core 3.2.4, in 1.5 s, it marks dynamic dispatch
+  ("Virtual call to:" on 5,143 of 8,376 call lines). The two graphs share
+  4,330 edges; `--print-callees` has 198 the cross-reference graph lacks,
+  and that graph has 2,751 it lacks, 2,420 of them override edges Test
+  Advisor adds itself. Most of the gap is naming: `--print-callees` names
+  an inherited method by the receiver's class, the cross-reference data by
+  the defining class. It is not reconciled.
+- **Call-site lines:** `--print-callees` gives none, only where each callee
+  is declared, and the fixed rules and the evidence need the line of each
+  call. Searching each caller's lines for `<callee>(` finds the same lines
+  for 500 of 572 jansson edges; it misses calls made through macros.
+  `find --print-debug` carries a location per call node, in an AST dump
+  whose format is not described.
 
 ## Not measured
 
@@ -128,6 +159,9 @@ things, and refuses any Coverity version but 2026.9.0 for both:
   how the datasets were built: one installation, one `cov-analyze` command
   line.
 - **C++.** Refused.
+- **gcov JSON from a GCC other than 14.** It is not rejected; GCC 13's has
+  no condition records, which are optional, so it would be read with less
+  detail.
 - **Windows**, other Coverity versions, clang/llvm-cov coverage, Bullseye.
 - **Coverage built under `cov-build`.** Both projects' coverage came from
   a separate build, so `coverity-build-fidelity`'s binary comparison was
@@ -136,4 +170,6 @@ things, and refuses any Coverity version but 2026.9.0 for both:
 - **A large C project.** Neither project came near the caps, and dump
   times on a project with tens of thousands of functions are not measured
   here.
+- **The brief as the prompt for a whole run.** It distils the measured
+  rounds, and was not the prompt for most of their verdicts.
 - **This skill's own evals.** Not yet run.
