@@ -482,6 +482,10 @@ interrogating the directory to work out how.
 publish_dataset.py --workspace . --project <name> --slug <what-distinguishes-it>     --archive-root <library> --cov-bin <analysis>/bin     --source-repo <clone> --description "..."
 ```
 
+Coverage and Test Advisor data are planned but not yet part of this skill.
+`references/planned-coverage-and-ta.md` records what has been decided and
+measured; follow it only as direction.
+
 `references/archive-layout.md` has the layout, the MANIFEST contract, and the
 checklist of what publishing expects of a workspace -- use that checklist to
 bring an already-built dataset into the standard shape, running
