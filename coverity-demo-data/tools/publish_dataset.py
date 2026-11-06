@@ -115,7 +115,8 @@ def idir_facts(idir, cov_bin):
     bc = idir / "build-cwd.txt"
     if not bc.is_file():
         fail(f"{idir}: no build-cwd.txt -- not a capture directory")
-    f["build_root"] = bc.read_text(encoding="utf-8", errors="replace").strip()
+    f["build_cwd"] = bc.read_text(encoding="utf-8", errors="replace").strip()
+    f["build_root"] = f["build_cwd"]   # settled by source_root() once paths are known
 
     if not (idir / "output" / "ANALYSIS.metrics.xml").is_file():
         fail(f"{idir}: not analyzed (no output/ANALYSIS.metrics.xml). "
@@ -153,9 +154,44 @@ def idir_facts(idir, cov_bin):
 
 
 def strip_root(path, root):
+    """path relative to root, or None if root is not a whole-component prefix.
+
+    "/b/proj" must not claim "/b/project2/x.c": that would strip to "ect2/x.c"
+    here and leave the path unstripped in Connect.
+    """
     p = path.replace("\\", "/")
     r = root.replace("\\", "/").rstrip("/")
-    return p[len(r):].lstrip("/") if r and p.startswith(r) else None
+    if not r or not (p == r or p.startswith(r + "/")):
+        return None
+    return p[len(r):].lstrip("/")
+
+
+# How far above the build directory a source root may sit. Out-of-tree builds
+# put it one level up (cmake's build/, configure run from a build dir, make O=);
+# three covers nested build trees without ever reaching a home directory or a
+# filesystem root by accident.
+MAX_ROOT_ASCENT = 3
+
+
+def source_root(build_cwd, paths):
+    """The prefix --strip-path should remove for this idir.
+
+    build-cwd.txt records where the build ran, which is the source root for an
+    in-tree build. Out of tree, the build ran in a subdirectory and most
+    captured paths sit above it; the source root is then the nearest ancestor
+    of the build directory that prefixes EVERY captured path. Every path, not
+    most: a prefix that misses some leaves those files unstripped and unable to
+    line up across versions. Returns None when no candidate within reach
+    qualifies -- that is a capture to look at, not one to guess about.
+    """
+    cand = build_cwd.replace("\\", "/").rstrip("/")
+    for _ in range(MAX_ROOT_ASCENT + 1):
+        if not cand or re.fullmatch(r"[A-Za-z]:", cand) or cand.count("/") < 2:
+            return None   # filesystem root, drive root, or one level below it
+        if all(strip_root(p, cand) is not None for p in paths):
+            return cand
+        cand = cand.rsplit("/", 1)[0]
+    return None
 
 
 def findings_export(idir, cov_bin, scratch):
@@ -266,14 +302,25 @@ def validate(rows, idirs_root, cov_bin, scratch, source_repo=None):
     # path-independent, and --strip-path is per-commit. What must hold is that
     # each idir's recorded root really prefixes its own captured paths, or the
     # strip silently does nothing at commit time (rule 31).
+    # An out-of-tree build records its build directory, not the source root;
+    # source_root() climbs to the nearest ancestor that prefixes every path.
     for tag, f in facts.items():
-        bad = [p for p in f["tus"] if strip_root(p, f["build_root"]) is None]
-        if bad:
+        root = source_root(f["build_cwd"], f["tus"])
+        if root is None:
+            bad = [p for p in f["tus"] if strip_root(p, f["build_cwd"]) is None]
             problems.append(
-                f"{tag}: build root {f['build_root']!r} does not prefix "
-                f"{len(bad)} of {len(f['tus'])} captured paths "
-                f"(e.g. {bad[0]}) -- --strip-path would not clean them")
-        f["stripped"] = {s for s in (strip_root(p, f["build_root"]) for p in f["tus"]) if s}
+                f"{tag}: build directory {f['build_cwd']!r} does not prefix "
+                f"{len(bad)} of {len(f['tus'])} captured paths (e.g. {bad[0]}), "
+                f"and neither does any ancestor within {MAX_ROOT_ASCENT} levels "
+                f"-- --strip-path would not clean them")
+            root = f["build_cwd"]
+        f["build_root"] = root
+        f["stripped"] = {s for s in (strip_root(p, root) for p in f["tus"]) if s}
+    moved = sorted(t for t, f in facts.items() if f["build_root"] != f["build_cwd"])
+    if moved:
+        print(f"out-of-tree builds: {len(moved)} version(s) strip at the source "
+              f"root above their build directory, e.g. {moved[0]}: "
+              f"{facts[moved[0]]['build_cwd']} -> {facts[moved[0]]['build_root']}")
 
     # --- stripped paths line up across versions within a stream ----------
     # This is what --strip-path actually buys: when stripped paths disagree,
@@ -476,6 +523,7 @@ def assemble(dataset, rows, facts, args, ws, idirs_root, version, scratch):
             "tu_count": len(facts[tag]["tu_records"]),
             "emitted_from_build_log": n,
             "build_root": facts[tag]["build_root"],
+            "build_cwd": facts[tag]["build_cwd"],
             "translation_units": facts[tag]["tu_records"],
         }, indent=2) + chr(10), encoding="utf-8")
 
