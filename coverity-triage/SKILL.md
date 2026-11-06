@@ -123,11 +123,8 @@ lane's method, and writes the records and a report.
   can follow in a demo is still a correct verdict; demo-worthiness belongs
   to `coverity-demo-data`.
 - **Write triage history.** It triages open findings in a stream's latest
-  snapshot. Building a history for a dataset published release by release
-  is the job of whoever loads the dataset into Connect. That means
-  committing each release and applying that release's records before
-  committing the next, so every answer was written while its version was
-  current (*Step 6*).
+  snapshot. Triage for a dataset's earlier snapshots is the job of whoever
+  loads the dataset into Connect.
 
 ## Cost: nothing starts on a default
 
@@ -170,7 +167,7 @@ triages because a step in its procedure came up.
 | input | where it comes from |
 |---|---|
 | the findings | `cov-format-errors --dir <idir> --json-output-v10 <file>` on the analyzed idir (rule 26 lists the fields) |
-| or a Connect CID | the usual live start. Look for the CID in everything the user's key can see. It can come back several times (several streams, several snapshots). **Unless the user says otherwise, triage its latest occurrence**: the newest snapshot that reports it, and the idir that produced that snapshot. A CID holds one answer, read as describing the current version (*Step 6*). `coverity-verify/tools/cid_lookup.py` turns a CID into a merge key and the idir's findings, within a stream the caller names |
+| or a Connect CID | the usual live start. Look for the CID in everything the user's key can see. It can come back several times (several streams, several snapshots). **Unless the user says otherwise, triage its latest occurrence**: the newest snapshot that reports it, and the idir that produced that snapshot. `coverity-verify/tools/cid_lookup.py` turns a CID into a merge key and the idir's findings, within a stream the caller names |
 | the source at the analyzed version | **the default:** a git repository and the tag or commit the idir was built from. **Read from git, never from the working tree**: a working tree holds whatever was checked out last, which is the wrong source in a way that reads as entirely plausible. **The backup, when there is no git source** (an analyzed tree with no tag or commit to read): the intermediate directory, with the `bin/` of the installation that wrote it (rule 3) |
 | the build root | the path prefix to strip from recorded paths (`--strip-prefix`) |
 | the selection | `--merge-key` for named findings (repeatable), `--per-checker N` for rule 26's stratified sample, `--all` for every finding |
@@ -189,10 +186,13 @@ python3 tools/bundle.py --issues <findings.json> --git-repo <repo> --tag <tag> \
 ```
 
 **Say what is being triaged.** Every triage comment ends with it, for
-example `Triaged against ProFTPD v1.3.9 from 2025-03-14.` A CID holds one
-answer, and Connect's "last triaged" date says when it was written, not
-which version it was about. `--name` is the project as its readers know it
-(default: the git repository's directory name). The version is `--tag`.
+example `Triaged against ProFTPD v1.3.9 from 2025-03-14.` Connect's "last
+triaged" date says when an answer was written, not what it was about, and
+cannot be backdated. The line also explains small mismatches, such as an
+answer read against a slightly different version. `--name` is the project
+as its readers know it, with the build when builds of one version are
+triaged apart (`Rockbox ipodvideo`); default: the git repository's
+directory name. The version is `--tag`.
 `--version-date` is the version's date (default: the date of the commit the
 tag names). With `--idir`, give both `--name` and `--version-date`: without
 them the records step refuses every verdict.
@@ -448,24 +448,19 @@ it, and stop, unless the inputs already say to apply (rule 38). Each apply
 decides whether to set the standard attributes only, or the two custom ones
 as well.
 
-**One answer per CID, read as current.** A CID holds one triage answer in
-its triage store. Whoever reads it cannot tell which version of the defect
-was looked at, so they take it to describe the version that was current
-when it was written. So:
+**Triage lives in triage stores.** A CID has one answer per triage store,
+and the streams that share a store share it. Streams with stores of their
+own, one per build target say, can hold different answers for the same
+CID, since a defect in one build can be harmless in another. Apply writes
+to the stream's own store. Every comment ends with what was triaged
+(*Step 1*), so a reader can tell which code an answer was about.
 
-- **Apply records only while the version they were judged at is the
-  stream's latest snapshot.** The plan prints that version (`judged.tag` in
-  each record). Checking it against the stream is the caller's job.
-- **The comment says which version it was.** Its last line names the
-  project, the version and the version's date (*Step 1*), so a reader sees
-  what was triaged without relying on Connect's dates.
-- **Never put an older judgment over a later snapshot.** A record judged at
-  an earlier release, for a CID a later snapshot still reports, would
-  replace a decision about the later version with a fact about an earlier
-  one. Triage that CID at the latest version instead.
-- **A defect the latest snapshot no longer reports is not applied.** Apply
-  does not find it. The record stays in `triage.json` and the report, as a
-  write-up of what the triage would have been.
+**A changed decision** (a new reading, or a commit that changes it) is
+applied again with `--overwrite`, from records that hold only the changed
+findings, after checking that each finding's current answer is this
+skill's own: its last comment ends with this skill's two closing lines. A
+field the new record leaves null keeps its old value, so a move to
+*unresolved* leaves the old Classification in place.
 
 **1. The custom attributes.** Skip this with `--standard-only`.
 

@@ -366,9 +366,9 @@ with `<Label>` one of *Real defect*, *Real defect, low severity*,
 (heuristic misfire)*, *Unresolved*.
 
 - **The last line says what was triaged**, for example `Triaged against
-  ProFTPD v1.3.9 from 2025-03-14.` A CID holds one answer, and Connect's own
-  "last triaged" date records when the answer was written, not which
-  version it was about, and cannot be backdated. So the comment says it.
+  ProFTPD v1.3.9 from 2025-03-14.` Connect's own "last triaged" date
+  records when an answer was written, not what it was about, and cannot be
+  backdated. So the comment says it.
 - **Where it comes from:** `bundle.py` writes it to `index.json`
   (`triaged_against`). The project is `--name` (default: the git
   repository's directory name). The version is `--tag`. The date is
@@ -442,9 +442,7 @@ sends.
   snapshot (measured on 2026.9.0). A merge key last reported in an earlier
   snapshot is reported as not found.
 - **The judged version.** The plan prints the records' `judged.tag`
-  (`judgedAt` in `--json`). Records belong in Connect only while that
-  version is the stream's latest snapshot (SKILL.md, *Step 6*). The tool
-  does not compare it with the stream.
+  (`judgedAt` in `--json`).
 - **The triage store.** A GET on `/api/v2/streams/<name>` gives the stream's
   `triageStoreName`, and the write goes to that store.
 - **The write.** A PUT to `/api/v2/issues/triage?triageStoreName=<store>`
