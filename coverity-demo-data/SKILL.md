@@ -405,8 +405,12 @@ cov-commit-defects --dir <idir> --url <url> --auth-key-file <key> \
 - **`--backdate` takes `yyyymmdd` and nothing else.** `2022-12-04` is rejected
   outright. This is a *different* parser from `--first-detected-after/before`,
   which do accept ISO dates -- do not generalize between them.
-- `--strip-path` the fixed build root so Connect shows `/src/fsio.c` rather
-  than a home directory (rule 31). **Check after the first commit that it
+- `--strip-path` the **SCM checkout root** so Connect shows `/src/fsio.c` rather
+  than a home directory (rule 31). That is usually where the build ran, but not
+  for an out-of-tree build (a cmake `build/`, `make O=`); `capture.sh` records
+  the checkout in `scm-root.txt`, and the bundled `commit.sh` uses it. Never
+  infer the root from the captured paths: a build that reads a file from
+  outside the checkout would drag the root above it. **Check after the first commit that it
   actually took effect** -- a prefix that does not match is a silent no-op with
   no error or warning, and the argument can be rewritten before the tool sees
   it (MSYS/Git Bash converts Unix-looking paths to Windows paths; set

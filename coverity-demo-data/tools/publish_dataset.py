@@ -116,7 +116,10 @@ def idir_facts(idir, cov_bin):
     if not bc.is_file():
         fail(f"{idir}: no build-cwd.txt -- not a capture directory")
     f["build_cwd"] = bc.read_text(encoding="utf-8", errors="replace").strip()
-    f["build_root"] = f["build_cwd"]   # settled by source_root() once paths are known
+    sr = idir / "scm-root.txt"
+    f["scm_root"] = (sr.read_text(encoding="utf-8", errors="replace").strip() or None
+                     if sr.is_file() else None)
+    f["build_root"] = f["build_cwd"]   # settled by settle_root() in validate()
 
     if not (idir / "output" / "ANALYSIS.metrics.xml").is_file():
         fail(f"{idir}: not analyzed (no output/ANALYSIS.metrics.xml). "
@@ -166,32 +169,35 @@ def strip_root(path, root):
     return p[len(r):].lstrip("/")
 
 
-# How far above the build directory a source root may sit. Out-of-tree builds
-# put it one level up (cmake's build/, configure run from a build dir, make O=);
-# three covers nested build trees without ever reaching a home directory or a
-# filesystem root by accident.
-MAX_ROOT_ASCENT = 3
+def settle_root(f, given):
+    """(strip root, where it came from, problem or None) for one idir.
 
+    The strip root is the SCM checkout the build ran in -- never a folder
+    inferred from the captured paths. Inference is wrong exactly when the
+    build reads files from outside the checkout: "the nearest folder holding
+    every captured file" then climbs above the checkout to take them in.
+    Files outside the checkout keep their own paths, as system headers do.
 
-def source_root(build_cwd, paths):
-    """The prefix --strip-path should remove for this idir.
-
-    build-cwd.txt records where the build ran, which is the source root for an
-    in-tree build. Out of tree, the build ran in a subdirectory and most
-    captured paths sit above it; the source root is then the nearest ancestor
-    of the build directory that prefixes EVERY captured path. Every path, not
-    most: a prefix that misses some leaves those files unstripped and unable to
-    line up across versions. Returns None when no candidate within reach
-    qualifies -- that is a capture to look at, not one to guess about.
+    In order: the idir's scm-root.txt (capture.sh writes it), then
+    --scm-root for idirs captured without one. A build directory that holds
+    every captured path is accepted as the checkout for older in-tree
+    captures; an out-of-tree capture with no recorded checkout is refused.
     """
-    cand = build_cwd.replace("\\", "/").rstrip("/")
-    for _ in range(MAX_ROOT_ASCENT + 1):
-        if not cand or re.fullmatch(r"[A-Za-z]:", cand) or cand.count("/") < 2:
-            return None   # filesystem root, drive root, or one level below it
-        if all(strip_root(p, cand) is not None for p in paths):
-            return cand
-        cand = cand.rsplit("/", 1)[0]
-    return None
+    norm = lambda p: p.replace("\\", "/").rstrip("/")
+    rec, cwd = f["scm_root"], f["build_cwd"]
+    if rec and given and norm(rec) != norm(given):
+        return rec, "scm-root.txt", (f"scm-root.txt says {rec!r} but --scm-root "
+                                     f"says {given!r}")
+    if rec or given:
+        return norm(rec or given), ("scm-root.txt" if rec else "--scm-root"), None
+    if all(strip_root(p, cwd) is not None for p in f["tus"]):
+        return norm(cwd), "build-cwd.txt", None
+    bad = [p for p in f["tus"] if strip_root(p, cwd) is None]
+    return norm(cwd), "build-cwd.txt", (
+        f"build directory {cwd!r} does not prefix {len(bad)} of {len(f['tus'])} "
+        f"captured paths (e.g. {bad[0]}) and no checkout is recorded -- an "
+        f"out-of-tree build; pass --scm-root with the checkout's top level "
+        f"(git rev-parse --show-toplevel), or recapture with capture.sh")
 
 
 def findings_export(idir, cov_bin, scratch):
@@ -272,7 +278,7 @@ def same_date_problems(stream, chain, source_repo):
     return out
 
 
-def validate(rows, idirs_root, cov_bin, scratch, source_repo=None):
+def validate(rows, idirs_root, cov_bin, scratch, source_repo=None, scm_root=None):
     """Every check that can be made locally. Returns derived facts."""
     facts, problems = {}, []
 
@@ -302,25 +308,34 @@ def validate(rows, idirs_root, cov_bin, scratch, source_repo=None):
     # path-independent, and --strip-path is per-commit. What must hold is that
     # each idir's recorded root really prefixes its own captured paths, or the
     # strip silently does nothing at commit time (rule 31).
-    # An out-of-tree build records its build directory, not the source root;
-    # source_root() climbs to the nearest ancestor that prefixes every path.
+    # The strip root is the SCM checkout (settle_root), which for an
+    # out-of-tree build is not where the build ran.
     for tag, f in facts.items():
-        root = source_root(f["build_cwd"], f["tus"])
-        if root is None:
-            bad = [p for p in f["tus"] if strip_root(p, f["build_cwd"]) is None]
-            problems.append(
-                f"{tag}: build directory {f['build_cwd']!r} does not prefix "
-                f"{len(bad)} of {len(f['tus'])} captured paths (e.g. {bad[0]}), "
-                f"and neither does any ancestor within {MAX_ROOT_ASCENT} levels "
-                f"-- --strip-path would not clean them")
-            root = f["build_cwd"]
-        f["build_root"] = root
-        f["stripped"] = {s for s in (strip_root(p, root) for p in f["tus"]) if s}
-    moved = sorted(t for t, f in facts.items() if f["build_root"] != f["build_cwd"])
+        root, src, problem = settle_root(f, scm_root)
+        if problem:
+            problems.append(f"{tag}: {problem}")
+        f["build_root"], f["root_source"] = root, src
+        inside = [s for s in (strip_root(p, root) for p in f["tus"]) if s is not None]
+        f["stripped"] = set(inside)
+        # Only meaningful against a settled root; a refused one would count noise.
+        f["outside_checkout"] = 0 if problem or not inside else len(f["tus"]) - len(inside)
+        if not inside and not problem:
+            problems.append(f"{tag}: checkout {root!r} prefixes none of the "
+                            f"{len(f['tus'])} captured paths -- wrong checkout?")
+    moved = sorted(t for t, f in facts.items()
+                   if f["build_root"] != f["build_cwd"].replace("\\", "/").rstrip("/"))
     if moved:
-        print(f"out-of-tree builds: {len(moved)} version(s) strip at the source "
-              f"root above their build directory, e.g. {moved[0]}: "
-              f"{facts[moved[0]]['build_cwd']} -> {facts[moved[0]]['build_root']}")
+        f0 = facts[moved[0]]
+        print(f"out-of-tree builds: {len(moved)} version(s) strip at the checkout, "
+              f"not the build directory, e.g. {moved[0]}: "
+              f"{f0['build_cwd']} -> {f0['build_root']} ({f0['root_source']})")
+    outside = {t: f["outside_checkout"] for t, f in facts.items() if f["outside_checkout"]}
+    if outside:
+        t0 = max(outside, key=outside.get)
+        print(f"files outside the checkout keep their full paths: {len(outside)} "
+              f"version(s), at most {outside[t0]} files ({t0}). Normal for "
+              f"headers or sources the build pulls from elsewhere; review if "
+              f"the count is large.")
 
     # --- stripped paths line up across versions within a stream ----------
     # This is what --strip-path actually buys: when stripped paths disagree,
@@ -438,6 +453,10 @@ def main():
     ap.add_argument("--tags", help="default <workspace>/tag-streams.txt")
     ap.add_argument("--cov-bin", required=True)
     ap.add_argument("--source-repo")
+    ap.add_argument("--scm-root",
+                    help="top level of the SCM checkout the build ran in, as "
+                         "the build saw it, for idirs captured without "
+                         "scm-root.txt. The strip root; see settle_root()")
     ap.add_argument("--date", default=datetime.date.today().isoformat())
     ap.add_argument("--description", default="")
     ap.add_argument("--link", action="store_true",
@@ -458,7 +477,8 @@ def main():
 
     rows = read_tags(tags)
     print(f"validating {len(rows)} versions ...")
-    facts = validate(rows, idirs_root, args.cov_bin, scratch, args.source_repo)
+    facts = validate(rows, idirs_root, args.cov_bin, scratch, args.source_repo,
+                     args.scm_root)
     print("validation passed")
     if args.validate_only:
         return 0
@@ -524,6 +544,8 @@ def assemble(dataset, rows, facts, args, ws, idirs_root, version, scratch):
             "emitted_from_build_log": n,
             "build_root": facts[tag]["build_root"],
             "build_cwd": facts[tag]["build_cwd"],
+            "build_root_from": facts[tag]["root_source"],
+            "outside_checkout": facts[tag]["outside_checkout"],
             "translation_units": facts[tag]["tu_records"],
         }, indent=2) + chr(10), encoding="utf-8")
 

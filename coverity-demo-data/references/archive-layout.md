@@ -93,13 +93,18 @@ branches (rule 29).
 **Derive, do not ask.** An analyzed idir is self-describing, so publish reads
 these from the artifacts instead of trusting a human:
 
-- `build-cwd.txt` -- where the build ran, hence `strip_path`. For an in-tree
-  build that is the source root. For an out-of-tree build (a cmake `build/`,
-  `configure` run from a build directory, `make O=`) it is a subdirectory, and
-  the strip path is the nearest ancestor, at most three levels up, that
-  prefixes **every** captured path. Both are recorded in `capture/<tag>.json`,
-  as `build_cwd` and `build_root`. If no candidate prefixes every path, publish
-  refuses rather than guess.
+- `scm-root.txt` -- the top level of the SCM checkout the build ran in, which
+  `capture.sh` writes. **This is `strip_path`.** It usually equals where the
+  build ran, which Coverity records in `build-cwd.txt`, but not for an
+  out-of-tree build (a cmake `build/`, `configure` run from a build directory,
+  `make O=`). The strip path is never inferred from the captured paths. "The
+  nearest folder holding every captured file" climbs above the checkout as
+  soon as the build reads anything from outside it. Files outside the checkout
+  keep their full paths, like system headers, and publish reports how many
+  there are. For idirs captured without `scm-root.txt`, pass `--scm-root`. An
+  in-tree build whose `build-cwd.txt` prefixes every captured path is accepted
+  as it stands. `capture/<tag>.json` records `build_cwd`, `build_root` and
+  where the root came from.
 - `output/version` -- the Coverity version that produced it
 - `output/ANALYSIS.metrics.xml` -- present iff the idir was analyzed
 - `output/analysis-settings.json` -- the exact analysis configuration
@@ -127,7 +132,7 @@ Carried through if present, ignored if not: `logs/`. Nothing from triage is
 carried: this skill does not triage, and a dataset holds no verdicts.
 
 Nothing else is asked for, because everything else is **derived** from the
-idirs -- the strip path from `build-cwd.txt`, the analyzer version from
+idirs -- the strip path from `scm-root.txt` (or `build-cwd.txt` for an in-tree build), the analyzer version from
 `output/version`, whether analysis ran from `output/ANALYSIS.metrics.xml`, the
 captured file list from `cov-manage-emit`. You do not supply those and cannot
 get them wrong.
