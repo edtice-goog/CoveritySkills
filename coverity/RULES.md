@@ -1127,14 +1127,50 @@ authentication entry of `CALIBRATION.md`. The browser detour is observed: a
 session given the admin password spent about twenty turns creating a key
 through the UI.
 
-### 31. Always `--strip-path` when committing, and confirm it took effect
+### 31. Always `--strip-path` when committing — once per checkout — and confirm it took effect
 
-Commit results with `--strip-path` set to the build root. Without it every path
-in Coverity Connect carries the directory the build happened to run in —
+Commit results with `--strip-path` set to the **root of each source checkout
+the build read from**: the top level of the SCM working copy, not the directory
+the build ran in and not anything computed from the captured paths. Without it
+every path in Coverity Connect carries the directory the build happened to run
+in —
 `/home/someone/demo/proj/src/fsio.c` instead of `/src/fsio.c`. That is harder
 to read, harder to search, harder to correlate with a repository, and in a
 customer-facing setting it exposes a local directory layout nobody wants on
 screen.
+
+**One per checkout.** `--strip-path` may be given more than once. For each file
+Coverity applies the longest prefix that matches, and only that one, so a
+build that reads from two checkouts takes two:
+
+```
+--strip-path /work/foo --strip-path /work/bar
+```
+
+Most open source builds from a single checkout, and there every reasonable
+answer coincides. That is why the wrong method goes unnoticed until a project
+where it does not.
+
+**Never derive the prefix from the captured files.** The path common to every
+captured file is the tempting algorithm, and it breaks as soon as one file
+comes from outside a checkout. With checkouts at `/work/foo` and `/work/bar`
+and a header at `/global.h`, the common prefix is the filesystem root, and
+stripping it removes nothing worth removing. With a single checkout it breaks
+more quietly: the prefix climbs above the checkout to take the outside file in,
+and every path keeps a directory that belongs to the machine rather than the
+project.
+
+**Not the build directory either.** An out-of-tree build — CMake's `build/`,
+`make O=`, `configure` run from a build directory — runs beside or below the
+checkout, so stripping there leaves the sources unstripped.
+
+**Files outside every checkout keep their full paths.** System headers, a
+toolchain sysroot, a shared include directory are not the project's files.
+Leaving them full is correct; do not widen a prefix to swallow them.
+
+A checkout nested inside another, such as a submodule, is already covered by
+the outer one. Giving its own root as well would win the longest match and cut
+its files loose from where they sit in the project.
 
 **The functional reason is bigger than the cosmetic one.** When stripped paths
 do not agree across the snapshots in a stream, Connect **declines to line files
@@ -1154,9 +1190,9 @@ version built in two differently-named directories produced identical merge key
 sets, 112 of 112. Stripping is about the UI lining up *files*, not about
 Coverity lining up *defects*.
 
-Since `--strip-path` is per-commit and each idir records its own build root in
-`build-cwd.txt`, differing build paths across versions are workable: strip each
-to the same relative shape. What must agree is the stripped result.
+Since `--strip-path` is per-commit, checkouts that sit in different places for
+different versions are workable: give each commit its own checkout roots. What
+must agree across a stream's snapshots is the stripped result.
 
 **The trap: a prefix that does not match is a silent no-op.** No error, no
 warning, no diagnostic of any kind — the commit reports complete success and
@@ -1208,6 +1244,13 @@ Source: verified — `coverity-demo-data`. A 24-snapshot proftpd dataset
 committed every path in full because Git Bash rewrote the prefix; nothing in
 the commit output indicated it. Confirmed by re-running with
 `MSYS_NO_PATHCONV=1` and no trailing separator, which strips correctly.
+
+The checkout root, once per checkout, is the repository owner's ruling
+(2026-11-06), after skill test runs chose roots by inference and got them
+wrong. That the option repeats and the longest matching prefix wins is the
+documented behaviour of both `cov-commit-defects` and `cov-format-errors`
+(`--help`, 2026.9.0). The nested-checkout paragraph follows from that rule and
+was not run.
 
 ### 29. One stream per branch; a stream must move forward only
 
