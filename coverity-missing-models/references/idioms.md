@@ -59,11 +59,10 @@ fixture under `evals/fixtures/` and a case in `evals/run.sh`.
     other virtual methods have been seen listed, so the cause is not known.
     Prove a C# model applied by a behaviour it adds: a probe build of the
     model that returns null, for instance.
-- **A directive that matches nothing is not silent.** A security directive
-  file (`--directive-file`) is validated: a method set that matches no
-  method prints `[WARNING] ... See the contents of
-  .../output/directives.log` on the console, and the log names the
-  directive. *Measured* (C#). Contrast models, above.
+- **Directives are checked; models are not.** A security directive that
+  does not apply leaves one console line and its reason in
+  `output/directives.log` (`coverity` rule 39). A model that matches
+  nothing leaves neither.
 - **`--output-file <name>` writes `<name>` as given,** with no suffix added.
   *Measured*. `--model-file` is the current option; `--user-model-file`,
   deprecated since 7.7.0, was still accepted. *Measured*.
@@ -265,9 +264,8 @@ alone:
 case kept. The name is the form `cov-find-function` prints after `->`, with
 `::` before the method; the dotted form matched nothing. *Measured*.
 `method_returns_tainted_data` cannot name a constructor: the log says the
-method "doesn't have a return", the console prints `[ERROR] Directive
-errors were discovered`, and the analysis carries on without the directive.
-*Measured*.
+method "doesn't have a return", and the analysis carries on without the
+directive. *Measured*. Read the log after every directive run (rule 39).
 
 ## 5. A throw a framework method's model lacks (C#)
 

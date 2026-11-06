@@ -57,7 +57,7 @@ flowchart LR
 ```
 
 Read `coverity/RULES.md` first: rules 3, 16, 20, 22, 23, 30, 33 and 38
-carry the weight here.
+carry the weight here, and 39 when a directive replaces a model.
 
 ## Step 0: Inputs
 
