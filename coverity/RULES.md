@@ -1246,11 +1246,17 @@ the commit output indicated it. Confirmed by re-running with
 `MSYS_NO_PATHCONV=1` and no trailing separator, which strips correctly.
 
 The checkout root, once per checkout, is the repository owner's ruling
-(2026-11-06), after skill test runs chose roots by inference and got them
-wrong. That the option repeats and the longest matching prefix wins is the
-documented behaviour of both `cov-commit-defects` and `cov-format-errors`
-(`--help`, 2026.9.0). The nested-checkout paragraph follows from that rule and
-was not run.
+(2026-11-06). **Measured** in `coverity-demo-data`'s tests: rockbox, one
+checkout built out of tree, recorded its build directory as the build root.
+That prefixed only the generated files under it, and 637 of 699 captured paths
+sat above it, so the dataset publisher refused every version rather than strip
+there. Nothing wrongly stripped reached Connect. **Reasoned, not observed:** a
+build with two checkouts, and an outside file pulling an inferred prefix above
+the checkout; no case of either has been seen. That the option repeats and the
+longest matching prefix wins is the documented behaviour of both
+`cov-commit-defects` and `cov-format-errors` (`--help`, 2026.9.0); passing it
+more than once has not been run here, and neither has the nested-checkout
+case.
 
 ### 29. One stream per branch; a stream must move forward only
 
