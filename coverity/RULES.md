@@ -1133,44 +1133,18 @@ Commit results with `--strip-path` set to the **root of each source checkout
 the build read from**: the top level of the SCM working copy, not the directory
 the build ran in and not anything computed from the captured paths. Without it
 every path in Coverity Connect carries the directory the build happened to run
-in —
-`/home/someone/demo/proj/src/fsio.c` instead of `/src/fsio.c`. That is harder
+in — `/home/someone/demo/proj/src/fsio.c` instead of `/src/fsio.c`. That is harder
 to read, harder to search, harder to correlate with a repository, and in a
 customer-facing setting it exposes a local directory layout nobody wants on
 screen.
 
-**One per checkout.** `--strip-path` may be given more than once. For each file
-Coverity applies the longest prefix that matches, and only that one, so a
-build that reads from two checkouts takes two:
-
-```
---strip-path /work/foo --strip-path /work/bar
-```
-
-Most open source builds from a single checkout, and there every reasonable
-answer coincides. That is why the wrong method goes unnoticed until a project
-where it does not.
-
-**Never derive the prefix from the captured files.** The path common to every
-captured file is the tempting algorithm, and it breaks as soon as one file
-comes from outside a checkout. With checkouts at `/work/foo` and `/work/bar`
-and a header at `/global.h`, the common prefix is the filesystem root, and
-stripping it removes nothing worth removing. With a single checkout it breaks
-more quietly: the prefix climbs above the checkout to take the outside file in,
-and every path keeps a directory that belongs to the machine rather than the
-project.
-
-**Not the build directory either.** An out-of-tree build — CMake's `build/`,
-`make O=`, `configure` run from a build directory — runs beside or below the
-checkout, so stripping there leaves the sources unstripped.
-
-**Files outside every checkout keep their full paths.** System headers, a
-toolchain sysroot, a shared include directory are not the project's files.
-Leaving them full is correct; do not widen a prefix to swallow them.
-
-A checkout nested inside another, such as a submodule, is already covered by
-the outer one. Giving its own root as well would win the longest match and cut
-its files loose from where they sit in the project.
+**One per checkout, never derived from the captured files.** The option
+repeats, and each file takes the longest prefix that matches. The tempting
+alternative, the path common to every captured file, collapses or climbs above
+the checkout as soon as one file comes from outside it. The directory the build
+ran in is what Coverity records, and it is wrong for any out-of-tree build.
+Most open source builds in-tree from one checkout, where every method gives the
+same answer, which is why the wrong one goes unnoticed.
 
 **The functional reason is bigger than the cosmetic one.** When stripped paths
 do not agree across the snapshots in a stream, Connect **declines to line files
@@ -1255,8 +1229,7 @@ build with two checkouts, and an outside file pulling an inferred prefix above
 the checkout; no case of either has been seen. That the option repeats and the
 longest matching prefix wins is the documented behaviour of both
 `cov-commit-defects` and `cov-format-errors` (`--help`, 2026.9.0); passing it
-more than once has not been run here, and neither has the nested-checkout
-case.
+more than once has not been run here.
 
 ### 29. One stream per branch; a stream must move forward only
 
