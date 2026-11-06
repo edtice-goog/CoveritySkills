@@ -33,4 +33,18 @@ public static class Handlers
             return s.Length;
         }
     }
+
+    // A static method, for the throw a user model adds (models/throw-static.cs).
+    public static int FromPath(string path)
+    {
+        try
+        {
+            return Path.GetFileName(path).Length;
+        }
+        catch (System.InvalidOperationException)
+        {
+            string s = null;
+            return s.Length;
+        }
+    }
 }

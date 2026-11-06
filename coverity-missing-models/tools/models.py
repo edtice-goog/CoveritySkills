@@ -18,9 +18,9 @@ lists, per function, where its model came from:
 `compare` checks a re-analysis with models against the run without them:
   - every function a C/C++ model source defines took its user model; a model
     whose name matches nothing builds and analyzes without a word, and changes
-    nothing. C# sources are not checked this way: a model of a virtual method
-    applied without the method or the model file appearing in the callgraph,
-    so only an expectation on a behaviour the model adds shows it
+    nothing. C# sources are not checked this way: a C# model has applied
+    without the method or the model file appearing in the callgraph, so only
+    an expectation on a behaviour the model adds shows it
   - the same code was analyzed: files, LoC and functions from summary.txt
     (paths may differ; models change which paths are explored)
   - every finding that appeared or vanished, by merge key, per checker, and
@@ -194,8 +194,8 @@ def compare(a):
         ok = False
         print("  FAIL no model file in this run's callgraph-metrics: --model-file missing, or nothing matched")
     elif sources and not c_like:
-        print("  NOTE C# models are not checked here: a model of a virtual method applies without"
-              "\n       appearing in callgraph-metrics. Expect a behaviour the model adds (--expect).")
+        print("  NOTE C# models are not checked here: a C# model can apply without appearing"
+              "\n       in callgraph-metrics. Expect a behaviour the model adds (--expect).")
     # 2. the same code
     sb, sa = summary(a.before), summary(a.after)
     print("\n== code analyzed (before -> after)")

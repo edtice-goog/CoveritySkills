@@ -206,9 +206,9 @@ suffix. The tool fails when any of the first four checks fails:
 
 1. **The model applied.** Every function the model source defines shows a
    `userN` model, and the library is listed. Nothing else proves it: a
-   misspelled model changes nothing, silently. A C# model of a virtual
-   method applies without showing there, so `compare` does not check C#
-   sources: expect a behaviour the model adds instead.
+   misspelled model changes nothing, silently. A C# model can apply
+   without showing there, so `compare` does not check C# sources: expect a
+   behaviour the model adds instead.
 2. **The same code was analyzed.** Files, lines of code and functions match
    `summary.txt` before and after (rule 20). Paths may differ: a model
    changes which paths are explored.

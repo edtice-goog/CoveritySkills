@@ -83,18 +83,32 @@ Every case as expected on `cov-analysis-win64-2026.9.0` and
 | `entry-point` | `simple_entry_point` on `Passthrough::HandleRequest`, taint `http` | UNSAFE_DESERIALIZATION 1 -> 2 | `Passthrough.cs:23` new | `Passthrough.cs:15` kept |
 | `ctor-tainted` | `method_returns_tainted_data` on the constructor | no change | console `[ERROR] Directive errors were discovered`; `directives.log`: the method "doesn't have a return" | `Passthrough.cs:23` silent |
 | `throw` | `GetString` throws under `Util.Nondet()`, else returns null | NULL_RETURNS 0 -> 1 | `Handlers.cs:14` new: the model applied | `Handlers.cs:19` still silent; `Handlers.cs:33` kept |
+| `throw-static` | `Path.GetFileName` throws `InvalidOperationException` under `Util.Nondet()`, else returns null | NULL_RETURNS 0 -> 1 | `Handlers.cs:42` new: the model applied | `Handlers.cs:47` still silent; `Handlers.cs:33` kept |
 
 Also measured, on 2026.9.0:
 
 - `cov-find-function --cs --include-builtins --exact --module security`
   on `System.IO.MemoryStream::.ctor(System.Byte[])System.Void`:
   `dataflow_param_merge(<arg 0>): from_iface -> <arg 1>`, then
-  `noescape(<arg 1>)`.
-- In `callgraph-metrics.json.gz`, the constructor's user model shows as
-  `user1` with `modelFiles` listing the library. The `GetString` model
-  applied (the new NULL_RETURNS), but `GetString` is not in the callgraph,
-  `modelFiles` is absent, and the NULL_RETURNS events carry no user-model
-  note. `compare` therefore checks no C# source by name.
+  `noescape(<arg 1>)`. The same with `--model-file <lib>` added still
+  saved the built-in model. With `--model-file` and without
+  `--include-builtins`: `taint_source(<arg 0>): taint_type -> network`,
+  then `noescape(<arg 1>)`, and no `dataflow_param_merge`. The contributor
+  who found the idioms traced this: with both options, two models are
+  saved under one file name, and the second overwrites the first.
+- Read the same way (`--module exceptions --model-file`, no
+  `--include-builtins`), both throwing models have
+  `uncaught_except(<function>)` with the thrown type
+  (`System.Resources.MissingManifestResourceException`,
+  `System.InvalidOperationException`).
+- In `callgraph-metrics.json.gz`, the constructor's and `Path.GetFileName`'s
+  user models show as `user1`, with `modelFiles` listing the library. The
+  `GetString` model applied (the new NULL_RETURNS), but `GetString` is not
+  in the callgraph, `modelFiles` is absent, and the NULL_RETURNS events
+  carry no user-model note. The contributor saw user models of other
+  virtual methods listed (in `callgraph-metrics.txt`, with
+  `--enable-callgraph-metrics`); why `GetString`'s is not is unknown.
+  `compare` therefore checks no C# source by name.
 - A directive named in the dotted form (`Passthrough.HandleRequest(...)`)
   matched nothing: console `[WARNING] Potential directive issues`, and
   `directives.log` says the directive "does not match any methods in the

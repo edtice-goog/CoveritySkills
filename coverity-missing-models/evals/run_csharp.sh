@@ -11,6 +11,7 @@
 #   throw         a throw added to ResourceManager.GetString: the model
 #                 applies (its null return is reported), the handler stays
 #                 unreachable
+#   throw-static  the same on a static method, Path.GetFileName
 #
 #   usage: run_csharp.sh <coverity-install>/bin [workdir]
 #
@@ -79,6 +80,8 @@ else
 fi
 case_ throw model "$FX/models/throw.cs" -- \
     new=Handlers.cs:14:NULL_RETURNS silent=Handlers.cs:19 kept=Handlers.cs:33:FORWARD_NULL
+case_ throw-static model "$FX/models/throw-static.cs" -- \
+    new=Handlers.cs:42:NULL_RETURNS silent=Handlers.cs:47 kept=Handlers.cs:33:FORWARD_NULL
 
 echo
 [ "$FAILED" = 0 ] && echo "ALL AS EXPECTED ($WORK)" || { echo "SOME CASES UNEXPECTED ($WORK)"; exit 1; }

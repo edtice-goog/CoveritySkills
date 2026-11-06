@@ -50,14 +50,15 @@ fixture under `evals/fixtures/` and a case in `evals/run.sh`.
     source code implementation of the function has been overridden by a
     user model.]"*. *Measured*. A false positive that disappears leaves no
     event to carry the note, so for that case the callgraph is the evidence.
-  - **In C#, not even that, for a virtual method.** A model of a
-    constructor showed `user1` on its mangled name
+  - **In C#, not always.** Models of a constructor and of a static method
+    showed `user1` on their mangled names
     (`System.IO.MemoryStream::.ctor(System.Byte[])System.Void`). A model of
-    `ResourceManager.GetString`, a virtual method, applied (the null it
-    returns was reported where the result is used), yet the callgraph listed
-    neither the method nor `modelFiles`, and the event carried no note.
-    *Measured*. Prove such a model applied by a behaviour it adds: a probe
-    build of the model that returns null, for instance.
+    `ResourceManager.GetString` applied (the null it returns was reported
+    where the result is used), yet the callgraph listed neither the method
+    nor `modelFiles`, and the event carried no note. *Measured*. Models of
+    other virtual methods have been seen listed, so the cause is not known.
+    Prove a C# model applied by a behaviour it adds: a probe build of the
+    model that returns null, for instance.
 - **A directive that matches nothing is not silent.** A security directive
   file (`--directive-file`) is validated: a method set that matches no
   method prints `[WARNING] ... See the contents of
@@ -235,7 +236,10 @@ it, and a user model replaces that. Read it before overriding:
 ```
 
 `MemoryStream(byte[])` has `dataflow_param_merge(<arg 0>): from_iface ->
-<arg 1>`: the buffer's taint goes into the stream. *Measured*.
+<arg 1>`: the buffer's taint goes into the stream. *Measured*. To read your
+own model, pass `--model-file <lib>` and leave out `--include-builtins`:
+with both, the two models are saved under one file name, and the built-in
+is the one left on disk. *Measured*.
 
 **What the model costs.** With `Security.NetworkSource(this)` as the
 constructor's model, the deserialization of a stream built from file bytes
@@ -268,17 +272,19 @@ errors were discovered`, and the analysis carries on without the directive.
 ## 5. A throw a framework method's model lacks (C#)
 
 **Recognize it.** No findings inside a `catch` handler that real code does
-reach. A handler is analyzed only when a callee's exceptions model throws
-that exception. `ResourceManager.GetString`'s does not throw
+reach. A handler is analyzed only when a callee's built-in exceptions model
+throws that exception. `ResourceManager.GetString`'s does not throw
 `MissingManifestResourceException`: a null dereference in that handler was
 not reported, while the same one in an `IOException` handler after
 `File.ReadAllText` was. *Measured*.
 
-**It cannot be modeled.** A user model of `GetString` that throws (under
-`Util.Nondet()`) applied, since its null return was reported where the
-result is used, and the handler stayed unreachable: the throw adds
-nothing. *Measured*. Code in such a handler is out of the analysis's reach;
-say so (rule 22) rather than keep writing models.
+**It cannot be modeled.** User models that throw (under `Util.Nondet()`) of
+`GetString`, a virtual method, and `Path.GetFileName`, a static one, both
+applied: each one's null return was reported where the result is used.
+Each compiled model has the throw (`uncaught_except` with the exception's
+type, read as in idiom 4), and neither handler became reachable. *Measured*.
+Code in such a handler is out of the analysis's reach; say so (rule 22)
+rather than keep writing models.
 
 ## Not a model
 
