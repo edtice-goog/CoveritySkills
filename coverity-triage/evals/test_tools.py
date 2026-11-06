@@ -330,11 +330,18 @@ def main():
         refuse_bc("bycatch-no-claim", bycatch_dir("no-claim", [dict(item, claim="")]))
         refuse_bc("bycatch-unknown-finding", bycatch_dir("unknown", [dict(item, noticed_while="k99")]))
         refuse_bc("bycatch-no-noticer", bycatch_dir("no-noticer", [item], noticed_by="None"))
-        # The default folder is <bundles>/bycatch/.
+        # The default folder is bycatch/ beside the records (--out), the run's folder.
+        rd = work / "bycatch-default"
+        (rd / "bycatch").mkdir(parents=True)
+        wjson(rd / "bycatch" / "Contract-1.json", {"noticed_by": "LLM: Sonnet 5.5", "items": [item]})
+        attempt("bycatch-default", lanes, runj, good_v, True)
+        assert json.loads((rd / "bycatch" / "bycatch.json").read_text())["items"][0]["claim"] == claim
+        # By-catch in a folder the run does not read is refused, never missed: here,
+        # beside bundles that sit apart from the records.
         (b / "bycatch").mkdir()
         wjson(b / "bycatch" / "Contract-1.json", {"noticed_by": "LLM: Sonnet 5.5", "items": [item]})
-        attempt("bycatch-default", lanes, runj, good_v, True)
-        assert json.loads((b / "bycatch" / "bycatch.json").read_text())["items"][0]["claim"] == claim
+        refusals += 1
+        attempt("bycatch-unread", lanes, runj, good_v, False)
         shutil.rmtree(b / "bycatch")
 
         # No lane restricts methods: verify on the Contract lane is a plan's choice.

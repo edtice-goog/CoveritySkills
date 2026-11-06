@@ -177,7 +177,7 @@ triages because a step in its procedure came up.
 | earlier releases' records | for every release after the first: the `triage.json` of each earlier release (`--prior`, *Step 1*), so only the delta is triaged |
 | the checker tables | the skill's own `references/checker-lanes.json`, plus any organization or producer table (`--table`, *Step 2*) |
 | the plan | the method per lane (*Step 3*), the model for inference, and optionally a verify route for the whole plan |
-| the by-catch folder | where defects noticed outside the selected findings go: `<out>/bycatch/`, beside the records and never in them, or a folder the caller names (`references/records.md`, *By-catch*) |
+| the by-catch folder | where defects noticed outside the selected findings go: `bycatch/` beside `triage.json`, never in the records, or a folder the caller names with `--bycatch-dir` (`references/records.md`, *By-catch*) |
 
 ## Step 1: Bundle the selection
 

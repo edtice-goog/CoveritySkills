@@ -28,7 +28,7 @@ what is reasoned rather than measured.
       leaves a candidate checker pending with its candidates; marks a checker
       no table has as unplaced; and, with a producer's table, places that
       checker with its own method and route.
-  - **`records.py`:** one good assembly, and twenty-seven refusals, each
+  - **`records.py`:** one good assembly, and twenty-eight refusals, each
     writing nothing:
     - a global invariant with no location;
     - a word outside the verdict set;
@@ -56,7 +56,8 @@ what is reasoned rather than measured.
     - a reason written in by-catch phrasing ("Side observation: ...");
     - a by-catch item with no claim;
     - a by-catch item naming a finding that was not bundled;
-    - a by-catch file with no method that noticed it.
+    - a by-catch file with no method that noticed it;
+    - by-catch files in a `bycatch/` folder the run does not read.
   - **Compiler headers, what was triaged, and a later release**, on a
     fixture of its own, in 18 cases:
     - A finding in libstdc++ (`/usr/include/c++/13/...`) and one in MSVC's
@@ -85,9 +86,11 @@ what is reasoned rather than measured.
 
     Shown working:
     - by-catch collected into `bycatch/bycatch.json` (from the default
-      folder, and from one named with `--bycatch-dir`), announced on stdout
-      (`by-catch: 1 item(s) in ...`, or `by-catch: none`), and absent from
-      `triage.json` and the report;
+      folder beside `triage.json`, and from one named with `--bycatch-dir`),
+      announced on stdout (`by-catch: 1 item(s) in ...`, or `by-catch:
+      none`), and absent from `triage.json` and the report; by-catch files
+      in a folder the run does not read (beside bundles kept apart from the
+      records) are refused, not missed;
     - a checker's own method beats the lane's plan, and verify's route and
       inventory are carried into the evidence;
     - a plan-wide route beats a row's route;

@@ -337,7 +337,16 @@ def assemble(args):
             rec["method_reason"] = "the checker's own method (checker table)"
         records.append(rec)
 
-    bc_dir = pathlib.Path(args.bycatch_dir) if args.bycatch_dir else bdir / "bycatch"
+    # The run's by-catch folder sits beside the records. A by-catch folder this run
+    # does not read, beside the records or the bundles, would be missed silently.
+    run_bc = pathlib.Path(args.out).resolve().parent / "bycatch"
+    bc_dir = pathlib.Path(args.bycatch_dir) if args.bycatch_dir else run_bc
+    for other in (run_bc, bdir.resolve() / "bycatch"):
+        if other.resolve() != bc_dir.resolve() and any(
+                f.name != "bycatch.json" for f in other.glob("*.json")):
+            errors.append("by-catch files in " + str(other) + ", which this run does not read "
+                          "(it reads " + str(bc_dir) + "); pass --bycatch-dir with the folder "
+                          "that holds them")
     bycatch = read_bycatch(bc_dir, bundles, errors)
 
     if errors:
@@ -606,7 +615,7 @@ def main():
     a.add_argument("--run", required=True)
     a.add_argument("--out", required=True)
     a.add_argument("--report", help="default: TRIAGE-REPORT.md beside --out")
-    a.add_argument("--bycatch-dir", help="the by-catch folder (default: <bundles>/bycatch); "
+    a.add_argument("--bycatch-dir", help="the by-catch folder (default: bycatch/ beside --out); "
                                         "its files are checked and collected into bycatch.json")
     c = sub.add_parser("check-lanes", help="before any method runs: lanes, and what landed "
                                           "outside the caller's expected lane")

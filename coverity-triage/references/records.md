@@ -217,9 +217,14 @@ entirely:
 own check", "bycatch"). That refusal is a backstop: by-catch described in
 other words passes it, and the convention is what protects you.
 
-**Where it goes: the `bycatch/` folder of the run** (`<out>/bycatch/`),
-beside the records but never inside them. A caller can name another folder
+**Where it goes: the `bycatch/` folder of the run**, beside `triage.json`
+(the directory of `assemble --out`) but never inside the records. That is
+`<out>/bycatch/` in the layout above, and still beside `triage.json` when
+the bundles sit in a folder of their own. A caller can name another folder
 instead (`--bycatch-dir`), such as a security team's intake folder.
+`assemble` refuses to run while by-catch files sit in a `bycatch/` folder
+it is not reading (beside the records or beside the bundles), so none is
+missed silently.
 
 - **What the readers write.** One file per reader batch or verify run, named
   `<lane>-<n>.json` or `verify-<n>.json`:
