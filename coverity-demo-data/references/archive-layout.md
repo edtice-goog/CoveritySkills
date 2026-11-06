@@ -109,7 +109,7 @@ now wants it in the standard shape. Required:
 ```
 <workspace>/
   idirs/<tag>/           one ANALYZED idir per version (cov-analyze has run)
-  tag-streams.txt        "<tag> <YYYY-MM-DD> [stream]", one per line
+  tag-streams.txt        "<label> <YYYY-MM-DD> [stream [version]]", one per line
 ```
 
 The date is the release date to backdate to. The third field is the stream, and
@@ -147,7 +147,7 @@ it.
 
 ```json
 {
-  "schema": 2,
+  "schema": 5,
   "project": "proftpd",
   "dataset": "2026-10-13-releases24-defaults",
   "description": "24 releases across five branch streams, 2015-2025 ...",
@@ -159,19 +159,29 @@ it.
     "suggested_project": "proftpd"
   },
   "streams": [
-    { "tag": "v1.3.5a", "date": "2015-05-27", "stream": "proftpd-1.3.5", "cids": 176 }
+    { "tag": "v1.3.5a", "version": "v1.3.5a", "date": "2015-05-27",
+      "stream": "proftpd-1.3.5", "cids": 176 }
   ],
   "source": {
     "url": "https://github.com/proftpd/proftpd.git",
     "shas": { "v1.3.5a": "379bdb0d413f9489768c29c3a36e7bc854c85395" }
   },
   "counts": { "versions": 24, "streams": ["proftpd-1.3.5"], "cids_at_tip": 112 },
-  "audit": { "triaged": true, "triage_records": ["audit/v1.3.9/triage.json"] }
+  "capture": { "findings": { "v1.3.5a": "findings/v1.3.5a.json" },
+               "inventory": { "v1.3.5a": "capture/v1.3.5a.json" } }
 }
 ```
 
+`tag` is the version's unique label: its idir's name and the key of every
+per-version file. `version` is what the snapshot is committed as, and what
+`source.shas` resolves. They are equal unless one release is built more than
+once -- two hardware targets, say, each in its own stream -- in which case the
+two labels share one version, and a view pinned to that version shows both
+builds. Manifests before schema 5 have no `version`; read it as the `tag`.
+
 `strip_path` is the single root when the whole corpus shares one, and `null`
-otherwise; `strip_path_per_tag` always carries every version's own root. Build
+otherwise; `strip_path_per_tag` always carries every version's own root, and
+`commit.sh` passes it per label. Build
 roots need not match across versions -- merge keys are path-independent and
 `--strip-path` is per-commit -- so a corpus assembled from differently-rooted
 builds is legal. What must hold is that the *stripped* paths agree, which is

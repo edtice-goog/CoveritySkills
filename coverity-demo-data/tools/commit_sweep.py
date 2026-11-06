@@ -23,6 +23,7 @@ Usage:
   --dry-run prints the plan (order, dates, idirs) and commits nothing.
 """
 import argparse
+import json
 import pathlib
 import re
 import subprocess
@@ -34,7 +35,11 @@ def run(cmd, **kw):
 
 
 def read_tags(path, default_stream):
-    """'<tag> <YYYY-MM-DD> [stream]' per line -> [(tag, date, stream)].
+    """'<label> <YYYY-MM-DD> [stream [version]]' -> [(label, date, stream, version)].
+
+    The label names the idir; the version, which defaults to the label, is
+    what the snapshot is committed as. One release built for two targets is
+    two labels with one version, in two streams.
 
     Sorted globally by date, ACROSS streams. First detected is global per merge
     key, not per stream, so committing one stream to completion before starting
@@ -56,7 +61,7 @@ def read_tags(path, default_stream):
         if not stream:
             sys.exit(f"[FATAL] no stream for {tag!r}: give a third column "
                      f"or pass --stream")
-        out.append((tag, date, stream))
+        out.append((tag, date, stream, parts[3] if len(parts) > 3 else tag))
     out.sort(key=lambda t: t[1])
     return out
 
@@ -128,7 +133,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--idirs-root", required=True)
     ap.add_argument("--tags", required=True,
-                    help="file of '<tag> <YYYY-MM-DD>' lines; sorted here")
+                    help="file of '<label> <YYYY-MM-DD> [stream [version]]' "
+                         "lines; sorted here")
     ap.add_argument("--url", required=True)
     ap.add_argument("--auth-key-file", required=True,
                     help="rule 28: the target comes from --url, never from "
@@ -137,6 +143,9 @@ def main():
                     help="destination stream; overridden per-tag by an "
                          "optional third column in --tags")
     ap.add_argument("--strip-path", default="")
+    ap.add_argument("--strip-map",
+                    help="JSON file {label: prefix}; overrides --strip-path per "
+                         "label, for corpora built under more than one root")
     ap.add_argument("--cov-bin", required=True,
                     help="Coverity Analysis bin dir (cov-commit-defects)")
     ap.add_argument("--platform-bin",
@@ -154,18 +163,25 @@ def main():
     # "/home/me/demo/proj" arrives as "C:/Program Files/Git/home/me/demo/proj".
     # Set MSYS_NO_PATHCONV=1 there. Either way, verify after the first commit
     # rather than trusting the argument.
-    strip = args.strip_path
+    strip_map = {}
+    if args.strip_map:
+        strip_map = json.loads(pathlib.Path(args.strip_map).read_text(encoding="utf-8"))
+
+    def strip_for(tag):
+        return strip_map.get(tag) or args.strip_path
 
     # Fail before touching Connect if any idir is missing or unanalyzed.
-    missing = [t for t, _, _ in tags if not (root / t).is_dir()]
+    missing = [t for t, _, _, _ in tags if not (root / t).is_dir()]
     if missing:
         sys.exit("[FATAL] no idir for: " + ", ".join(missing))
 
-    streams = sorted({st for _, _, st in tags})
+    streams = sorted({st for _, _, st, _ in tags})
     print(f"Commit plan ({len(tags)} versions, {len(streams)} stream(s), "
           f"globally oldest first):")
-    for tag, date, st in tags:
-        print(f"  {date}  {tag:<10} -> {st}")
+    for tag, date, st, ver in tags:
+        shown = tag if ver == tag else f"{tag} (version {ver})"
+        s = strip_for(tag)
+        print(f"  {date}  {shown:<10} -> {st}" + (f"   strip {s}" if s else ""))
     if args.dry_run:
         print("\n--dry-run: nothing committed.")
         return 0
@@ -175,16 +191,17 @@ def main():
               "post-commit invariant check. On a one-shot phase this is a "
               "poor trade.", file=sys.stderr)
 
-    stripped_ok = False
+    stripped_ok = set()
 
     print("\nThis phase is NOT reversible. Ensure the Step 0 backup exists.\n")
-    for tag, date, stream in tags:
+    for tag, date, stream, version in tags:
+        strip = strip_for(tag)
         before = first_detected_counts(args.platform_bin) if args.platform_bin else {}
         cmd = [str(pathlib.Path(args.cov_bin) / "cov-commit-defects"),
                "--dir", str(root / tag), "--url", args.url,
                "--auth-key-file", args.auth_key_file, "--stream", stream,
                "--backdate", date.replace("-", ""),
-               "--description", tag, "--version", tag]
+               "--description", version, "--version", version]
         if strip:
             cmd += ["--strip-path", strip]
 
@@ -208,8 +225,9 @@ def main():
             new = after.get(date, 0) - before.get(date, 0)
             print(f"           ok: snapshot dated {date}, "
                   f"{new} newly-originated CID(s)")
-            if strip and not stripped_ok:
-                stripped_ok = True
+            # Once per distinct prefix: each root is its own silent no-op risk.
+            if strip and strip not in stripped_ok:
+                stripped_ok.add(strip)
                 if unstripped_paths(args.platform_bin, strip):
                     sys.exit(
                         f"[FATAL] --strip-path {strip!r} stripped nothing -- "

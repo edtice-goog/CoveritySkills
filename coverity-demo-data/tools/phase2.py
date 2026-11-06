@@ -139,7 +139,7 @@ def main() -> int:
     ap.add_argument("versions", nargs="*",
                     help="tag=idir pairs, in CHRONOLOGICAL order")
     ap.add_argument("--tags",
-                    help="file of '<tag> <YYYY-MM-DD> [stream]' lines. Enables "
+                    help="file of '<label> <YYYY-MM-DD> [stream [version]]' lines. Enables "
                          "stream-aware reporting: per-stream population tables "
                          "plus the global first-detected projection.")
     ap.add_argument("--idirs-root", default="idirs")

@@ -345,7 +345,22 @@ signals:
 - The project's own release notes, which usually name the lines outright
 
 Then write `<tag> <date> <stream>` per line and sanity-check that each stream
-reads as one lineage moving forward. Getting this wrong is recoverable (see
+reads as one lineage moving forward.
+
+**One release built more than once** -- for two hardware targets, or two
+configurations -- goes in **parallel streams, one per build**, each carrying the
+release's own tag as its version, so a view pinned to that tag shows both
+builds' defects side by side. The first column is a label that names one idir,
+so give each build its own label and the shared version as a fourth column:
+
+```
+arm-v3.15   2020-05-17  proj-arm   v3.15
+x86-v3.15   2020-05-17  proj-x86   v3.15
+```
+
+Do not fold the target into the version. Commit the streams together,
+interleaved by date: they share most merge keys, so first detected depends on
+the global order. Getting this wrong is recoverable (see
 Step 0); getting it wrong *silently* is what to avoid, so state the mapping you
 chose and why before committing.
 

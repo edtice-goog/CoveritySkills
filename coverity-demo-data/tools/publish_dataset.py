@@ -49,7 +49,13 @@ import datetime
 #      triage, so a dataset carries no verdicts to describe. Triage is
 #      invoked separately against a published dataset and its output
 #      stays with whoever ran it.
-SCHEMA = 4
+#   5: streams[] carries "version" beside "tag". The tag is the unique
+#      label (idir name, file key); the version is the snapshot version
+#      and the git ref. They differ when one release is built twice --
+#      e.g. for two targets in parallel streams -- and a consumer that
+#      read the tag as the version would commit "<target>-v1.0" where
+#      "v1.0" was meant. Absent in older manifests: version == tag.
+SCHEMA = 5
 
 
 def fail(msg):
@@ -58,7 +64,14 @@ def fail(msg):
 
 
 def read_tags(path, default_stream="default"):
-    """'<tag> <YYYY-MM-DD> [stream]' per line, sorted globally by date.
+    """'<label> <YYYY-MM-DD> [stream [version]]' per line, sorted globally by date.
+
+    The label is the unique key: the idir's directory name and the name of
+    every per-version file. The version is what the snapshot is committed as
+    and what git resolves; it defaults to the label. They differ when one
+    release is built more than once -- two targets in two parallel streams
+    carry the same version under two labels, so a view pinned to that
+    version shows both builds side by side.
 
     Date only, and stable: versions that share a date keep the file's order.
     --backdate is day-granular, so a parent and child committed the same day
@@ -78,9 +91,20 @@ def read_tags(path, default_stream="default"):
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
             fail(f"bad date for {tag!r}: {date!r} (want YYYY-MM-DD)")
         rows.append({"tag": tag, "date": date,
-                     "stream": parts[2] if len(parts) > 2 else default_stream})
+                     "stream": parts[2] if len(parts) > 2 else default_stream,
+                     "version": parts[3] if len(parts) > 3 else tag})
     if not rows:
         fail(f"no versions in {path}")
+    labels = collections.Counter(r["tag"] for r in rows)
+    dup = sorted(t for t, n in labels.items() if n > 1)
+    if dup:
+        fail(f"label used more than once in {path}: {', '.join(dup)} -- a label "
+             f"names one idir; to put one release in two streams, give each "
+             f"its own label and the shared version as the fourth column")
+    per_stream = collections.Counter((r["stream"], r["version"]) for r in rows)
+    dup = sorted(f"{v} in {s}" for (s, v), n in per_stream.items() if n > 1)
+    if dup:
+        fail(f"version committed twice to one stream in {path}: {', '.join(dup)}")
     rows.sort(key=lambda r: r["date"])
     return rows
 
@@ -181,7 +205,7 @@ def same_date_problems(stream, chain, source_repo):
     """
     groups = collections.defaultdict(list)
     for r in chain:
-        groups[r["date"]].append(r["tag"])
+        groups[r["date"]].append(r["version"])
     groups = {d: ts for d, ts in groups.items() if len(ts) > 1}
     if not groups:
         return []
@@ -302,11 +326,11 @@ def validate(rows, idirs_root, cov_bin, scratch, source_repo=None):
 
 
 def source_shas(repo, rows):
-    """Resolve the commit behind each tag, for reproducibility."""
+    """Resolve the commit behind each version, keyed by label."""
     git = git_cmd(repo)
     out = {}
     for r in rows:
-        p = subprocess.run(git + ["rev-parse", r["tag"] + "^{commit}"],
+        p = subprocess.run(git + ["rev-parse", r["version"] + "^{commit}"],
                            capture_output=True, text=True)
         if p.returncode == 0:
             out[r["tag"]] = p.stdout.strip()
@@ -488,8 +512,9 @@ def assemble(dataset, rows, facts, args, ws, idirs_root, version, scratch):
             "strip_path_per_tag": {r["tag"]: facts[r["tag"]]["build_root"] for r in rows},
             "suggested_project": args.project,
         },
-        "streams": [{"tag": r["tag"], "date": r["date"], "stream": r["stream"],
-                     "cids": facts[r["tag"]]["cids"]} for r in rows],
+        "streams": [{"tag": r["tag"], "version": r["version"], "date": r["date"],
+                     "stream": r["stream"], "cids": facts[r["tag"]]["cids"]}
+                    for r in rows],
         "source": {"url": url, "shas": shas},
         "counts": {
             "versions": len(rows),
