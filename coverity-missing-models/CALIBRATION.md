@@ -63,6 +63,45 @@ Also measured in every model run:
 - The original command line is line 1 of `output/summary.txt`, and the
   `cmdline: command line:` entry of `output/analysis-log.txt`.
 
+## C#: `evals/run_csharp.sh`
+
+Idioms 4 and 5 were first measured by another contributor, working on a C#
+detectability question, and reproduced here on this skill's own fixture.
+The project is captured once with `cov-build` around `dotnet build`
+(.NET SDK 9.0.305, `-p:UseSharedCompilation=false`, C# configured into a
+config file in the workdir), and every run analyzes a copy with
+`--enable UNSAFE_DESERIALIZATION --distrust-filesystem --trust-network`.
+Every case as expected on `cov-analysis-win64-2026.9.0` and
+`cov-analysis-win64-2026.6.0`, merge keys identical. After the change to
+`compare`, `run.sh` was run again on 2026.9.0: every C case as expected.
+
+| case | change | before -> after | what must change | what must not |
+|---|---|---|---|---|
+| baseline | | UNSAFE_DESERIALIZATION 1, FORWARD_NULL 1 | | `Handlers.cs:19`, the null dereference in the `MissingManifestResourceException` handler, not reported |
+| `source` | `MemoryStream(byte[])` -> `Security.NetworkSource(this)` | UNSAFE_DESERIALIZATION 1 -> 0 | `Passthrough.cs:15` gone (file bytes into the stream) | `Handlers.cs:33` kept |
+| `source-alias` | the same plus `Reference.Alias(this, buffer)` | UNSAFE_DESERIALIZATION 1 -> 0 | `Passthrough.cs:15` gone | |
+| `entry-point` | `simple_entry_point` on `Passthrough::HandleRequest`, taint `http` | UNSAFE_DESERIALIZATION 1 -> 2 | `Passthrough.cs:23` new | `Passthrough.cs:15` kept |
+| `ctor-tainted` | `method_returns_tainted_data` on the constructor | no change | console `[ERROR] Directive errors were discovered`; `directives.log`: the method "doesn't have a return" | `Passthrough.cs:23` silent |
+| `throw` | `GetString` throws under `Util.Nondet()`, else returns null | NULL_RETURNS 0 -> 1 | `Handlers.cs:14` new: the model applied | `Handlers.cs:19` still silent; `Handlers.cs:33` kept |
+
+Also measured, on 2026.9.0:
+
+- `cov-find-function --cs --include-builtins --exact --module security`
+  on `System.IO.MemoryStream::.ctor(System.Byte[])System.Void`:
+  `dataflow_param_merge(<arg 0>): from_iface -> <arg 1>`, then
+  `noescape(<arg 1>)`.
+- In `callgraph-metrics.json.gz`, the constructor's user model shows as
+  `user1` with `modelFiles` listing the library. The `GetString` model
+  applied (the new NULL_RETURNS), but `GetString` is not in the callgraph,
+  `modelFiles` is absent, and the NULL_RETURNS events carry no user-model
+  note. `compare` therefore checks no C# source by name.
+- A directive named in the dotted form (`Passthrough.HandleRequest(...)`)
+  matched nothing: console `[WARNING] Potential directive issues`, and
+  `directives.log` says the directive "does not match any methods in the
+  emit".
+- `cov-make-library` compiled each `.cs` model with `cov-emit-cs` against
+  `library/primitives.dll`, and reported `1 models successfully merged`.
+
 ## From the documentation, not measured here
 
 The customizing guide of 2026.9.0 (`doc/en/cov_customizing.html`, *Models
@@ -93,8 +132,8 @@ and primitives*):
 
 ## Not run
 
-- C++, C#, Java or Go models; taint, concurrency and function-pointer
-  primitives.
+- C++, Java or Go models; in C, the taint, concurrency and
+  function-pointer primitives; in C#, anything beyond idioms 4 and 5.
 - A large codebase: what one re-analysis iteration costs, and how the
   inventory reads on thousands of functions (`callgraph-metrics` records a
   function more than once on large idirs; `inventory` merges them by name).

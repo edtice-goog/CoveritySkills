@@ -52,6 +52,10 @@ flowchart LR
   carved out of an arena is not an alias of it, so modeling the arena's
   destroy as a free does not report uses of the objects in it; modeling
   the release function of an object that owns its arena does.
+- **In C#, overriding a framework method to add a taint source loses its
+  pass-through**, and no primitive restores it; a security directive on
+  your own method does the job and leaves the framework's model alone. A
+  `throw` added to a framework method's model adds nothing.
 - **Every finding that moves gets read.** A model can hide real defects as
   easily as it removes false ones, and it can create findings of its own.
   The compare step lists every new and every gone finding, per checker,
@@ -82,8 +86,9 @@ coverity-missing-models/
 │   └── models.py              # inventory: where each model came from; compare: what a model changed
 └── evals/
     ├── evals.json             # behaviour: model question or not, the checks, asking before re-analysis
-    ├── run.sh                 # every fixture end to end, with what must change and what must not
-    └── fixtures/              # killpath, collision, arena, pitfalls
+    ├── run.sh                 # every C fixture end to end, with what must change and what must not
+    ├── run_csharp.sh          # the C# fixture the same way
+    └── fixtures/              # killpath, collision, arena, pitfalls, csharp
 ```
 
 ## Requirements
@@ -94,3 +99,4 @@ coverity-missing-models/
 - Python 3, standard library only.
 - For `evals/run.sh`: a shell with `cp -a` (on Windows, Git Bash); the
   fixtures need no compiler, since they are captured with `cov-emit` alone.
+  `evals/run_csharp.sh` also needs the .NET SDK.

@@ -97,6 +97,19 @@
         "Separates the project's record from a generic idiom entry",
         "The idiom entry carries no names from the codebase and has a fixture"
       ]
+    },
+    {
+      "id": 8,
+      "eval_name": "csharp-framework-source",
+      "prompt": "Bytes that arrive in HandleRequest(byte[] body) come off the network, but Coverity 2026.9.0 doesn't report the BinaryFormatter.Deserialize of a MemoryStream built from them. I want to write a model of the MemoryStream(byte[]) constructor that marks the stream as a network source. (fixture: evals/fixtures/csharp)",
+      "expected_output": "Reads the constructor's built-in security model first (cov-find-function --cs --include-builtins --exact --module security) and sees dataflow_param_merge carrying the buffer's taint into the stream; explains that a user model replaces it, so streams built from other tainted bytes (a file, say) stop being reported, and that no C# primitive passes taint through; recommends a simple_entry_point directive on HandleRequest instead, named Passthrough::HandleRequest(System.Byte[])System.Object; checks with compare that HandleRequest's deserialization is new and the file case kept; notes method_returns_tainted_data cannot name a constructor.",
+      "assertions": [
+        "Reads the built-in model before overriding the framework method",
+        "Names the lost pass-through as the cost of the source model",
+        "Recommends a directive on the project's own method",
+        "Uses the :: form of the method name in the directive",
+        "Checks that the existing file-bytes finding is kept"
+      ]
     }
   ]
 }

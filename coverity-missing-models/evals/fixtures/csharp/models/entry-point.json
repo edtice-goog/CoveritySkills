@@ -1,0 +1,13 @@
+// What works instead of the source model: say where the untrusted data
+// enters, and leave MemoryStream's built-in model alone.
+{
+  "type" : "Coverity analysis configuration",
+  "format_version" : 12,
+  "language" : "C#",
+  "directives" : [
+    {
+      "simple_entry_point" : { "named" : "Passthrough::HandleRequest(System.Byte[])System.Object" },
+      "taint_kinds" : [ "http" ]
+    }
+  ]
+}

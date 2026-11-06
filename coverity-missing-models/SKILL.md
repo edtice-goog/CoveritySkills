@@ -135,7 +135,10 @@ Then the derived model of the function you mean to replace:
 analyzer derived (`returnsnull`, `dereference(<arg 0>)`, `escape(...)`,
 `escape_to_global(...)`, `write(...)`). It shows two things: the behaviour
 that is missing, and **everything your model must restate** to keep,
-because the user model replaces it all (*How a user model behaves*).
+because the user model replaces it all (*How a user model behaves*). For a
+framework method in C#, read its built-in models the same way, with `--cs
+--include-builtins --exact` and the module (`security`, `exceptions`) the
+checker uses (idiom 4).
 
 ## Step 3: Write the model
 
@@ -153,7 +156,10 @@ its model and its costs.
   hides real defects.
 - **The pitfalls:** no arithmetic in a model; no redeclaring `size_t` or any
   other type `primitives.h` declares; a C++ model must match the mangled
-  signature (*How a user model behaves*).
+  signature, a .NET model the full signature (*How a user model behaves*).
+- **In C#, a taint question may not want a model at all.** A model of a
+  framework method loses its pass-through; a security directive on your own
+  method does not (idiom 4). A throw cannot be added (idiom 5).
 - **A header on every model:** what triggered it (the finding or the
   escape), the invariant as a proposition, where the code enforces it, and
   what would break it. A model is a dismissal made permanent for every
@@ -200,7 +206,9 @@ suffix. The tool fails when any of the first four checks fails:
 
 1. **The model applied.** Every function the model source defines shows a
    `userN` model, and the library is listed. Nothing else proves it: a
-   misspelled model changes nothing, silently.
+   misspelled model changes nothing, silently. A C# model of a virtual
+   method applies without showing there, so `compare` does not check C#
+   sources: expect a behaviour the model adds instead.
 2. **The same code was analyzed.** Files, lines of code and functions match
    `summary.txt` before and after (rule 20). Paths may differ: a model
    changes which paths are explored.
@@ -307,10 +315,12 @@ coverity-missing-models/
 │   └── models.py              # inventory: where each model came from; compare: what a model changed
 └── evals/
     ├── evals.json
-    ├── run.sh                 # every fixture end to end, with what must change and what must not
+    ├── run.sh                 # every C fixture end to end, with what must change and what must not
+    ├── run_csharp.sh          # the C# fixture the same way (needs the .NET SDK)
     └── fixtures/
         ├── killpath/          # a false positive: an exit the analyzer cannot follow
         ├── collision/         # an escape: project code with a built-in model's name
         ├── arena/             # an escape: use after the arena went; owner vs arena models
-        └── pitfalls/          # a model that matches nothing; a redeclared size_t
+        ├── pitfalls/          # a model that matches nothing; a redeclared size_t
+        └── csharp/            # a source model that loses a pass-through; directives; a throw
 ```

@@ -22,7 +22,10 @@ fixture under `evals/fixtures/` and a case in `evals/run.sh`.
   models**, then models derived from the code in this analysis. So a
   built-in model outranks the project's own code of the same name (idiom 2).
 - **Matching is by name in C, by mangled name in C++** (documentation,
-  *Adding a C++ model*): a C++ model must match the signature exactly.
+  *Adding a C++ model*): a C++ model must match the signature exactly. A
+  .NET model must match the namespace, class, type parameters, method name,
+  parameter types and return type (documentation, *Models in C# and Visual
+  Basic*).
 - **Models do not do arithmetic.** Comparisons work; `+`, `-` and bitwise
   operators are not recognized (documentation, *Adding a custom model*).
   A size written `n + 1` in a model is not the size the analysis uses.
@@ -47,6 +50,19 @@ fixture under `evals/fixtures/` and a case in `evals/run.sh`.
     source code implementation of the function has been overridden by a
     user model.]"*. *Measured*. A false positive that disappears leaves no
     event to carry the note, so for that case the callgraph is the evidence.
+  - **In C#, not even that, for a virtual method.** A model of a
+    constructor showed `user1` on its mangled name
+    (`System.IO.MemoryStream::.ctor(System.Byte[])System.Void`). A model of
+    `ResourceManager.GetString`, a virtual method, applied (the null it
+    returns was reported where the result is used), yet the callgraph listed
+    neither the method nor `modelFiles`, and the event carried no note.
+    *Measured*. Prove such a model applied by a behaviour it adds: a probe
+    build of the model that returns null, for instance.
+- **A directive that matches nothing is not silent.** A security directive
+  file (`--directive-file`) is validated: a method set that matches no
+  method prints `[WARNING] ... See the contents of
+  .../output/directives.log` on the console, and the log names the
+  directive. *Measured* (C#). Contrast models, above.
 - **`--output-file <name>` writes `<name>` as given,** with no suffix added.
   *Measured*. `--model-file` is the current option; `--user-model-file`,
   deprecated since 7.7.0, was still accepted. *Measured*.
@@ -204,6 +220,65 @@ arena's allocation as an allocation (`__coverity_alloc__`) would also make
 every object whose arena is never destroyed by hand a leak, unless the
 model escapes it (`__coverity_escape__`) to say the parent arena reclaims
 it. Not measured here.
+
+## 4. A taint source added to a framework method (C#)
+
+**Recognize it.** Data that should count as untrusted reaches a sink
+unreported, and the tempting fix is a user model that makes the framework
+method it passes through a source: every `MemoryStream` built from bytes,
+say. The framework method's built-in security model carries taint through
+it, and a user model replaces that. Read it before overriding:
+
+```bash
+<bin>/cov-find-function --dir <idir> --cs --include-builtins --exact --module security \
+    --save -of <dir> 'System.IO.MemoryStream::.ctor(System.Byte[])System.Void'
+```
+
+`MemoryStream(byte[])` has `dataflow_param_merge(<arg 0>): from_iface ->
+<arg 1>`: the buffer's taint goes into the stream. *Measured*.
+
+**What the model costs.** With `Security.NetworkSource(this)` as the
+constructor's model, the deserialization of a stream built from file bytes
+(`File.ReadAllBytes`, then `BinaryFormatter.Deserialize`) was no longer
+reported (`UNSAFE_DESERIALIZATION`, run with `--distrust-filesystem
+--trust-network`, so that only the lost pass-through shows). Adding
+`Reference.Alias(this, buffer)` did not bring it back: an alias is about
+closing, not taint. *Measured*. The documented C# primitives are sources,
+sinks, sensitive sources and the reference primitives (open, close, alias,
+escape); none passes taint through (documentation).
+
+**Instead: a directive on your own method.** `simple_entry_point` names the
+method where the untrusted data arrives, and leaves the framework's models
+alone:
+
+```json
+{ "type" : "Coverity analysis configuration", "format_version" : 12, "language" : "C#",
+  "directives" : [ { "simple_entry_point" : { "named" : "Passthrough::HandleRequest(System.Byte[])System.Object" },
+                     "taint_kinds" : [ "http" ] } ] }
+```
+
+*Measured*: the deserialization in that method was reported, and the file
+case kept. The name is the form `cov-find-function` prints after `->`, with
+`::` before the method; the dotted form matched nothing. *Measured*.
+`method_returns_tainted_data` cannot name a constructor: the log says the
+method "doesn't have a return", the console prints `[ERROR] Directive
+errors were discovered`, and the analysis carries on without the directive.
+*Measured*.
+
+## 5. A throw a framework method's model lacks (C#)
+
+**Recognize it.** No findings inside a `catch` handler that real code does
+reach. A handler is analyzed only when a callee's exceptions model throws
+that exception. `ResourceManager.GetString`'s does not throw
+`MissingManifestResourceException`: a null dereference in that handler was
+not reported, while the same one in an `IOException` handler after
+`File.ReadAllText` was. *Measured*.
+
+**It cannot be modeled.** A user model of `GetString` that throws (under
+`Util.Nondet()`) applied, since its null return was reported where the
+result is used, and the handler stayed unreachable: the throw adds
+nothing. *Measured*. Code in such a handler is out of the analysis's reach;
+say so (rule 22) rather than keep writing models.
 
 ## Not a model
 

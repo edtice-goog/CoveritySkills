@@ -16,9 +16,11 @@ lists, per function, where its model came from:
     analyzer knows nothing about, ranked by `importance`
 
 `compare` checks a re-analysis with models against the run without them:
-  - every function a model source defines took its user model; a model whose
-    name matches nothing builds and analyzes without a word, and changes
-    nothing
+  - every function a C/C++ model source defines took its user model; a model
+    whose name matches nothing builds and analyzes without a word, and changes
+    nothing. C# sources are not checked this way: a model of a virtual method
+    applied without the method or the model file appearing in the callgraph,
+    so only an expectation on a behaviour the model adds shows it
   - the same code was analyzed: files, LoC and functions from summary.txt
     (paths may differ; models change which paths are explored)
   - every finding that appeared or vanished, by merge key, per checker, and
@@ -46,11 +48,15 @@ def load_cgm(idir):
 
 
 def by_identifier(functions):
-    """One row per identifier: the same function can appear in several records."""
+    """One row per function: the same function can appear in several records.
+    Keyed by mangled name, so two C# constructors (both `.ctor`) stay apart;
+    shown as Owner::identifier where the record names an owner class."""
     rows = {}
     for f in functions:
-        r = rows.setdefault(f.get("identifier"), {
-            "identifier": f.get("identifier"), "file": f.get("file"), "line": f.get("line"),
+        ident, owner = f.get("identifier"), f.get("ownerClassIdentifier")
+        r = rows.setdefault(f.get("mangledName") or ident, {
+            "identifier": ("%s::%s" % (owner, ident)) if owner else ident, "simple": ident,
+            "mangled": f.get("mangledName"), "file": f.get("file"), "line": f.get("line"),
             "hasImplementation": False, "models": [], "missingModels": [], "importance": 0})
         r["hasImplementation"] |= bool(f.get("hasImplementation"))
         for k in ("models", "missingModels"):
@@ -59,6 +65,11 @@ def by_identifier(functions):
                     r[k].append(m)
         r["importance"] = max(r["importance"], f.get("importance") or 0)
     return rows
+
+
+def find(rows, name):
+    """Rows whose simple name, Owner::name or mangled name is `name`."""
+    return [r for r in rows.values() if name in (r["simple"], r["identifier"], r["mangled"])]
 
 
 def user_tags(row):
@@ -76,7 +87,11 @@ def inventory(a):
     rows = by_identifier(functions)
     if a.name:
         for n in a.name:
-            print(show(rows[n]) if n in rows else "%-32s not in the callgraph" % n)
+            hits = find(rows, n)
+            for r in hits:
+                print(show(r))
+            if not hits:
+                print("%-32s not in the callgraph" % n)
         return 0
     rank = lambda rs: sorted(rs, key=lambda r: (-r["importance"], r["identifier"]))
     user = rank(r for r in rows.values() if user_tags(r))
@@ -167,15 +182,20 @@ def compare(a):
           (", ".join("%s=%s" % kv for kv in sorted(model_files.items())) or "no model file listed"))
     for r in sorted((r for r in rows.values() if user_tags(r)), key=lambda r: r["identifier"]):
         print("  %-32s %s" % (r["identifier"], ",".join(user_tags(r))))
-    expected = model_names(a.model_source or [])
-    for n in expected:
-        if n not in rows or not user_tags(rows[n]):
+    sources = a.model_source or []
+    c_like = [p for p in sources if not p.lower().endswith(".cs")]
+    for n in model_names(c_like):
+        hits = find(rows, n)
+        if not any(user_tags(r) for r in hits):
             ok = False
             print("  FAIL %s: defined in the model source, but no function took it%s" % (
-                n, " (not in the callgraph)" if n not in rows else ""))
-    if a.model_source and not model_files:
+                n, "" if hits else " (not in the callgraph)"))
+    if c_like and not model_files:
         ok = False
         print("  FAIL no model file in this run's callgraph-metrics: --model-file missing, or nothing matched")
+    elif sources and not c_like:
+        print("  NOTE C# models are not checked here: a model of a virtual method applies without"
+              "\n       appearing in callgraph-metrics. Expect a behaviour the model adds (--expect).")
     # 2. the same code
     sb, sa = summary(a.before), summary(a.after)
     print("\n== code analyzed (before -> after)")
