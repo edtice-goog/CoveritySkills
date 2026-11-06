@@ -91,6 +91,8 @@ evidence, in `RULES.md`:
 | 35 | Extract a function from the emit (`cov-manage-emit find --print-definitions`), never from preprocessed text |
 | 36 | A path limit counts paths x state; ask the analyzer which checker hit it (`--print-paths`) |
 | 37 | Mint auth keys with `cov-manage-im --mode auth-key`; check them over REST, never with `--show` |
+| 38 | Ask only when the session is interactive; otherwise report and stop |
+| 39 | After any `--directive-file` run, read `output/directives.log` -- a directive that does not apply is dropped with exit 0 |
 
 Numbers are stable and citable. New rules take the next free number and are
 filed under the section they belong to; a rule that turns out to be wrong is
@@ -111,6 +113,8 @@ marked superseded in place rather than renumbered.
 | "triage these findings" / "triage a sample of this run" / "are these false positives?" / which lane a finding belongs in / verdicts in Connect's triage fields, with the lane and the method in the custom `Defect Category` and `Triage Method` attributes | `coverity-triage` (asks before it spends anything; uses `coverity-verify` where the plan or a checker's own method names it) |
 | "verify this finding" / "verify CID 12345" / "is this finding real?" / "confirm the candidates" / "fuzz it" / execution-based verification of any finding / "was this fixed or just silenced?" / "check this fix" / a finding gone in the new version | `coverity-verify` (`coverity-fuzz-triage` is an alias) |
 | CVSS scores on findings / `cov-generate-cvss-report` / why a CWE scored zero | `coverity-cvss-report` |
+| "write a Coverity model" / "missing model" / false positives traced to what a function does / a defect that escaped because the analyzer did not know a function (allocator, free wrapper, no-return hook) | `coverity-missing-models` |
+| "which parts of this change aren't tested" / test gaps in a commit / "Coverity Test Advisor" / coverage says 100% but is the change tested | `coverity-test-advisor` |
 | An auth key: create one, check one, a 401 from Connect | here -- *Connecting to Coverity Connect* |
 | Anything else, or you do not yet know which | here |
 
