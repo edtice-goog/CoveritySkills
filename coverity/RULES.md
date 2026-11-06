@@ -1018,6 +1018,28 @@ gave 16 at defaults and 189 under `--all --aggressiveness-level high`.
 Source: verified -- `coverity-pathout`, `references/path-explosion.md`,
 `references/analysis-log.md`.
 
+### 39. After any `--directive-file` run, read `output/directives.log`
+
+A security directive that loads but does not apply is dropped, and the
+analysis carries on without it. `cov-analyze` exits 0, prints one line
+pointing at `<idir>/output/directives.log`, and reports nothing from the
+directive. The reason is in that file and nowhere else.
+
+- A pattern with a typo, matching no method, is the quietest case: the console
+  line is only a `[WARNING]`.
+- A pattern that matches only methods the directive cannot apply to, such as a
+  `method_returns_tainted_data` that matches a constructor, gets an `[ERROR]`
+  line. Exit status and the run are unchanged.
+
+Only malformed JSON or an unknown directive name stops the run (exit 2).
+
+So nothing a directive run shows means anything until that log is empty --
+least of all "no change" or "not found" (rule 20).
+
+Source: verified -- reproduced on a synthetic Java fixture, 2026.9.0, after a
+`coverity-defect-detectability` run reported it for C#; C# was not re-run
+here. See `CALIBRATION.md`.
+
 ---
 
 ## Committing to Coverity Connect

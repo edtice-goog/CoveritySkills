@@ -40,7 +40,7 @@ This skill answers one question: *can Coverity detect this defect, and with
 what configuration?* It delivers an empirical detectability verdict, the
 minimal configuration that reports the defect, and a command to reproduce it.
 
-Two things it deliberately does not do:
+Three things it deliberately does not do:
 
 - **Triaging real findings.** Deciding whether a finding Coverity already
   reported is a true or false positive, and recording a verdict on it, is a
@@ -49,6 +49,13 @@ Two things it deliberately does not do:
 - **Reasoning about what a checker "should" do** in the abstract. The method
   here is to run Coverity and report what it actually does; speculation about
   intended behavior is out of scope (and, as noted above, a trap to avoid).
+- **Writing user models.** When the reason Coverity misses or misreports a
+  defect is an inaccurate model of some function's behaviour — a custom
+  allocator or free wrapper, a function that never returns, an external with
+  no source, or a wrapper that should carry taint — writing and proving that
+  model belongs to `coverity-missing-models`. This skill establishes *whether*
+  a defect is detectable and under what configuration; when the answer turns
+  on modeling, hand off to `coverity-missing-models`.
 
 **Asking vs proceeding (rule 38).** Some points here are the user's to decide:
 the installation path (Step 0), confirming the target defect when the reading
