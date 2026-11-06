@@ -28,7 +28,7 @@ what is reasoned rather than measured.
       leaves a candidate checker pending with its candidates; marks a checker
       no table has as unplaced; and, with a producer's table, places that
       checker with its own method and route.
-  - **`records.py`:** one good assembly, and twenty-seven refusals, each
+  - **`records.py`:** one good assembly, and twenty-eight refusals, each
     writing nothing:
     - a global invariant with no location;
     - a word outside the verdict set;
@@ -56,9 +56,10 @@ what is reasoned rather than measured.
     - a reason written in by-catch phrasing ("Side observation: ...");
     - a by-catch item with no claim;
     - a by-catch item naming a finding that was not bundled;
-    - a by-catch file with no method that noticed it.
-  - **Compiler headers and a later release**, on a fixture of its own, in 15
-    cases:
+    - a by-catch file with no method that noticed it;
+    - by-catch files in a `bycatch/` folder the run does not read.
+  - **Compiler headers, what was triaged, and a later release**, on a
+    fixture of its own, in 18 cases:
     - A finding in libstdc++ (`/usr/include/c++/13/...`) and one in MSVC's
       `VC/Tools/MSVC/<version>/include` are marked compiler headers. One in
       `/usr/include/stdio.h` is not, and one in a directory given with
@@ -71,6 +72,12 @@ what is reasoned rather than measured.
     - Refused: a verdict for one, an override on one, the header lane on a
       finding not in a header, a table lane on one in a header, and a
       tampered record.
+    - Every comment ends with `Triaged against <project> <version> from
+      <date>.`. By default the project is the repository's directory name
+      and the date is the tagged commit's; `--name` and `--version-date`
+      set them. Refused: a malformed `--version-date`, any verdict while
+      `index.json` lacks the date, and (in `validate`) a comment without
+      the line.
     - A second release with `--prior` (the first release's records) leaves
       out the keys with a verdict, a Policy key and a compiler header. It
       bundles again a key with no verdict, and a new one. A key named with
@@ -79,9 +86,11 @@ what is reasoned rather than measured.
 
     Shown working:
     - by-catch collected into `bycatch/bycatch.json` (from the default
-      folder, and from one named with `--bycatch-dir`), announced on stdout
-      (`by-catch: 1 item(s) in ...`, or `by-catch: none`), and absent from
-      `triage.json` and the report;
+      folder beside `triage.json`, and from one named with `--bycatch-dir`),
+      announced on stdout (`by-catch: 1 item(s) in ...`, or `by-catch:
+      none`), and absent from `triage.json` and the report; by-catch files
+      in a folder the run does not read (beside bundles kept apart from the
+      records) are refused, not missed;
     - a checker's own method beats the lane's plan, and verify's route and
       inventory are carried into the evidence;
     - a plan-wide route beats a row's route;
@@ -297,8 +306,9 @@ what is reasoned rather than measured.
   - The records use the attribute names of Connect's triage-store export and
     the REST triage write.
   - `connect_apply.py` has run against the fake Connect in
-    `evals/test_tools.py` only, in 13 cases. They cover a plan that writes
-    nothing; an apply that skips a finding someone triaged; a second apply
+    `evals/test_tools.py` only, in 14 cases. They cover a plan that writes
+    nothing and prints the version the records were judged at; an apply
+    that skips a finding someone triaged; a second apply
     that writes nothing; `--overwrite`; a record not in the stream; a value
     that does not take, caught by the read-back; and refusals for a missing
     attribute or value, a file that is not a records file, an unknown

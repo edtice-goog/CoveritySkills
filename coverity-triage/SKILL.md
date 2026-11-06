@@ -123,9 +123,8 @@ lane's method, and writes the records and a report.
   can follow in a demo is still a correct verdict; demo-worthiness belongs
   to `coverity-demo-data`.
 - **Write triage history.** It triages open findings in a stream's latest
-  snapshot. Putting triage onto a dataset's earlier snapshots, as when a
-  dataset is published release by release, is the job of whoever loads the
-  dataset into Connect.
+  snapshot. Triage for a dataset's earlier snapshots is the job of whoever
+  loads the dataset into Connect.
 
 ## Cost: nothing starts on a default
 
@@ -175,7 +174,7 @@ triages because a step in its procedure came up.
 | earlier releases' records | for every release after the first: the `triage.json` of each earlier release (`--prior`, *Step 1*), so only the delta is triaged |
 | the checker tables | the skill's own `references/checker-lanes.json`, plus any organization or producer table (`--table`, *Step 2*) |
 | the plan | the method per lane (*Step 3*), the model for inference, and optionally a verify route for the whole plan |
-| the by-catch folder | where defects noticed outside the selected findings go: `<out>/bycatch/`, beside the records and never in them, or a folder the caller names (`references/records.md`, *By-catch*) |
+| the by-catch folder | where defects noticed outside the selected findings go: `bycatch/` beside `triage.json`, never in the records, or a folder the caller names with `--bycatch-dir` (`references/records.md`, *By-catch*) |
 
 ## Step 1: Bundle the selection
 
@@ -183,8 +182,20 @@ triages because a step in its procedure came up.
 python3 tools/bundle.py --issues <findings.json> --git-repo <repo> --tag <tag> \
     --strip-prefix <build-root> [--per-checker N] [--merge-key K ...] [--all] \
     [--prior <earlier triage.json> ...] [--compiler-header <dir> ...] \
-    --out <dir> [--plan]
+    [--name <project>] [--version-date YYYY-MM-DD] --out <dir> [--plan]
 ```
+
+**Say what is being triaged.** Every triage comment ends with it, for
+example `Triaged against ProFTPD v1.3.9 from 2025-03-14.` Connect's "last
+triaged" date says when an answer was written, not what it was about, and
+cannot be backdated. The line also explains small mismatches, such as an
+answer read against a slightly different version. `--name` is the project
+as its readers know it, with the build when builds of one version are
+triaged apart (`Rockbox ipodvideo`); default: the git repository's
+directory name. The version is `--tag`.
+`--version-date` is the version's date (default: the date of the commit the
+tag names). With `--idir`, give both `--name` and `--version-date`: without
+them the records step refuses every verdict.
 
 **One release at a time, oldest first.** Never select across a dataset's
 releases in one run. Triage the first release. For each later release, pass
@@ -436,6 +447,20 @@ Interactive, show the plan and ask. Unattended, run the plan only, report
 it, and stop, unless the inputs already say to apply (rule 38). Each apply
 decides whether to set the standard attributes only, or the two custom ones
 as well.
+
+**Triage lives in triage stores.** A CID has one answer per triage store,
+and the streams that share a store share it. Streams with stores of their
+own, one per build target say, can hold different answers for the same
+CID, since a defect in one build can be harmless in another. Apply writes
+to the stream's own store. Every comment ends with what was triaged
+(*Step 1*), so a reader can tell which code an answer was about.
+
+**A changed decision** (a new reading, or a commit that changes it) is
+applied again with `--overwrite`, from records that hold only the changed
+findings, after checking that each finding's current answer is this
+skill's own: its last comment ends with this skill's two closing lines. A
+field the new record leaves null keeps its old value, so a move to
+*unresolved* leaves the old Classification in place.
 
 **1. The custom attributes.** Skip this with `--standard-only`.
 

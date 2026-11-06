@@ -217,9 +217,14 @@ entirely:
 own check", "bycatch"). That refusal is a backstop: by-catch described in
 other words passes it, and the convention is what protects you.
 
-**Where it goes: the `bycatch/` folder of the run** (`<out>/bycatch/`),
-beside the records but never inside them. A caller can name another folder
+**Where it goes: the `bycatch/` folder of the run**, beside `triage.json`
+(the directory of `assemble --out`) but never inside the records. That is
+`<out>/bycatch/` in the layout above, and still beside `triage.json` when
+the bundles sit in a folder of their own. A caller can name another folder
 instead (`--bycatch-dir`), such as a security team's intake folder.
+`assemble` refuses to run while by-catch files sit in a `bycatch/` folder
+it is not reading (beside the records or beside the bundles), so none is
+missed silently.
 
 - **What the readers write.** One file per reader batch or verify run, named
   `<lane>-<n>.json` or `verify-<n>.json`:
@@ -275,11 +280,13 @@ shares `bycatch/` with it, and the folder's name says so.
  "run": { ...run.json..., "tables": ["references/checker-lanes.json"],
           "source": {"issues": "v1.3.9.json", "git_repo": "...", "tag": "v1.3.9",
                      "source": {"mode": "git", "repo": "...", "rev": "v1.3.9"},
-                     "strip_prefix": "/home/me/proftpd"} },
+                     "strip_prefix": "/home/me/proftpd",
+                     "triaged_against": {"project": "ProFTPD", "version": "v1.3.9",
+                                         "date": "2025-03-14"}} },
  "records": [
   {"mergeKey": "6b0b0c...",
    "checker": "NULL_RETURNS",
-   "judged": {"tag": "v1.3.9",
+   "judged": {"tag": "v1.3.9", "project": "ProFTPD", "date": "2025-03-14",
               "sites": [{"file": "modules/mod_log.c", "line": 1324, "function": "log_openfile"}]},
    "lane": "Contract",
    "lane_reason": "a callee's NULL return is used",
@@ -288,7 +295,7 @@ shares `bycatch/` with it, and the folder's name says so.
    "verdict": "false positive - global invariant",
    "triageState": {"classification": "False Positive", "action": "Ignore",
                    "severity": null,
-                   "comment": "False positive (global invariant): The else branch ...\n[coverity-triage 2026-10-28] Lane: Contract (assigned by checker table). Method: LLM: Sonnet 5.5, read, not executed.",
+                   "comment": "False positive (global invariant): The else branch ...\n[coverity-triage 2026-10-28] Lane: Contract (assigned by checker table). Method: LLM: Sonnet 5.5, read, not executed.\nTriaged against ProFTPD v1.3.9 from 2025-03-14.",
                    "customTriage": {"Defect Category": "Contract",
                                     "Triage Method": "LLM: Sonnet 5.5"}},
    "evidence": {"reason": "...", "invariant": "...", "enforced_at": "...", "breaks_if": "...",
@@ -306,6 +313,9 @@ shares `bycatch/` with it, and the folder's name says so.
   export: `classification`, `action`, `severity`, `comment`, and
   `customTriage` for custom attributes. **`null` means leave that
   attribute alone** on the target.
+- **`judged`** says what was triaged: `tag` (the version), `project` and
+  `date` (from `index.json`'s `triaged_against`). Every comment ends with
+  them (*The comment*).
 - **`judged.sites`** lists every site the merge key was reported at in
   this version. A merge key does not depend on the file, so copy-pasted
   code in two files can share one key; a verdict on it covers all of them,
@@ -348,11 +358,25 @@ classification takes False Positive instead.
 ```
 <Label>: <reason>
 [coverity-triage <date>] Lane: <lane> (assigned by <checker table | assigner>). Method: <method>, <read, not executed | executed>.
+Triaged against <project> <version> from <version date>.
 ```
 
 with `<Label>` one of *Real defect*, *Real defect, low severity*,
 *Intentional*, *False positive (global invariant)*, *False positive
 (heuristic misfire)*, *Unresolved*.
+
+- **The last line says what was triaged**, for example `Triaged against
+  ProFTPD v1.3.9 from 2025-03-14.` Connect's own "last triaged" date
+  records when an answer was written, not what it was about, and cannot be
+  backdated. So the comment says it.
+- **Where it comes from:** `bundle.py` writes it to `index.json`
+  (`triaged_against`). The project is `--name` (default: the git
+  repository's directory name). The version is `--tag`. The date is
+  `--version-date` (default: the date of the commit the tag names; with
+  `--idir`, it must be given).
+- **No comment without it.** `assemble` refuses every verdict, and every
+  compiler-header record, while `index.json` lacks any of the three.
+  `validate` refuses a comment that does not end with it.
 
 - For a global invariant, the reason is followed by `Invariant: ...
   Enforced at: ... Breaks if: ...`.
@@ -417,6 +441,8 @@ sends.
   snapshot scope, so it returns only the findings in the stream's latest
   snapshot (measured on 2026.9.0). A merge key last reported in an earlier
   snapshot is reported as not found.
+- **The judged version.** The plan prints the records' `judged.tag`
+  (`judgedAt` in `--json`).
 - **The triage store.** A GET on `/api/v2/streams/<name>` gives the stream's
   `triageStoreName`, and the write goes to that store.
 - **The write.** A PUT to `/api/v2/issues/triage?triageStoreName=<store>`

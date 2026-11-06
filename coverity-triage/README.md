@@ -78,6 +78,9 @@ Connect's own attribute names, and two tools take it there over REST:
 - **Releases are triaged one at a time, oldest first, and a later release
   only for its delta.** `bundle.py --prior` takes the earlier releases'
   records and leaves out every merge key they already settled.
+- **Every triage comment says what was triaged**, on its last line:
+  `Triaged against ProFTPD v1.3.9 from 2025-03-14.` Connect's own "last
+  triaged" date says when, not which version.
 - **A finding in a compiler's own headers** (libstdc++, MSVC's and the
   like) is a residual false positive. It is recorded Intentional by rule,
   with no model and no method, so it never shows as outstanding again.
