@@ -344,18 +344,58 @@ def validate(rows, idirs_root, cov_bin, scratch, source_repo=None, scm_root=None
     by_stream = collections.defaultdict(list)
     for r in rows:
         by_stream[r["stream"]].append(r)
+    #
+    # A low overlap is a strip mistake -- unless upstream moved the files. The
+    # two are told apart by the root: with ONE strip root on both sides, the
+    # stripping is identical, so a disagreement can only come from the tree
+    # itself. Then the basenames still match (src/x/A.java ->
+    # src/main/java/x/A.java), and the break is real history to report, not a
+    # dataset to refuse. With different roots, a basename match proves nothing:
+    # per-version checkout directories under a too-short root look the same.
+    history_breaks = []
     for stream, chain in sorted(by_stream.items()):
         for a, b in zip(chain, chain[1:]):
             fa, fb = facts[a["tag"]]["stripped"], facts[b["tag"]]["stripped"]
             shared = len(fa & fb)
+            if shared >= 0.5 * max(len(fa), 1):
+                continue
+            base = lambda s: {p.rsplit("/", 1)[-1] for p in s}
+            tail = lambda s: {p.split("/", 1)[1] for p in s if "/" in p}
+            ba = base(fa)
+            same_root = facts[a["tag"]]["build_root"] == facts[b["tag"]]["build_root"]
+            shared_base = len(ba & base(fb))
+            # Paths that agree once the top directory is dropped, built in
+            # different directories, are not a move: that is one strip root laid
+            # over per-version checkouts. (Built in the same directory, a
+            # top-level rename such as source/ -> src/ is a real move.)
+            top_only = len(tail(fa) & tail(fb)) >= 0.5 * max(len(fa), 1)
+            moved_cwd = facts[a["tag"]]["build_cwd"] != facts[b["tag"]]["build_cwd"]
+            if top_only and moved_cwd:
+                problems.append(
+                    f"{stream}: {a['tag']} -> {b['tag']} differ only in their top "
+                    f"directory -- one strip root over per-version checkouts? "
+                    f"Strip each version at its own checkout")
+                continue
+            if same_root and shared_base >= 0.5 * max(len(ba), 1):
+                history_breaks.append({
+                    "stream": stream, "from": a["tag"], "to": b["tag"],
+                    "shared_paths": shared, "shared_basenames": shared_base,
+                    "basenames": len(ba)})
+                continue
             if shared == 0:
                 problems.append(
                     f"{stream}: {a['tag']} and {b['tag']} share no stripped "
                     f"file paths -- the UI will not line files up across them")
-            elif shared < 0.5 * max(len(fa), 1):
+            else:
                 problems.append(
                     f"{stream}: {a['tag']} -> {b['tag']} share only {shared} "
                     f"stripped paths of {len(fa)} -- check the build roots")
+    for h in history_breaks:
+        facts[h["to"]]["history_break"] = h
+        print(f"[warn] {h['stream']}: file history does not line up across "
+              f"{h['from']} -> {h['to']}: upstream moved files ({h['shared_paths']} "
+              f"paths shared, {h['shared_basenames']} of {h['basenames']} "
+              f"basenames). Say so in the dataset description.")
 
     # --- defect continuity within each stream ----------------------------
     for stream, chain in sorted(by_stream.items()):
@@ -532,11 +572,13 @@ def assemble(dataset, rows, facts, args, ws, idirs_root, version, scratch):
         log = ws / "logs" / f"{tag}.build.log"
         n = None
         if log.is_file():
-            hits = re.findall(r"^Emitted (\d+) C/C\+\+ compilation units",
+            # One summary line per language ("C/C++", "Java", "C#", ...); a
+            # mixed build prints several. Last count per language, summed.
+            hits = re.findall(r"^Emitted (\d+) (.+?) compilation units",
                               log.read_text(encoding="utf-8", errors="replace"),
                               re.M)
             if hits:
-                n = int(hits[-1])
+                n = sum(dict((lang, int(c)) for c, lang in hits).values())
         emitted[tag] = n
         (dataset / "capture" / f"{tag}.json").write_text(json.dumps({
             "tag": tag,
@@ -601,6 +643,10 @@ def assemble(dataset, rows, facts, args, ws, idirs_root, version, scratch):
             "findings": {r["tag"]: f"findings/{r['tag']}.json" for r in rows},
             "inventory": {r["tag"]: f"capture/{r['tag']}.json" for r in rows},
             "emitted_from_build_log": emitted,
+            # Adjacent versions whose files upstream moved: Connect will not
+            # line file history up across these, by the tree's own doing.
+            "file_history_breaks": [facts[r["tag"]]["history_break"] for r in rows
+                                    if "history_break" in facts[r["tag"]]],
         },
     }
     (dataset / "MANIFEST.json").write_text(

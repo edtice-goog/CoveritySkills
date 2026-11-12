@@ -517,6 +517,11 @@ that can be made locally -- every version present and analyzed, one pinned
 analyzer across the corpus, each idir's recorded build root genuinely
 prefixing its own captured paths, stripped paths lining up across versions,
 non-zero merge-key overlap within each stream, and stream shape per rule 29.
+One exception is reported rather than refused: upstream moving its files
+(`src/` to `src/main/java/`, say) breaks the line-up for real, with the same
+strip root on both sides and the basenames still matching. Publish names the
+break, records it in `capture.file_history_breaks`, and the dataset's
+description should say so.
 A failure writes **nothing**, including no partial dataset. Committing *from*
 the library then does only quick checks, because whoever does that wants data
 in Connect promptly and could not fix a structural problem anyway. A broken
