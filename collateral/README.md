@@ -15,4 +15,5 @@ rebuild it; the build script says where the builder comes from.
 | item | what |
 |---|---|
 | [`detection-loop/`](detection-loop/) | two write-ups on running static analysis as a loop: inference on both sides of the analyzer, false-positive reasons as categories that lead to actions, meta-triage that tunes the configuration, sensitivity moved by later phases, and where to start (quiet first or targeted noise first) |
+| [`pre-sequenced-integration/`](pre-sequenced-integration/) | an essay and two diagrams on fitting slow whole-program verification into a pipeline fed by coding agents: pre-sequenced merge slots, a private agent loop per branch, dual-track verification of the next slot, and fast-forward-only admission to main |
 | [`behind-the-path-limit/`](behind-the-path-limit/) | a ten-slide worked example of `coverity-pathout`, `coverity-function-slice` and `coverity-verify` as one findings-out, enrichments-in chain: find the functions on which the analyzer applied its path bound, look behind it with shape checkers, slice, verify, and a verdict that carries its evidence |

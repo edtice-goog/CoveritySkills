@@ -1,0 +1,56 @@
+flowchart TD
+    %% Styling
+    classDef mainBranch fill:#1e293b,stroke:#38bdf8,stroke-width:2px,color:#f8fafc
+    classDef agentLoop fill:#312e81,stroke:#818cf8,stroke-width:2px,color:#f8fafc
+    classDef asyncGate fill:#064e3b,stroke:#34d399,stroke-width:2px,color:#f8fafc
+    classDef decision fill:#451a03,stroke:#fbbf24,stroke-width:2px,color:#fef3c7
+    classDef discard fill:#4c0519,stroke:#fb7185,stroke-width:1px,stroke-dasharray: 5 5,color:#ffe4e6
+
+    subgraph Sequencer ["1. Pre-Sequenced Merge Train"]
+        M0(["main (Verified Baseline)"]):::mainBranch
+        BA["Feature Branch A<br/>(Batched LLM PRs)"]
+        BB["Feature Branch B<br/>(Batched LLM PRs)"]
+        
+        M0 -->|"Slot 1: Rebase onto main"| BA
+        BA -->|"Slot 2 (Optimistic Track):<br/>Rebase onto main + A"| BB_Opt["Branch B (Track 1: main + A)"]
+        M0 -->|"Slot 2 (Fallback Track):<br/>Rebase onto main"| BB_Fall["Branch B (Track 2: main)"]
+    end
+
+    subgraph DevSandbox_A ["2. Developer-Owned Agent Loop (Slot 1)"]
+        BA --> Cov_A["Run Incremental Coverity / Async Suite"]:::asyncGate
+        Cov_A --> Check_A{"Clean?"}:::decision
+        Check_A -->|"No (SARIF + idir)"| Agent_A["Coding Agent Fixes Defect<br/>(Private Sandbox Loop)"]:::agentLoop
+        Agent_A --> Cov_A
+        Check_A -->|"Yes"| Attest_A["Signed Coverity Attestation (A)"]:::asyncGate
+    end
+
+    subgraph DevSandbox_B ["3. Dual-Track Parallel Verification (Slot 2)"]
+        BB_Opt --> Cov_B1["Run Coverity on (main + A + B)"]:::asyncGate
+        Cov_B1 --> Check_B1{"Clean?"}:::decision
+        Check_B1 -->|"No"| Agent_B1["Agent Fixes Integration Bug"]:::agentLoop
+        Agent_B1 --> Cov_B1
+        Check_B1 -->|"Yes"| Attest_B1["Signed Attestation (B_Opt)"]:::asyncGate
+
+        BB_Fall --> Cov_B2["Run Coverity on (main + B)"]:::asyncGate
+        Cov_B2 --> Check_B2{"Clean?"}:::decision
+        Check_B2 -->|"No"| Agent_B2["Agent Fixes Isolated Bug"]:::agentLoop
+        Agent_B2 --> Cov_B2
+        Check_B2 -->|"Yes"| Attest_B2["Signed Attestation (B_Fall)"]:::asyncGate
+    end
+
+    subgraph FastForwardGate ["4. Zero-Drift Fast-Forward Admission Gate"]
+        Attest_A --> Gate_A{"Slot 1 Outcome"}:::decision
+        
+        Gate_A -->|"Pass: Fast-Forward main"| M1(["main + A"]):::mainBranch
+        Gate_A -->|"Evicted / Timeout"| M_Unchanged(["main (Unchanged)"]):::mainBranch
+
+        M1 --> Select_Opt{"Select Track 1"}:::decision
+        Attest_B1 --> Select_Opt
+        Select_Opt -->|"Fast-Forward"| M2_Opt(["main + A + B"]):::mainBranch
+        Attest_B2 -.->|"Discard Fallback"| Trash1["Drop Track 2"]:::discard
+
+        M_Unchanged --> Select_Fall{"Select Track 2"}:::decision
+        Attest_B2 --> Select_Fall
+        Select_Fall -->|"Fast-Forward"| M2_Fall(["main + B"]):::mainBranch
+        Attest_B1 -.->|"Discard Optimistic"| Trash2["Drop Track 1"]:::discard
+    end

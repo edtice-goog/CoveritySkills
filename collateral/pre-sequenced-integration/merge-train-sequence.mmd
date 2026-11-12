@@ -1,0 +1,68 @@
+sequenceDiagram
+    autonumber
+    actor Seq as Merge Sequencer
+    participant Git as Git Remote (main)
+    participant AgentA as Slot 1 Agent Sandbox<br/>(Branch A)
+    participant CovA as Coverity Engine<br/>(Slot 1 idir)
+    participant AgentB as Slot 2 Agent Sandbox<br/>(Branch B: Dual-Track)
+    participant CovB as Coverity Engine<br/>(Slot 2 idirs)
+
+    Note over Seq,Git: 1. Pre-Sequencing & Dual-Track Dispatch
+    Seq->>Git: Read current HEAD (SHA_0)
+    Seq->>AgentA: Assign Slot 1 (Base: SHA_0)
+    Seq->>AgentB: Assign Slot 2 (Optimistic: SHA_0+A | Fallback: SHA_0)
+
+    par Slot 1 Execution
+        AgentA->>Git: git rebase SHA_0
+        AgentA->>CovA: cov-build & cov-analyze --dir idir_A
+        alt Coverity Finds Defect
+            CovA-->>AgentA: Export defects.sarif + persist idir_A
+            loop Developer-Owned Inner Loop
+                AgentA->>AgentA: Patch defect using SARIF trace
+                AgentA->>CovA: Incremental cov-build & cov-analyze --dir idir_A
+            end
+        end
+        CovA-->>AgentA: Clean Pass (0 new defects)
+        AgentA->>AgentA: Sign Attestation(TreeSHA_A, Parent: SHA_0)
+    and Slot 2 Parallel Branch Prediction
+        par Track 1 (Optimistic: main + A + B)
+            AgentB->>AgentB: git rebase (SHA_0 + A)
+            AgentB->>CovB: cov-build & cov-analyze --dir idir_B_opt
+            opt Integration Defect Found
+                CovB-->>AgentB: Export opt_defects.sarif
+                AgentB->>AgentB: Patch integration bug (with Branch A diff context)
+                AgentB->>CovB: Incremental cov-analyze --dir idir_B_opt
+            end
+            CovB-->>AgentB: Clean Pass
+            AgentB->>AgentB: Sign Attestation(TreeSHA_B_opt, Parent: SHA_0+A)
+        and Track 2 (Fallback: main + B)
+            AgentB->>AgentB: git rebase SHA_0
+            AgentB->>CovB: cov-build & cov-analyze --dir idir_B_fall
+            opt Isolated Defect Found
+                CovB-->>AgentB: Export fall_defects.sarif
+                AgentB->>AgentB: Patch isolated bug
+                AgentB->>CovB: Incremental cov-analyze --dir idir_B_fall
+            end
+            CovB-->>AgentB: Clean Pass
+            AgentB->>AgentB: Sign Attestation(TreeSHA_B_fall, Parent: SHA_0)
+        end
+    end
+
+    Note over Seq,Git: 2. Fast-Forward Admission & Outcome Selection
+    alt Slot 1 Passes Within Budget
+        AgentA->>Git: git push --ff-only main (Commit A + Attestation_A)
+        Git->>Git: Verify Parent == SHA_0 & Attestation Signature
+        Git-->>AgentA: Fast-Forward Accepted (New HEAD: SHA_1)
+        Git-->>AgentB: Event: main updated to SHA_1
+        AgentB->>AgentB: Discard Track 2 (idir_B_fall)
+        AgentB->>Git: git push --ff-only main (Commit B_opt + Attestation_B_opt)
+        Git->>Git: Verify Parent == SHA_1 & Attestation Signature
+        Git-->>AgentB: Fast-Forward Accepted (New HEAD: SHA_2)
+    else Slot 1 Evicted / Timed Out
+        AgentA-->>Seq: Report Eviction (main remains SHA_0)
+        Seq-->>AgentB: Event: Slot 1 Evicted (HEAD still SHA_0)
+        AgentB->>AgentB: Discard Track 1 (idir_B_opt)
+        AgentB->>Git: git push --ff-only main (Commit B_fall + Attestation_B_fall)
+        Git->>Git: Verify Parent == SHA_0 & Attestation Signature
+        Git-->>AgentB: Fast-Forward Accepted (New HEAD: SHA_1)
+    end
