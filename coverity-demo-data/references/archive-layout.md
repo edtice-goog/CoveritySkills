@@ -58,8 +58,25 @@ collide.
 
 **Store idirs uncompressed.** Compression and decompression time does not pay
 for itself on a fast network, and it makes running directly from the archive
-host worse. Budget roughly 29 MB per analyzed version -- about 700 MB for a
-24-version corpus.
+host worse.
+
+**Budget storage as k x source size x versions,** where source size is one
+version's checkout (`git archive <tag> | tar -tvf -`, summed) and k depends
+heavily on the language and the analysis options. Two measured corpora, both
+analyzed idirs on Coverity 2026.9.0:
+
+| corpus | language, options | source per version | idir per version | k |
+|---|---|---|---|---|
+| proftpd, 24 releases | C, default checkers | 51-61 MB | 26-33 MB | about 0.5 |
+| Traccar, 97 releases | Java, `--webapp-security` | 0.3-6.5 MB | 0.2-1.8 GB | about 270 overall, 150-300 per version |
+
+The gap is mostly not the project's own code. A Java capture also emits
+bytecode for every classpath jar and the JDK modules, which is a fixed cost
+that grows with the dependency list rather than the source. That is why k is
+highest for the smallest versions (about 680 for Traccar's first). Expect C
+and C++ near the low end and Java near the high end. For anything else,
+capture and analyze one version, take k from it, and use the newest version's
+source size, since both source and k tend to grow over a project's history.
 
 ## MANIFEST.json
 
