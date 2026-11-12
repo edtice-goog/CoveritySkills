@@ -7,3 +7,6 @@
 
 # Same reasoning for tool scripts invoked with a shebang.
 *.py text eol=lf
+
+# Built decks in collateral/ are binary; never touch their line endings.
+*.pptx binary

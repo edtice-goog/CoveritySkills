@@ -6,7 +6,8 @@
   records.py check-lanes --bundles <dir> --lanes lanes.json [--run run.json]
   records.py validate <triage.json>
 
-assemble joins index.json (tools/bundle.py), the lane assignment and the
+assemble joins index.json (tools/bundle.py), the lane assignment
+(tools/lanes.py, then inference for the findings it left pending) and the
 verdict files by merge key, maps each verdict onto Connect's triage fields,
 and writes triage.json plus TRIAGE-REPORT.md. Every check runs before
 anything is written; one failure writes nothing.
@@ -18,9 +19,15 @@ import pathlib
 import re
 import sys
 
-LANES = ("Construction", "Contract", "Value or path")
-OTHER = "Other"
+METHOD_LANES = ("Construction", "Intent", "Contract", "Value or path")
+POLICY, OTHER = "Policy", "Other"
+ALL_LANES = METHOD_LANES + (POLICY, OTHER)
 METHOD = re.compile(r"^(LLM: \S.*|Execution: coverity-verify|Human|None)$")
+ROW_METHOD = re.compile(r"^(LLM: \S.*|Execution: coverity-verify|Human)$")
+EXECUTION = "Execution: coverity-verify"
+ROUTES = ("harness", "extraction")
+TABLE = "checker table"
+HEADER = "compiler header"
 INVARIANT = "false positive - global invariant"
 # verdict -> (classification, action, severity, comment label)
 MAPPING = {
@@ -32,8 +39,16 @@ MAPPING = {
                                            "False positive (heuristic misfire)"),
     "unresolved": (None, None, None, "Unresolved"),
 }
+# what coverity-verify's record says about the run, carried into evidence
+VERIFY_FIELDS = ("route", "route_reason", "as_code", "stubbed")
 COMMENT_MAX = 4000
 BAD_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+# By-catch never rides in a verdict: these are the fields and phrasings it
+# usually arrives in. A backstop only; by-catch in other words passes.
+BYCATCH_FIELDS = ("bycatch", "by_catch", "side_findings", "side_observations")
+BYCATCH_WORDS = re.compile(r"by-?catch|side observation|aside, not part of this finding"
+                           r"|present but unreported|worth its own check", re.I)
+TEXT_FIELDS = ("reason", "invariant", "enforced_at", "breaks_if")
 
 
 def read_json(path, errors, what):
@@ -44,10 +59,19 @@ def read_json(path, errors, what):
         return None
 
 
-def comment_for(label, v, lane, assigner, method, date):
+def triaged_against(judged):
+    """The line every comment ends with: what was triaged. None if judged cannot say."""
+    if not (judged.get("project") and judged.get("tag")
+            and re.match(r"^\d{4}-\d{2}-\d{2}$", str(judged.get("date") or ""))):
+        return None
+    return ("Triaged against " + str(judged["project"]) + " " + str(judged["tag"])
+            + " from " + judged["date"] + ".")
+
+
+def comment_for(label, v, lane, assigner, method, date, against):
     executed = "executed" if v.get("executed") else "read, not executed"
     tail = ("\n[coverity-triage " + date + "] Lane: " + lane + " (assigned by "
-            + assigner + "). Method: " + method + ", " + executed + ".")
+            + assigner + "). Method: " + method + ", " + executed + ".\n" + against)
     body = v["reason"].strip()
     if v["verdict"] == INVARIANT:
         body += ("\nInvariant: " + v["invariant"].strip() + "\nEnforced at: "
@@ -60,6 +84,62 @@ def comment_for(label, v, lane, assigner, method, date):
     return head + body + tail
 
 
+def read_lanes(lanes, bundles, run, errors):
+    """lanes.json -> {merge key: entry}, checking every entry and that nothing is pending."""
+    pending = lanes.get("pending") or []
+    if pending:
+        unplaced = sorted({str(p.get("checker")) for p in pending if p.get("unplaced")})
+        errors.append("lanes.json: " + str(len(pending)) + " finding(s) still pending ("
+                      + str(len(pending) - sum(1 for p in pending if p.get("unplaced")))
+                      + " for inference" + ("; unplaced checkers: " + ", ".join(unplaced)
+                                            if unplaced else "") + "); resolve them first")
+    assigner = run.get("assigner")
+    lane_of = {}
+    for a in lanes.get("lanes", []):
+        mk = a.get("mergeKey")
+        who = a.get("assigned_by") or ""
+        where = "lanes.json: " + str(mk)
+        if mk not in bundles:
+            errors.append(where + " is not a bundled finding")
+        elif mk in lane_of:
+            errors.append(where + " assigned twice")
+        elif a.get("lane") not in ALL_LANES:
+            errors.append(where + ": lane " + repr(a.get("lane")) + " is not one of "
+                          + ", ".join(ALL_LANES))
+        elif not (a.get("reason") or "").strip():
+            errors.append(where + ": no reason given for the lane")
+        elif who not in (TABLE, HEADER) and (not METHOD.match(who) or who == "None"):
+            errors.append(where + ": assigned_by must be '" + TABLE + "', '" + HEADER
+                          + "', an LLM or Human, got " + repr(who))
+        elif (who == HEADER) != bool(bundles[mk].get("compiler_header")) or (
+                who == HEADER and a.get("lane") != OTHER):
+            errors.append(where + ": '" + HEADER + "' is the lane Other for, and only for, a "
+                          "finding bundle.py marked as in a compiler header")
+        elif who == TABLE and a.get("candidates"):
+            errors.append(where + ": the checker table fixes one lane; candidates mean "
+                          "inference chose")
+        elif who.startswith("LLM") and who != assigner:
+            errors.append(where + ": assigned by " + who + ", but the plan's assigner is "
+                          + repr(assigner))
+        elif who.startswith("LLM") and a["lane"] not in (a.get("candidates") or []):
+            errors.append(where + ": inference chose " + a["lane"] + ", which is not among the "
+                          "checker's candidate lanes " + repr(a.get("candidates")))
+        elif a.get("method") is not None and (not ROW_METHOD.match(a["method"])
+                                              or a["lane"] in (POLICY, OTHER)):
+            errors.append(where + ": the checker's method " + repr(a.get("method"))
+                          + " is not a method a " + a["lane"] + " finding can carry")
+        elif a.get("route") is not None and (a["route"] not in ROUTES
+                                             or a.get("method") != EXECUTION):
+            errors.append(where + ": route is harness or extraction, beside the method "
+                          + EXECUTION)
+        else:
+            lane_of[mk] = a
+    for mk in bundles:
+        if mk not in lane_of and not any(e.startswith("lanes.json: " + mk) for e in errors):
+            errors.append("lanes.json: " + mk + " (" + bundles[mk]["bundle"] + ") has no lane")
+    return lane_of
+
+
 def assemble(args):
     errors = []
     bdir = pathlib.Path(args.bundles)
@@ -70,63 +150,70 @@ def assemble(args):
         return fail(errors)
 
     plan = run.get("lanes") or {}
-    for lane in LANES:
+    for lane in METHOD_LANES:
         m = plan.get(lane)
         if m is None or not METHOD.match(m):
             errors.append("run.json: lanes[" + repr(lane) + "] must be a method "
                           "(LLM: <model> | Execution: coverity-verify | Human | None), got "
                           + repr(m))
-    for lane in ("Construction", "Contract"):
-        if str(plan.get(lane)).startswith("Execution"):
-            errors.append("run.json: Execution: coverity-verify is a value-or-path "
-                          "method, not a " + lane + " one")
     for k in plan:
-        if k not in LANES:
-            errors.append("run.json: unknown lane " + repr(k) + " (Other is never planned)")
-    assigner = lanes.get("assigned_by") or ""
-    if not METHOD.match(assigner) or assigner == "None":
-        errors.append("lanes.json: assigned_by must name the assigner's method, got "
-                      + repr(assigner))
+        if k not in METHOD_LANES:
+            errors.append("run.json: unknown lane " + repr(k)
+                          + " (Policy and Other are never planned)")
+    if not METHOD.match(run.get("assigner") or ""):
+        errors.append("run.json: assigner must name the method for inference (None when "
+                      "nothing needs it), got " + repr(run.get("assigner")))
+    if run.get("verify_route") is not None and run["verify_route"] not in ROUTES:
+        errors.append("run.json: verify_route is harness or extraction, got "
+                      + repr(run["verify_route"]))
     date = run.get("date") or ""
     if not re.match(r"^\d{4}-\d{2}-\d{2}$", date):
         errors.append("run.json: date must be YYYY-MM-DD, got " + repr(date))
+    if errors:
+        return fail(errors)
 
     bundles = {b["mergeKey"]: b for b in index.get("bundles", [])}
-    lane_of = {}
-    for a in lanes.get("lanes", []):
-        mk = a.get("mergeKey")
-        if mk not in bundles:
-            errors.append("lanes.json: " + str(mk) + " is not a bundled finding")
-        elif mk in lane_of:
-            errors.append("lanes.json: " + mk + " assigned twice")
-        elif a.get("lane") not in LANES + (OTHER,):
-            errors.append("lanes.json: " + mk + ": lane " + repr(a.get("lane"))
-                          + " is not one of " + ", ".join(LANES + (OTHER,)))
-        elif not (a.get("reason") or "").strip():
-            errors.append("lanes.json: " + mk + ": no reason given for the lane")
-        else:
-            lane_of[mk] = a
-    for mk in bundles:
-        if mk not in lane_of and not any(e.startswith("lanes.json: " + mk) for e in errors):
-            errors.append("lanes.json: " + mk + " (" + bundles[mk]["bundle"] + ") has no lane")
-
+    ta = index.get("triaged_against") or {}
+    judged_as = {"tag": index.get("tag"), "project": ta.get("project"), "date": ta.get("date")}
+    against = triaged_against(judged_as)
+    lane_of = read_lanes(lanes, bundles, run, errors)
     overrides = read_overrides(run, bundles, errors)
+    for mk in overrides:
+        if lane_of.get(mk, {}).get("lane") == POLICY:
+            errors.append("run.json: override for " + mk + ": a Policy finding takes no "
+                          "triage; the rule is the authority")
+        if lane_of.get(mk, {}).get("assigned_by") == HEADER:
+            errors.append("run.json: override for " + mk + ": a finding in a compiler header "
+                          "is never triaged")
+
+    def method_for(mk):
+        """The user's choice, then the checker's own method, then the lane's."""
+        if mk in overrides:
+            return overrides[mk][0]
+        a = lane_of.get(mk, {})
+        if a.get("lane") in (None, POLICY, OTHER):
+            return "None"
+        return a.get("method") or plan.get(a["lane"], "None")
+
+    def route_for(mk):
+        """For verify: the user's choice for the finding, then for the plan, then the row's."""
+        if method_for(mk) != EXECUTION:
+            return None
+        return (overrides.get(mk, (None, None, None))[2] or run.get("verify_route")
+                or lane_of.get(mk, {}).get("route"))
+
     expected = run.get("expected")
     if expected is not None:
-        if expected.get("lane") not in LANES or not METHOD.match(expected.get("method") or ""):
+        if expected.get("lane") not in METHOD_LANES or not METHOD.match(expected.get("method") or ""):
             errors.append("run.json: expected needs a method lane and a method, got " + repr(expected))
         else:
             for mk, a in lane_of.items():
-                if a["lane"] != expected["lane"] and mk not in overrides:
+                if (a["lane"] not in (expected["lane"], POLICY) and mk not in overrides
+                        and a.get("assigned_by") != HEADER
+                        and method_for(mk) != expected["method"]):
                     errors.append(bundles[mk]["bundle"] + " (" + mk + "): assigned " + a["lane"]
                                   + ", not the expected " + expected["lane"] + ", and the user's "
                                   "choice is not recorded (add an override with its reason)")
-
-    def method_for(mk):
-        if mk in overrides:
-            return overrides[mk][0]
-        lane = lane_of.get(mk, {}).get("lane")
-        return "None" if lane in (None, OTHER) else plan.get(lane, "None")
 
     verdict_of, model_of = {}, {}
     vdir = pathlib.Path(args.verdicts) if args.verdicts else None
@@ -136,7 +223,7 @@ def assemble(args):
         if doc is None:
             continue
         lane, method = doc.get("lane"), doc.get("method")
-        if lane not in LANES + (OTHER,):
+        if lane not in ALL_LANES:
             errors.append(f.name + ": lane " + repr(lane) + " is not a lane")
             continue
         if not METHOD.match(method or "") or method == "None":
@@ -166,6 +253,13 @@ def assemble(args):
             if not (v.get("reason") or "").strip():
                 errors.append(where + ": no reason")
                 continue
+            carried = [k for k in BYCATCH_FIELDS if k in v]
+            worded = [k for k in TEXT_FIELDS if BYCATCH_WORDS.search(str(v.get(k) or ""))]
+            if carried or worded:
+                errors.append(where + ": by-catch in a verdict (" + ", ".join(carried + worded)
+                              + "); it goes to the by-catch folder, never into the records "
+                              "(references/records.md, By-catch)")
+                continue
             if v["verdict"] == INVARIANT:
                 gone = [k for k in ("invariant", "enforced_at", "breaks_if")
                         if not (v.get(k) or "").strip()]
@@ -183,9 +277,22 @@ def assemble(args):
     for mk, b in sorted(bundles.items(), key=lambda kv: kv[1]["n"]):
         if mk not in lane_of:
             continue
-        lane = lane_of[mk]["lane"]
+        a = lane_of[mk]
+        lane = a["lane"]
         method = method_for(mk)
         v = verdict_of.get(mk, (None, None))[0]
+        if (v is not None or a["assigned_by"] == HEADER) and against is None:
+            errors.append(b["bundle"] + " (" + mk + "): its comment must end with what was "
+                          "triaged, and index.json does not say (project, version and date: "
+                          "bundle.py --name and --version-date)")
+            continue
+        if a["assigned_by"] == HEADER:
+            if v is not None:
+                errors.append(b["bundle"] + " (" + mk + "): a verdict for a finding in a "
+                              "compiler header, which is never triaged")
+                continue
+            records.append(header_record(b, a, judged_as, date, against))
+            continue
         if v is None and method not in ("None", "Human"):
             errors.append(b["bundle"] + " (" + mk + "): " + lane + " finding ran " + method
                           + " but has no verdict")
@@ -195,40 +302,61 @@ def assemble(args):
                           "did not run (" + lane + ", None)")
             continue
         state = {"classification": None, "action": None, "severity": None, "comment": None,
-                 "customTriage": {"Triage lane": lane, "Triage method": method}}
+                 "customTriage": {"Defect Category": lane, "Triage Method": method}}
         evidence = {"bundle": b["bundle"], "selected_because": b.get("selected_because")}
+        if route_for(mk):
+            evidence["route_preference"] = route_for(mk)
         if v is not None:
             cls, act, sev, label = MAPPING[v["verdict"]]
             state.update(classification=cls, action=act, severity=sev,
-                         comment=comment_for(label, v, lane, assigner, method, date))
+                         comment=comment_for(label, v, lane, a["assigned_by"], method, date,
+                                             against))
             if BAD_CHARS.search(state["comment"]):
                 errors.append(b["bundle"] + " (" + mk + "): the comment carries a control "
                               "character (a NUL from a C '\\0' is the usual one); Connect "
                               "refuses the write")
                 continue
             evidence.update({k: v.get(k) for k in ("reason", "invariant", "enforced_at",
-                                                    "breaks_if", "sites_read")
+                                                    "breaks_if", "sites_read") + VERIFY_FIELDS
                              if v.get(k) is not None})
             evidence["executed"] = bool(v.get("executed"))
             evidence["model"] = model_of.get(mk)
+        elif lane == POLICY:
+            evidence["status"] = "not triaged: Policy"
         elif method == "Human":
             evidence["status"] = "awaiting a person's verdict"
         rec = {"mergeKey": mk, "checker": b.get("checker"),
-               "judged": {"tag": index.get("tag"), "sites": b.get("sites", [])},
-               "lane": lane, "lane_reason": lane_of[mk]["reason"].strip(),
+               "judged": dict(judged_as, sites=b.get("sites", [])),
+               "lane": lane, "lane_reason": a["reason"].strip(),
+               "lane_assigned_by": a["assigned_by"],
                "method": method, "verdict": v["verdict"] if v else None,
                "triageState": state, "evidence": evidence}
         if mk in overrides:
             rec["method_reason"] = overrides[mk][1]
+        elif a.get("method") and method == a["method"]:
+            rec["method_reason"] = "the checker's own method (checker table)"
         records.append(rec)
+
+    # The run's by-catch folder sits beside the records. A by-catch folder this run
+    # does not read, beside the records or the bundles, would be missed silently.
+    run_bc = pathlib.Path(args.out).resolve().parent / "bycatch"
+    bc_dir = pathlib.Path(args.bycatch_dir) if args.bycatch_dir else run_bc
+    for other in (run_bc, bdir.resolve() / "bycatch"):
+        if other.resolve() != bc_dir.resolve() and any(
+                f.name != "bycatch.json" for f in other.glob("*.json")):
+            errors.append("by-catch files in " + str(other) + ", which this run does not read "
+                          "(it reads " + str(bc_dir) + "); pass --bycatch-dir with the folder "
+                          "that holds them")
+    bycatch = read_bycatch(bc_dir, bundles, errors)
 
     if errors:
         return fail(errors)
 
     doc = {"format": "coverity-triage-records", "schema": 1,
-           "run": dict(run, assigned_by=assigner,
+           "run": dict(run, tables=lanes.get("tables"),
                        source={k: index.get(k) for k in ("issues", "git_repo", "tag", "source",
-                                                         "strip_prefix", "findings_in_file")}),
+                                                         "strip_prefix", "findings_in_file",
+                                                         "triaged_against")}),
            "records": records}
     problems = check(doc)
     if problems:
@@ -239,7 +367,62 @@ def assemble(args):
     report = pathlib.Path(args.report) if args.report else out.with_name("TRIAGE-REPORT.md")
     report.write_bytes(render_report(doc).encode("utf-8"))
     print("wrote " + str(len(records)) + " records to " + str(out) + " and " + str(report))
+    if bycatch:
+        bc_out = bc_dir / "bycatch.json"
+        bc_out.write_bytes((json.dumps({"format": "coverity-triage-bycatch", "schema": 1,
+                                        "tag": index.get("tag"), "items": bycatch},
+                                       indent=1, ensure_ascii=False) + "\n").encode("utf-8"))
+        print("by-catch: " + str(len(bycatch)) + " item(s) in " + str(bc_out))
+    else:
+        print("by-catch: none")
     return 0
+
+
+def header_record(b, a, judged_as, date, against):
+    """A finding in a compiler header: Intentional by rule, with no method."""
+    cls, act, sev, label = MAPPING["intentional"]
+    comment = (label + ": the main site is in a compiler header (" + b["compiler_header"]
+               + "), outside the analyzed code: a residual false positive.\n[coverity-triage "
+               + date + "] Lane: Other (" + HEADER + "). Method: None; classified by rule.\n"
+               + against)
+    return {"mergeKey": b["mergeKey"], "checker": b.get("checker"),
+            "judged": dict(judged_as, sites=b.get("sites", [])),
+            "lane": OTHER, "lane_reason": a["reason"].strip(), "lane_assigned_by": HEADER,
+            "method": "None", "verdict": "intentional",
+            "triageState": {"classification": cls, "action": act, "severity": sev,
+                            "comment": comment,
+                            "customTriage": {"Defect Category": OTHER, "Triage Method": "None"}},
+            "evidence": {"bundle": b["bundle"], "selected_because": b.get("selected_because"),
+                         "status": "compiler header: Intentional by rule",
+                         "compiler_header": b["compiler_header"]}}
+
+
+def read_bycatch(bc_dir, bundles, errors):
+    """The by-catch folder's files -> one list of items; never part of the records."""
+    items = []
+    if not bc_dir.is_dir():
+        return items
+    for f in sorted(bc_dir.glob("*.json")):
+        if f.name == "bycatch.json":
+            continue
+        doc = read_json(f, errors, "by-catch")
+        if doc is None:
+            continue
+        if not METHOD.match(doc.get("noticed_by") or "") or doc.get("noticed_by") == "None":
+            errors.append("by-catch " + f.name + ": noticed_by must be the method that noticed it")
+            continue
+        for n, it in enumerate(doc.get("items") or [], 1):
+            where = "by-catch " + f.name + " item " + str(n)
+            gone = [k for k in ("site", "claim") if not (it.get(k) or "").strip()]
+            if gone:
+                errors.append(where + ": needs " + ", ".join(gone))
+            elif it.get("noticed_while") not in bundles:
+                errors.append(where + ": noticed_while " + repr(it.get("noticed_while"))
+                              + " is not a bundled finding")
+            else:
+                items.append(dict(it, noticed_by=doc["noticed_by"], model=doc.get("model"),
+                                  file=f.name))
+    return items
 
 
 def check(doc):
@@ -257,15 +440,21 @@ def check(doc):
         lane, method, verdict = r.get("lane"), r.get("method"), r.get("verdict")
         st = r.get("triageState") or {}
         ct = st.get("customTriage") or {}
-        if lane not in LANES + (OTHER,):
+        if lane not in ALL_LANES:
             p.append(w + "bad lane " + repr(lane))
         if not METHOD.match(method or ""):
             p.append(w + "bad method " + repr(method))
-        if (lane == OTHER and (method != "None" or verdict is not None)
+        if lane == POLICY and (method != "None" or verdict is not None):
+            p.append(w + "Policy takes method None and no verdict")
+        if r.get("lane_assigned_by") == HEADER:
+            if (lane, method, verdict) != (OTHER, "None", "intentional"):
+                p.append(w + "a finding in a compiler header is Other, method None, "
+                         "verdict intentional")
+        elif (lane == OTHER and (method != "None" or verdict is not None)
                 and not r.get("method_reason")):
             p.append(w + "Other takes method None and no verdict, unless an override says why")
-        if ct != {"Triage lane": lane, "Triage method": method}:
-            p.append(w + "customTriage must carry exactly Triage lane and Triage method")
+        if ct != {"Defect Category": lane, "Triage Method": method}:
+            p.append(w + "customTriage must carry exactly Defect Category and Triage Method")
         if verdict is None:
             if any(st.get(k) is not None for k in ("classification", "action", "severity",
                                                    "comment")):
@@ -280,6 +469,10 @@ def check(doc):
         c = st.get("comment") or ""
         if not c or len(c) > COMMENT_MAX:
             p.append(w + "comment missing or longer than " + str(COMMENT_MAX))
+        against = triaged_against(r.get("judged") or {})
+        if against is None or not c.endswith("\n" + against):
+            p.append(w + "the comment must end with what was triaged (Triaged against "
+                     "<project> <version> from <date>.), from judged")
         if BAD_CHARS.search(c):
             p.append(w + "comment carries a control character")
     return p
@@ -288,18 +481,26 @@ def check(doc):
 def render_report(doc):
     run, recs = doc["run"], doc["records"]
     src = run.get("source") or {}
+    by_table = sum(1 for r in recs if r.get("lane_assigned_by") == TABLE)
+    by_header = sum(1 for r in recs if r.get("lane_assigned_by") == HEADER)
     L = ["# Triage report", "",
          "- **Who and where:** " + str(run.get("who")) + "; Connect AI-Assisted Triage: "
          + ("yes" if run.get("connect_ai_triage") else "not used") + "; nothing written to Connect",
          "- **Version:** `" + str(src.get("tag")) + "`, " + str(len(recs)) + " of "
          + str(src.get("findings_in_file")) + " findings (" + str(run.get("selection")) + ")",
-         "- **Lane assignment:** " + str(run.get("assigned_by")),
-         "- **Plan:** " + "; ".join(l + ": " + str(run["lanes"].get(l)) for l in LANES)
-         + "; Other: None", "",
+         "- **Lanes:** " + str(by_table) + " from the checker table ("
+         + ", ".join(run.get("tables") or []) + "), " + str(by_header)
+         + " in a compiler header (Other, Intentional by rule), "
+         + str(len(recs) - by_table - by_header)
+         + " by inference or a person (" + str(run.get("assigner")) + ")",
+         "- **Plan:** " + "; ".join(l + ": " + str(run["lanes"].get(l)) for l in METHOD_LANES)
+         + "; Policy: no triage; Other: None"
+         + ("; verify route for this plan: " + run["verify_route"] if run.get("verify_route") else ""),
+         "",
          "## By lane", "",
          "| lane | method | findings | " + " | ".join(MAPPING) + " | no verdict |",
          "|---|---|---|" + "---|" * (len(MAPPING) + 1)]
-    for lane in LANES + (OTHER,):
+    for lane in ALL_LANES:
         rs = [r for r in recs if r["lane"] == lane]
         if not rs:
             continue
@@ -307,23 +508,40 @@ def render_report(doc):
         methods = sorted({r["method"] for r in rs})
         L.append("| " + lane + " | " + ", ".join(methods) + " | " + str(len(rs)) + " | "
                  + " | ".join(str(c.get(v, 0)) for v in MAPPING) + " | " + str(c.get(None, 0)) + " |")
+    untriaged = collections.Counter(r["lane"] for r in recs if r["verdict"] is None)
+    if untriaged:
+        L += ["", "No verdict: " + ", ".join(k + " " + str(n) for k, n in sorted(untriaged.items()))
+              + " (Policy is never triaged; Other has no method; Human awaits a person; "
+              "None was the plan's choice)."]
     L += ["", "## Findings", "",
-          "| bundle | checker | site | lane | verdict | lane reason |", "|---|---|---|---|---|---|"]
+          "| bundle | checker | site | lane | assigned by | method | verdict | lane reason |",
+          "|---|---|---|---|---|---|---|---|"]
     for r in recs:
         s = (r["judged"]["sites"] or [{}])[0]
+        if r.get("lane_assigned_by") == HEADER:
+            shown = "intentional (compiler header, by rule)"
+        elif r["verdict"]:
+            shown = r["verdict"]
+        elif r["lane"] == POLICY:
+            shown = "not triaged (Policy)"
+        elif r["method"] == "Human":
+            shown = "awaiting a person"
+        else:
+            shown = "-"
         L.append("| " + r["evidence"]["bundle"] + " | " + str(r["checker"]) + " | `"
                  + str(s.get("file")) + ":" + str(s.get("line")) + "` | " + r["lane"] + " | "
-                 + (r["verdict"] or ("awaiting a person" if r["method"] == "Human" else "-"))
+                 + str(r.get("lane_assigned_by")) + " | " + r["method"] + " | " + shown
                  + " | " + r["lane_reason"].replace("|", "\\|") + " |")
     L += ["", "A sample's counts describe the sample, not the run's false-positive rate (rule 26).", ""]
     return "\n".join(L)
 
 
 def read_overrides(run, bundles, errors):
-    """run.json overrides -> {merge key: (method, reason)}: the user's per-finding choices."""
+    """run.json overrides -> {merge key: (method, reason, route)}: the user's per-finding choices."""
     out = {}
     for o in run.get("overrides") or []:
         mk, m, why = o.get("mergeKey"), o.get("method"), (o.get("reason") or "").strip()
+        route = o.get("route")
         if mk not in bundles:
             errors.append("run.json: override for " + str(mk) + ", which is not a bundled finding")
         elif mk in out:
@@ -332,8 +550,11 @@ def read_overrides(run, bundles, errors):
             errors.append("run.json: override for " + mk + ": " + repr(m) + " is not a method")
         elif not why:
             errors.append("run.json: override for " + mk + " gives no reason")
+        elif route is not None and (route not in ROUTES or m != EXECUTION):
+            errors.append("run.json: override for " + mk + ": route is harness or extraction, "
+                          "beside the method " + EXECUTION)
         else:
-            out[mk] = (m, why)
+            out[mk] = (m, why, route)
     return out
 
 
@@ -347,18 +568,26 @@ def check_lanes(args):
         return fail(errors)
     bundles = {b["mergeKey"]: b for b in index.get("bundles", [])}
     assigned = {a.get("mergeKey"): a for a in lanes.get("lanes", [])}
+    pending = lanes.get("pending") or []
     counts = collections.Counter(a.get("lane") for a in assigned.values())
-    print("lanes: " + ", ".join(l + " " + str(counts.get(l, 0)) for l in LANES + (OTHER,))
-          + "; unassigned " + str(len(set(bundles) - set(assigned))))
+    print("lanes: " + ", ".join(l + " " + str(counts.get(l, 0)) for l in ALL_LANES)
+          + "; pending " + str(len(pending)) + "; unassigned "
+          + str(len(set(bundles) - set(assigned) - {p.get("mergeKey") for p in pending})))
     exp = (run or {}).get("expected")
     if not exp:
         print("no expected lane in run.json")
         return 0
     overrides = read_overrides(run, bundles, [])
     off = [(bundles[mk], a) for mk, a in assigned.items()
-           if mk in bundles and a.get("lane") != exp.get("lane")]
+           if mk in bundles and a.get("lane") not in (exp.get("lane"), POLICY)
+           and a.get("assigned_by") != HEADER and a.get("method") != exp.get("method")]
     print("expected by " + str(exp.get("by")) + ": " + str(exp.get("lane")) + " with "
           + str(exp.get("method")) + "; " + str(len(off)) + " finding(s) landed elsewhere")
+    if counts.get(POLICY):
+        print("  " + str(counts[POLICY]) + " in Policy: not triaged, and no choice to make")
+    n_hdr = sum(1 for a in assigned.values() if a.get("assigned_by") == HEADER)
+    if n_hdr:
+        print("  " + str(n_hdr) + " in a compiler header: Intentional by rule, no choice to make")
     for b, a in sorted(off, key=lambda x: x[0]["n"]):
         choice = overrides.get(a["mergeKey"])
         print("  " + b["bundle"] + "  " + str(a.get("lane")) + "  -- " + str(a.get("reason")))
@@ -386,6 +615,8 @@ def main():
     a.add_argument("--run", required=True)
     a.add_argument("--out", required=True)
     a.add_argument("--report", help="default: TRIAGE-REPORT.md beside --out")
+    a.add_argument("--bycatch-dir", help="the by-catch folder (default: bycatch/ beside --out); "
+                                        "its files are checked and collected into bycatch.json")
     c = sub.add_parser("check-lanes", help="before any method runs: lanes, and what landed "
                                           "outside the caller's expected lane")
     c.add_argument("--bundles", required=True)

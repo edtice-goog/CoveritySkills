@@ -224,11 +224,15 @@ leading slash>`). The manifest carries the recorded compile line and its
 parts (`flags`, `include_paths`, `sys_includes`, `pre_preinclude`,
 `defines_from_build`), the capture's working directory and platform, every
 function the TU defines with `static` and location, the externals (called,
-not defined; `library` or `project` by declaring path; with `--models`,
-whether a saved derived model exists), the target, and `notes`: the facts
-that predict the route will fail (a `static` target a driver cannot name,
-a target defined in a header, a C++ member, a capture platform that is
-not this one, project externals without a model). It never slices or
+not defined; each with its prototype as the slicer prints one, `library`
+or `project` by declaring path; with `--models`, whether a saved derived
+model exists), `externals_data` (the globals the TU reads but does not
+define, with their declarations: what a driver must define or the link
+misses), the target, and `notes`: the facts the router decides on (a
+`static` target, which a linked driver cannot name but a harness that
+includes the TU can; a target defined in a header; a C++ member; a
+capture platform that is not this one; project externals without a
+model). It never slices or
 rewrites, and it exits 0 with notes rather than deciding; `references/
 standalone-reproducer.md`, *The whole TU as the container*, records what
 the emit can and cannot supply for this (the headers it holds are the

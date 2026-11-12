@@ -209,6 +209,9 @@ def main():
                 "pathed_out_components": sorted(comps.items(), key=lambda kv: -kv[1]),
                 "deriver_pathed_out": any(c.endswith("_DERIVERS") for c in comps),
                 "ambiguous": fn in unresolved,
+                # the built-in checkers this shape stands in for: the lane's
+                # provenance, read by coverity-triage beside its table row
+                "stands_in_for": list(SHAPE_RELEVANCE.get(it.get("checkerName", ""), ())),
             }
             kept.append(it2)
         else:
@@ -281,8 +284,13 @@ def main():
         }
         with open(a.run_json, "w", encoding="utf-8", newline="\n") as f:
             json.dump(plan, f, indent=1)
+        table = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                             "shapes", "triage-lanes.json").replace("\\", "/")
         print("written: %s  (run.json skeleton: expected lane Value or path, method Execution: coverity-verify; "
               "fill assigner and who, then coverity-triage)" % a.run_json)
+        print("lanes  : pass this skill's shape table to the lane assignment, so each shape's row (its lane, "
+              "and the method that overrides it) is known there:\n"
+              "         python3 ../coverity-triage/tools/lanes.py assign --table %s ..." % table)
 
 
 if __name__ == "__main__":

@@ -16,8 +16,12 @@ deterministic and uses the analyzer's own data. The skill decides first
 whether a finding is a candidate for that method and reports the rest
 (injection classes, anything a clang harness cannot instrument) as "not a
 fuzz-triage candidate; suggest external verification" rather than
-attempting them; what else "external" might mean is an open item, not a
-plan. Formerly `coverity-fuzz-triage`, which remains as an alias
+attempting them, and says which kind of external tool fits: an
+interactive application security tester, for which the skill's
+contribution is the target (the slice set behind a minimal HTTP wrapper,
+once extraction exists for Java and .NET); a protocol fuzzer against the
+real server build, as a recommendation, since the slice removes the front
+end that such a fuzzer tests. Formerly `coverity-fuzz-triage`, which remains as an alias
 directory. The finding can be a Connect CID,
 an entry in a `cov-format-errors` findings file, or a candidate from
 `coverity-pathout`'s shape catalogue; Step 0 turns each into the same
@@ -67,8 +71,7 @@ out 0 confirmed, 5 refuted with the finding's line reached hundreds of
 thousands of times and the claim never false, 2 refuted as model gaps
 (the analyzer's generic model records no writes to globals, and the stub
 reproduced the analyzer's own false positive with the missing write
-named), 2 reachable only through a value the harness supplied, and one
-real one-byte stack overflow found next to a false OVERRUN. Every
+named), and 2 reachable only through a value the harness supplied. Every
 "confirmation" on that batch fell to reading the stub choices behind it,
 which is why the trace exists and why "confirmed" always lists them.
 

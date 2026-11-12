@@ -166,6 +166,36 @@ Two lessons, and the second is the one people miss:
 `references/transformation-probe.md` has the method in full.
 `references/invocation-anatomy.md` maps what the invocation record contains.
 
+## Ask only when interactive (rule 38)
+
+Every decision in this skill that would otherwise be a question has an
+unattended form. **Interactive: ask, and say what each answer costs. Not
+interactive, or unable to tell: report exactly what is needed and stop.**
+
+Deliberately no list of what "not interactive" looks like. A list reads as a
+test to apply, and nothing this skill can observe tells it reliably that nobody
+is there. Unable to tell is the normal case, not a rare edge; it resolves the
+same way.
+
+This skill is unusually exposed to the rule on both of its axes. Its decisions
+are expensive -- a capture is hours -- and one of them is **irreversible**: a
+preview commit writes a first-detected date and a merge-key-to-CID mapping that
+stay there. Cost can be bought back with more compute. That cannot.
+
+Each row says what to report *and* how the caller resumes, because a stop that
+loses the work turns a cheap question into an expensive one.
+
+| Decision | Report, then stop | How they resume |
+|---|---|---|
+| **Is reuse worth it?** | The estimate, *both* halves -- capture and analysis. A capture saving quoted alone overstates the improvement. Whether the total is acceptable depends on the team and where in the SSDLC the check sits; not this skill's call. | They say go, with the estimate in hand. Nothing has been spent. |
+| **A gate fails** | Which gate, and the measurement that failed it. Not a question in the first place: a failing gate is a no. | A fresh capture is the right answer, but it is a *different and far more expensive* job. Offer it; never start it because a gate said no. |
+| **No stream in `coverity.yaml`** | That the file names no stream, and that `--stream`/`--url` exist for a caller who already knows. Never ask for one, never invent one. | They re-run with an explicit stream. **A stream is a destination**: a guess commits source and defect data somewhere unintended. |
+| **The compiler is missing** | Vendor, version and target triple, read out of the idir. Installing a toolchain changes the caller's machine. | They install it and re-run; the idir already told them exactly which one. |
+
+The asymmetry is the whole point. A needless stop costs a turn. A needless
+start costs hours of compute, a mutated idir, or a write to the database that
+nobody asked for and nobody can take back.
+
 ## Procedure
 
 ### Step 0. Rules, and pin two installations
@@ -424,6 +454,11 @@ So when `cov-translate` cannot probe because the compiler is absent, the
 answer is to **install the compiler**, not to reverse-engineer Coverity's model
 of it. The idir tells you exactly which one to fetch.
 
+**Unattended, name it and stop.** Installing a toolchain changes the machine
+the caller is running on, and the idir gives you everything needed to say
+precisely what is wanted -- vendor, target triple, version -- without touching
+anything. Report that and let them decide.
+
 Where the evidence lives, measured on a real idir:
 
 | source | what it gives you |
@@ -665,6 +700,11 @@ recommendation at that size is *do not bother* -- a fresh capture keeps rule
 8's guarantees and costs little. The reuse apparatus earns its keep when
 this number runs to tens of minutes or hours.
 
+**Unattended, report the estimate and stop.** The estimate is the deliverable
+at this step; acting on it is a separate decision belonging to whoever pays for
+the hours. Report capture *and* analysis -- a capture saving quoted on its own
+overstates the improvement.
+
 **Take the host from the user, never from the auth key.** The tool prints a
 warning when the key's `comments.host` disagrees with the URL supplied, and
 uses the supplied one (rule 28).
@@ -683,15 +723,20 @@ basic auth returns the sign-in page. Open item.
 
 Full procedure in **`references/idir-reuse.md`**. The shape of it:
 
-**Two gates first -- both pass/fail, both before any work.**
+**Three gates first -- all pass/fail, all before any work.** A failing gate is
+a no, not a question: report which one and stop.
 
-1. **The build system must track header dependencies.** The procedure hands
+1. **The analyzing platform must match the idir's.** Cheapest to check, so
+   check it first. The incremental-analysis cache is keyed to the analysis
+   *binary*, not the version, so an idir analyzed on another platform forfeits
+   it -- results stay correct but cost full price.
+2. **The build system must track header dependencies.** The procedure hands
    "what does this change affect?" to the build system; one that cannot answer
    returns *nothing* and looks successful. Probe it: touch a header the idir
    says is widely included, capture the incremental build, and compare.
    Measured -- CMake+make recompiled exactly the right 3 of 4; proftpd's
    hand-written make recompiled **0 of 71**.
-2. **The reference idir must come with a git commit or tag**, or you cannot
+3. **The reference idir must come with a git commit or tag**, or you cannot
    compute a correct delta. Insist on it, then verify the claim with
    `primaryFileSizeInBytes` against `git show <tag>:<path>` -- `primaryFileHash`
    cannot do this.

@@ -29,6 +29,13 @@ nothing produces binaries byte-identical to native**, which is the best result
 the fidelity check can report. Total capture failure and perfect fidelity have
 the same signature. Never emit a verdict from one arm.
 
+That is not hypothetical, and it has been measured. An unsupported compiler
+option stops a translation unit being captured, while the real compiler still
+runs. On a partially flagged two-file build the executable came out
+**byte-identical** to a native build of the same script, so this skill's
+comparison passes, while capture was short by exactly the flagged file. See
+`coverity`'s `references/capture-fidelity.md`.
+
 The deliverable is a report someone can act on -- a release gate decision, and
 a machine-readable input for downstream inference -- not a boolean.
 

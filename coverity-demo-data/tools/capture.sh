@@ -73,6 +73,12 @@ if grep -qE "^\[WARNING\] Build command .* exited with code [1-9]" "$WS/logs/$TA
   exit 1
 fi
 
+# The strip root is the SCM checkout, recorded beside Coverity's own
+# build-cwd.txt. They differ for an out-of-tree build (a cmake build/,
+# configure run from a build directory, make O=), and only the checkout is
+# the right prefix: files the build reads from outside it keep their paths.
+git rev-parse --show-toplevel > "$IDIR/scm-root.txt"
+
 CU=$(grep -oE "^Emitted [0-9]+ C/C\+\+ compilation units" "$WS/logs/$TAG.build.log" \
      | grep -oE "[0-9]+" | tail -1)
 echo "$TAG $CU" >> "$WS/logs/cu-counts.txt"

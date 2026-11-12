@@ -98,6 +98,51 @@ is the combination of both, and is slow.
 For web/mobile-security defect classes there is also `--webapp-security` /
 `--android-security`.
 
+### What `--enable-audit-dataflow` actually taints
+
+`--enable-audit-dataflow` is not a blanket "assume everything is tainted"
+switch, and it does not key on whether a function has callers. Per the Checker
+Reference ("Audit mode") it raises web-app security aggressiveness to high,
+analyzes every function (not only those reachable from a public static root),
+treats the return value of any function whose body is unavailable as tainted,
+and presumes tainted the parameters of a function that "can be invoked by an
+arbitrary caller (e.g. a public static method)".
+
+For C#, "arbitrary caller" means the method's **declared** modifier is
+`public` — not its effective accessibility, and not "has no callers". Verified
+on 2026.9.0 with uncalled methods that each deserialize a `byte[]` parameter:
+
+| Uncalled method | Parameters tainted by audit dataflow? |
+|-----------------|---------------------------------------|
+| `public static`, or `public` instance, in a public class | Yes (`argument_audit` event) |
+| `public static` in an `internal` class | Yes — the declared modifier, not effective accessibility |
+| `internal` (static or instance) | No |
+| `private` | No |
+| `internal` wrapper over an `internal` sink | No |
+
+So an `internal` API whose only callers are outside the capture — a library
+reached through `InternalsVisibleTo`, reflection, or code that was not
+captured — stays trusted even in audit mode. "Audit mode didn't report it" is
+then a statement about the method's visibility, not evidence that no untrusted
+data reaches it.
+
+To test such a method as an entry point, name it with a `simple_entry_point`
+security directive (documented for C#, Java, Visual Basic):
+
+```
+{ "type" : "Coverity analysis configuration", "format_version" : 12, "language" : "C#",
+  "directives" : [ {
+    "simple_entry_point" : { "matching" : ".*::ReadPayload[(].*" },
+    "taint_kinds" : [ "network" ] } ] }
+```
+
+C# method names in directives are `Namespace.Class::Method(ArgTypes)ReturnType`;
+inside the JSON string use `[.]` and `[(]` rather than backslash escapes. The
+directive needs no `--webapp-security`, and the trace then begins with
+`entry_point` / `argument_taint` events, so the report states the assumption it
+rests on. The visibility behavior above was probed on C# only; the directive is
+documented for Java and Visual Basic as well, but those were not measured.
+
 ## Security (taint) checkers need two switches, not one
 
 Injection and tainted-dataflow checkers — OS_CMD_INJECTION,
@@ -139,6 +184,7 @@ ladder into a single targeted run:
 | `strcpy`/`sprintf` into smaller buffer missed | `--enable STRING_OVERFLOW` | Checker disabled by default (FP-prone on hand-verified copies) |
 | Risky-function calls (`gets`, `strcpy`, ...) not flagged | `--security` or high aggressiveness (DC.* / SECURE_CODING checkers) | Style/hardening findings, not defects — off for quality-focused runs |
 | Injection (argv/env/file → `system`, format string, ...) missed | enable checker **and** `--distrust-*` source | See the two-switches section above |
+| Taint defect in an uncalled `internal` C# method missed even with `--enable-audit-dataflow` | `simple_entry_point` directive naming the method | Audit dataflow taints only `public`-declared methods' parameters — see "What `--enable-audit-dataflow` actually taints" |
 
 ## Rung 5: Targeted enablement from the docs
 

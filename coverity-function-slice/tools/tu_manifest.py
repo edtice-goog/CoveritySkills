@@ -13,9 +13,11 @@ Writes, under --out:
                     of the capture, every function the TU defines (with
                     `static` and its location), every function it calls but
                     does not define (the externals a driver must supply or
-                    stub, marked library/project and, with --models, whether a
-                    saved derived model exists), the target, and NOTES: facts
-                    that predict the route will not work
+                    stub, each with its prototype from the TU's trees, marked
+                    library/project and, with --models, whether a saved
+                    derived model exists), every global it reads but does not
+                    define (externals_data, with its declaration), the
+                    target, and NOTES: the facts the route's router decides on
     tu.c / tu.cpp   the primary source, byte for byte (the stored copy that
                     extract-files writes; print-source only as a fallback,
                     since its stdout is text-mode on Windows)
@@ -41,7 +43,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from slice_function import (manage_emit, split_recorded_invocation, source_spelling,  # noqa: E402
-                            is_system_path, RE_LOC, Slice)
+                            is_system_path, RE_LOC, Slice, parse_debug, walk, Node, Printer, Names, STD_GLOBALS)
 
 
 def manage_emit_bytes(bin_dir, idir, args):
@@ -231,6 +233,8 @@ def externals(bin_dir, idir, tu, defined_names, sys_includes):
             mm = re.search(r"/\*(_Z[^*]+)\*/", sig)
             key = mm.group(1) if mm else sig.split(" /*")[0].split("(")[0].split("::")[-1].strip()
             cur = key
+            if key.startswith(("__builtin_", "__atomic_", "__sync_")):
+                continue              # compiler builtins: the front end's own, nothing to supply
             if key not in defined_names:
                 ext.setdefault(key, {"name": key, "display": sig.split(" /*")[0].strip(), "declared_at": None,
                                      "kind": "unknown", "defined_in_tu": False})
@@ -242,6 +246,47 @@ def externals(bin_dir, idir, tu, defined_names, sys_includes):
             # defined in this TU after all (seen through a declaration site)
             ext.pop(cur, None)
     return sorted(ext.values(), key=lambda e: e["name"])
+
+
+def tree_facts(bin_dir, idir, tu):
+    """One `find . --kind f --print-debug` dump of the whole TU: every
+    function_t node (each callee's full prototype, library ones included)
+    and every global_variable_t node (each global the TU touches, with
+    `extern` in its dflags when the TU only reads it). 26 MB and a 4-second
+    parse for a 93-function nginx TU; done once per manifest."""
+    out = manage_emit(bin_dir, idir, ["--tu", str(tu), "find", ".", "--kind", "f", "--print-debug"])
+    funcs, globs = {}, {}
+
+    def visit(node, path):
+        if node.tag == "function_t" and node.get("name") and isinstance(node.get("type"), Node):
+            funcs.setdefault(node.get("name"), node)
+        elif node.tag == "global_variable_t" and node.get("name") and isinstance(node.get("type"), Node):
+            globs.setdefault(node.get("name"), node)
+    for header, root in parse_debug(out):
+        walk(root, visit)
+    return funcs, globs
+
+
+def prototype_from_tree(bin_dir, idir, name, funcs, printer):
+    """The prototype of `name` as the slicer prints one: from the TU's trees,
+    else from the whole emit (a definition in another TU)."""
+    f = funcs.get(name)
+    if f is None:
+        out = manage_emit(bin_dir, idir, ["find", "^" + re.escape(name) + "$", "--kind", "f", "--print-debug"])
+        found = {}
+
+        def visit(node, path):
+            if node.tag == "function_t" and node.get("name") == name and isinstance(node.get("type"), Node):
+                found.setdefault(name, node)
+        for header, root in parse_debug(out):
+            walk(root, visit)
+        f = found.get(name)
+    if f is None:
+        return None
+    ft = f.get("type")
+    if not isinstance(ft, Node) or ft.tag != "function_type_t":
+        return None
+    return printer.decl(ft, f.get("id") or source_spelling(name))
 
 
 def models_available(models_dir):
@@ -275,6 +320,9 @@ def main():
     ap.add_argument("--out", required=True, help="output directory (manifest.json, tu.c, files/)")
     ap.add_argument("--models", help="directory of cov-find-function --save output; externals with a model are marked")
     ap.add_argument("--no-files", action="store_true", help="skip extract-files (manifest and tu.c only)")
+    ap.add_argument("--no-tree", action="store_true",
+                    help="skip the whole-TU --print-debug dump: externals keep no signature and externals_data "
+                         "is not enumerated (seconds faster on a large TU)")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     notes = []
@@ -331,6 +379,45 @@ def main():
     for e in ext:
         e["model"] = (source_spelling(e["name"]) in models) or (e["name"] in models) if a.models else None
         e["model_modules"] = models.get(source_spelling(e["name"])) or models.get(e["name"]) if a.models else None
+        e["signature"] = None
+
+    # the trees: every external's prototype, and the globals the TU reads
+    ext_data = []
+    unsigned = []
+    if not a.no_tree:
+        tfuncs, tglobs = tree_facts(a.bin, a.dir, a.tu)
+        P = Printer(Names(), {}, {}, lang == "c++")
+        for e in ext:
+            e["signature"] = prototype_from_tree(a.bin, a.dir, e["name"], tfuncs, P)
+            if e["signature"] is None:
+                unsigned.append(e["name"])
+        defined_globals = set()
+        gout0 = manage_emit(a.bin, a.dir, ["--tu", str(a.tu), "find", ".", "--kind", "g"])
+        for l in gout0.splitlines():
+            if l.strip().startswith("Matching global:"):
+                defined_globals.add(l.split(":", 1)[1].strip())
+        for nm in sorted(tglobs):
+            g = tglobs[nm]
+            flags = (g.get("dflags") or "").replace("{", "").replace("}", "").split()
+            if nm in defined_globals and "extern" not in flags:
+                continue
+            if nm.startswith("__builtin_"):
+                continue
+            loc = None
+            lout = manage_emit(a.bin, a.dir, ["find", "^" + re.escape(nm) + "$", "--kind", "g"])
+            for l in lout.splitlines():
+                s = l.strip()
+                if RE_LOC.match(s):
+                    loc = RE_LOC.match(s).group(1)
+                    break
+            # `find --kind g` indexes definitions only, so a global the project
+            # declares extern and defines in a TU the capture did not see has
+            # no location: "unknown", which for a driver means "define it"
+            ext_data.append({"name": nm, "declaration": P.decl(g.get("type"), nm),
+                             "declared_at": loc,
+                             "kind": ("library" if nm in STD_GLOBALS or is_system_path(loc, rec["sys_includes"]) else
+                                      "project" if loc else "unknown"),
+                             "defined_in_tu": False})
 
     # the target
     want = a.name
@@ -342,8 +429,9 @@ def main():
     if target is None:
         sys.exit("function %s is not defined in TU %d (the emit lists %d definitions there)" % (want, a.tu, len(funcs)))
     if target["static"]:
-        notes.append("target is static: a driver linked against tu%s cannot call it by name; it needs a non-static "
-                     "caller in the TU, or a wrapper appended to the source" % ext_)
+        notes.append("target is static: a driver LINKED against tu%s cannot call it by name (it needs a non-static "
+                     "caller in the TU or a wrapper appended to the source); a harness that #includes tu%s can call "
+                     "it directly. Information for the router, not a blocker" % (ext_, ext_))
     if not target["in_primary"]:
         notes.append("target is defined in a header (%s), not in the primary source; the harness route compiles the "
                      "TU, which includes it, but the definition is shared with every other TU that includes it"
@@ -361,8 +449,12 @@ def main():
         if unmod:
             notes.append("%d project external%s without a saved model under --models: %s"
                          % (len(unmod), "s" if len(unmod) > 1 else "", ", ".join(unmod[:8]) + (" ..." if len(unmod) > 8 else "")))
-    notes.append("externals lists functions only; globals the TU reads but does not define are not enumerated "
-                 "(the emit indexes defined globals, not references)")
+    if a.no_tree:
+        notes.append("--no-tree: externals carry no signature and externals_data (globals the TU reads but does not "
+                     "define) is not enumerated; drop the flag to get both from the TU's trees")
+    elif unsigned:
+        notes.append("%d external%s with no prototype in any tree: %s"
+                     % (len(unsigned), "s" if len(unsigned) > 1 else "", ", ".join(unsigned[:8])))
 
     # the local layout: recorded paths -> under files/
     def local(p):
@@ -429,6 +521,10 @@ def main():
                               for f in funcs],
         "globals_defined": [],
         "externals": ext,
+        # globals the TU reads (or writes) but does not define: what a driver
+        # must define or the link will miss; from the trees' global_variable_t
+        # nodes with `extern` in dflags, less the TU's own definitions
+        "externals_data": ext_data,
         "target": {k: target[k] for k in ("name", "display", "static", "line", "file", "in_primary", "signature")},
         "notes": notes,
     }
@@ -457,9 +553,14 @@ def main():
           % (len(funcs), sum(1 for f in funcs if f["static"]), sum(1 for f in funcs if not f["in_primary"]),
              len(manifest["globals_defined"])))
     lib = sum(1 for e in ext if e["kind"] == "library")
-    print("externs : %d called but not defined here: %d library, %d project%s"
+    print("externs : %d called but not defined here: %d library, %d project%s%s"
           % (len(ext), lib, len(ext) - lib,
-             (", %d with a saved model" % sum(1 for e in ext if e["model"])) if a.models else ""))
+             (", %d with a saved model" % sum(1 for e in ext if e["model"])) if a.models else "",
+             "" if a.no_tree else ", %d with a prototype from the trees" % sum(1 for e in ext if e["signature"])))
+    if not a.no_tree:
+        print("data    : %d global%s read but not defined here: %s"
+              % (len(ext_data), "s" if len(ext_data) != 1 else "",
+                 ", ".join(d["name"] for d in ext_data[:8]) + (" ..." if len(ext_data) > 8 else "") if ext_data else "none"))
     print("target  : %s%s at %s:%s" % (target["display"], " (static)" if target["static"] else "",
                                         target["file"], target["line"]))
     for n in notes:

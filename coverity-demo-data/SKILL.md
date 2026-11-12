@@ -11,7 +11,7 @@ description: >
   with aging outstanding issues or a fix-rate trend is wanted; when asked how
   to make snapshots appear on past dates; or when preparing a demo, POC, or
   training environment. Triage is optional and never automatic: the skill
-  asks which findings to triage, if any, and hands them to coverity-triage.
+  does not triage: triage is invoked separately against a published dataset.
   Requires a local Coverity Analysis installation and a Coverity Connect
   instance the user is willing to have written to; this skill runs real builds
   and real commits.
@@ -48,15 +48,15 @@ and audited, repeatably. Do not drift into writing the customer narrative.
 
 The deliverable is a populated Connect instance and the population table that
 describes what is in it -- enough for someone else to judge whether it fits
-their story -- plus, when the user chooses triage, the triage records for the
-findings they chose (Step 4).
+their story. No verdicts: a published dataset says what the analyzer found,
+not whether any of it is real.
 
 **This skill assumes the `coverity` skill and its `RULES.md`.** Read the rules
 before running any Coverity command; the numbers cited here are stable. Rules
-9-11 (build verification and capture percentages), 26 (triage a sample), 29
-(one stream per branch), 30 (name the global invariant) and 31 (`--strip-path`,
-verified) carry most of the weight; this skill adds the demo-data-specific
-consequences rather than restating them.
+9-11 (build verification and capture percentages), 29
+(one stream per branch), 30 (name the global invariant), 31 (`--strip-path`,
+verified) and 38 (ask only when interactive) carry most of the weight; this
+skill adds the demo-data-specific consequences rather than restating them.
 
 ## The architecture follows from the constraint
 
@@ -68,7 +68,7 @@ important structural decision in the skill:
 | 1. Capture + analyze every candidate version | Yes, freely | Re-run it |
 | 2. Map streams, select versions, offline | Yes, freely | Re-run it |
 | 3. Commit oldest-first with `--backdate` | **No** | Restore DB, redo |
-| 4. Triage, if the user chooses it (`coverity-triage`) | Yes | Re-run it |
+| 4. (no triage -- a separate skill, invoked separately) | n/a | n/a |
 
 Do all thinking in Phases 1-2, where set algebra over merge keys predicts
 exactly what Connect will show. Enter Phase 3 only with a decided list. Phase 2
@@ -77,6 +77,59 @@ it as a faithful preview, not an estimate.
 
 Phases 1 and 2 touch no database at all, so a corpus can be taken all the way
 to the population table before anyone commits to anything.
+
+## Ask only when interactive (rule 38)
+
+Several steps here need a decision that only the user can make. **Ask for it
+when the session is interactive. When it is not, or when you cannot tell,
+report exactly what is needed and stop.** Never pick the more expensive or the
+irreversible option on the user's behalf; an interactive session can always be
+handed a prompt to continue, while an unattended one cannot be handed back a
+database.
+
+Rule 38 says *when to ask*, not that an answer may be assumed. A decision
+counts as already made only if the invocation supplies it: a tags file that
+names the stream for every version, or an instruction to commit to a named
+target, each settle their question. Absence of an instruction settles
+nothing.
+
+**Do not infer interactivity from weak signals** -- not a TTY, an environment
+variable, or the shape of the invocation. An API task, a scheduled or CI run
+and a print-mode invocation are what "not interactive" *means*; they are not a
+test to run. Nothing a skill can observe tells it reliably that nobody is
+there, so "cannot tell" is the ordinary case rather than a rare edge, and it
+stops.
+
+Nothing in `tools/` prompts or inspects a terminal, by design: every tool is
+non-interactive and either runs or fails with a message, so the asking happens
+in the conversation and never inside a tool.
+
+**When you stop, say what survives and what continues.** Stopping is cheap at
+every point here, but for different reasons, so report the right one:
+
+- Before Phase 3, nothing has been written to a database at all. The corpus can
+  sit captured, analyzed and validated indefinitely.
+- After Phase 3, its snapshots stay committed with their backdated dates. The
+  idirs, the analyses and the commits all persist; only publication is
+  outstanding.
+
+Either way the report names what is done, what is needed, and the answer or
+command that continues.
+
+Where this bites, in rising order of regret:
+
+| Step | Decision | Unattended, unsettled |
+|---|---|---|
+| 2 | which release line each version belongs to | state the mapping you would use, and stop |
+| 3 | commit the corpus to a Connect instance | **report and stop** -- first-detected dates are global and write-once |
+| 0 | restore a database to re-run Phase 3 | **report and stop** -- this destroys whatever else is on that instance |
+
+The last one is easy to underrate. A restore is the documented way to recover
+from a bad commit sweep, which makes it feel routine, but it discards
+everything on the target instance and not only this dataset. In testing this
+skill a restore was about to destroy four snapshots that a different piece of
+work had put on the same instance; they were spotted only because a person
+looked first. Unattended, nobody looks.
 
 ## Step 0: Establish the reset point
 
@@ -114,6 +167,11 @@ cov-admin-db backup --dir <ABSOLUTE path that does NOT yet exist>
   pipeline. This is the most common self-inflicted wound in this workflow.
 - Never use `pg_dump`. Use `cov-admin-db`, the supported path for the embedded
   database.
+
+**Restoring is destructive beyond this dataset.** It replaces everything on
+the target instance, not just what this skill put there, so confirm with the
+user what else lives on it before restoring -- and unattended, do not restore
+at all; report that a restore is required and stop.
 
 Many installs ship an `empty.bak` in the Platform directory as a factory-clean
 baseline. It is a fine starting point but predates every key you create.
@@ -269,18 +327,40 @@ wrong on the projects it was not written for, in a way nothing downstream
 detects. `commit_sweep.py` validates dates and merge keys; it cannot tell you
 that a branch topology is nonsense.
 
-Do this step by reading the project's actual history and reasoning about it.
-Useful signals:
+Do this step by reading the project's actual history and reasoning about it,
+and **state the mapping before acting on it** -- unattended, state it and stop
+unless the tags file already names a stream for every version. Useful
+signals:
 
 - `git for-each-ref --sort=creatordate --format='%(refname:short) %(creatordate:short)' refs/tags`
 - **Two releases tagged on the same day** almost always means concurrent lines
-  -- a backport shipping alongside a new release
+  -- a backport shipping alongside a new release. The exception is
+  consecutive commits on one line made the same day (single-commit versions
+  beside releases): they may share a stream if the tags file lists them
+  parent first. `--backdate` keeps only the day, so the file's order is the
+  only record of which came first, and `publish_dataset.py --source-repo`
+  checks that it is a strict ancestor chain
 - `git branch --contains <tag>` and merge-base relationships, where the project
   keeps real branches
 - The project's own release notes, which usually name the lines outright
 
 Then write `<tag> <date> <stream>` per line and sanity-check that each stream
-reads as one lineage moving forward. Getting this wrong is recoverable (see
+reads as one lineage moving forward.
+
+**One release built more than once** -- for two hardware targets, or two
+configurations -- goes in **parallel streams, one per build**, each carrying the
+release's own tag as its version, so a view pinned to that tag shows both
+builds' defects side by side. The first column is a label that names one idir,
+so give each build its own label and the shared version as a fourth column:
+
+```
+arm-v3.15   2020-05-17  proj-arm   v3.15
+x86-v3.15   2020-05-17  proj-x86   v3.15
+```
+
+Do not fold the target into the version. Commit the streams together,
+interleaved by date: they share most merge keys, so first detected depends on
+the global order. Getting this wrong is recoverable (see
 Step 0); getting it wrong *silently* is what to avoid, so state the mapping you
 chose and why before committing.
 
@@ -308,6 +388,12 @@ backdate can move it. **Interleave by date; assign by branch.** `commit_sweep.py
 takes an optional third column in the tags file for the destination stream and
 sorts globally by date regardless of stream.
 
+**Unattended, stop here.** This is the irreversible step, and two of its
+preconditions cannot be checked from inside the process: that the target is the
+instance the user meant, and that a usable backup of it exists. Report the
+plan -- the target, the stream map, the dates -- and let a person start it,
+unless the invocation named the target and said the backup is in place.
+
 One commit per selected version, in global chronological order:
 
 ```
@@ -319,8 +405,12 @@ cov-commit-defects --dir <idir> --url <url> --auth-key-file <key> \
 - **`--backdate` takes `yyyymmdd` and nothing else.** `2022-12-04` is rejected
   outright. This is a *different* parser from `--first-detected-after/before`,
   which do accept ISO dates -- do not generalize between them.
-- `--strip-path` the fixed build root so Connect shows `/src/fsio.c` rather
-  than a home directory (rule 31). **Check after the first commit that it
+- `--strip-path` the **SCM checkout root** so Connect shows `/src/fsio.c` rather
+  than a home directory (rule 31). That is usually where the build ran, but not
+  for an out-of-tree build (a cmake `build/`, `make O=`); `capture.sh` records
+  the checkout in `scm-root.txt`, and the bundled `commit.sh` uses it. Never
+  infer the root from the captured paths: a build that reads a file from
+  outside the checkout would drag the root above it. **Check after the first commit that it
   actually took effect** -- a prefix that does not match is a silent no-op with
   no error or warning, and the argument can be rewritten before the tool sees
   it (MSYS/Git Bash converts Unix-looking paths to Windows paths; set
@@ -367,68 +457,38 @@ Always `--dry-run` first: it prints the resolved order and dates, and commits
 nothing. Verification queries for doing this by hand are in
 `references/backdating.md`.
 
-## Step 4: Triage -- only what the user chooses
+## Step 4: Do not triage
 
-Never point at a defect on stage without having checked it. But triage spends
-model time on every finding it reads, and a dataset is often published to be
-triaged later, by someone else, for a story not yet chosen. So **this skill
-never triages on its own, and never on a default.** Ask the user, once, which
-of these to do:
+**This skill builds datasets. It does not triage them, and a dataset it
+publishes carries no verdicts.** Triage is a separate skill, invoked separately
+against a published dataset by whoever wants it, and its output stays with
+them.
 
-- **Package without triage.** Publish the dataset untriaged (Step 5). The
-  hand-off says so plainly: nothing in it has been checked, and anything
-  featured on stage must be triaged before the demo. The published dataset
-  carries its idirs and its source revisions, so triage can run later without
-  rebuilding anything.
-- **The story-surfaced findings only** -- the merge keys the chosen story
-  points at. Cheap, since a story surfaces few defects, and it is where the
-  risk lives: the single new defect at the tip is the most likely to be
-  featured and the least likely to be caught by a sample of a checker that
-  fired fifty times.
-- **A per-checker sample, plus the story-surfaced findings** -- rule 26
-  applied to a multi-version dataset, for confidence in the dataset as a whole.
-  Confidence in a checker's output generalizes across its instances far better
-  than across checkers, so a few per checker buys most of the assurance at a
-  fraction of the cost of reading everything. `phase2.py` prints the checker
-  roster.
+That boundary is deliberate and worth keeping for three reasons.
 
-And, for whatever is triaged, the method for each lane and its model, or a
-lane left out (`coverity-triage`, Step 3). Put the counts in the question;
-they cost nothing to compute:
+**Cost.** Triage spends model time on every finding it reads. A dataset is
+usually published to be triaged later, by someone else, for a story nobody has
+chosen yet -- and often never triaged at all, because the person wanted the
+history rather than the verdicts.
 
-```
-python3 ../coverity-triage/tools/bundle.py --issues <tip>.json --git-repo <repo> \
-    --tag <tip tag> --strip-prefix <build-root> --per-checker 2 \
-    --merge-key <story-surfaced key> --plan
-```
+**Nothing to carry out.** By-catch -- a defect noticed while working on a
+different finding, in effect a potential zero-day in someone else's code --
+gets written into verdict prose, in whatever words the reviewer reached for.
+A dataset goes to demo instances and onto screens, so a by-catch riding along
+would eventually be shown by accident. There is no reliable way to detect one
+in prose: in a real library, by-catch appeared as "not part of this finding",
+"side observation", "present but unreported" and "worth its own check", none
+of which a keyword check would find. Carrying no verdicts removes the problem
+instead of policing it, which is why this is structural rather than a filter.
 
-Say in the question that the model matters. Measured on the proftpd corpus, a
-stratified sample of nine defects contained **four** false positives, and every
-one was *checker-correct*: catching them required reading a guarding
-`strncasecmp` that made a null-return path infeasible, recognising a deliberate
-two-check cycle idiom that a copy-paste heuristic misread, knowing that a
-`time_t` duration is not an epoch timestamp, and following a setter that copies
-by address family rather than by the size of its argument
-(`references/worked-example-fp-audit.md`). The user weighs that against the
-cost; this skill does not decide it for them.
+**Separability.** A dataset is instance-independent and immutable; a verdict is
+a judgement someone made at a point in time, and two people may reasonably
+disagree. Binding them into one artifact would freeze one reading of the data
+into the data.
 
-Then hand the choice to **`coverity-triage`**, with `--out audit/<tag>` so that
-publishing carries the results into the dataset. That skill bundles the
-selected findings (source read from git at the tag, never from the working
-tree, which holds whichever version was built last), assigns each a lane, runs
-the lane methods the user chose, and writes `triage.json` and
-`TRIAGE-REPORT.md`. The verdicts, their vocabulary and their discipline are
-that skill's; this one keeps none of its own.
-
-**What stays here is demo-worthiness.** A verdict says whether a finding is
-right, not whether it belongs on screen. A finding can be perfectly real and
-still fail the legibility rule (`references/selection.md`); a correctly
-dismissed global invariant leaves the dataset fine but is not something to put
-on screen, because explaining why a defect is not a defect is not a story
-anyone wants told. Read each story-surfaced finding's bundle, and its *Shape*
-line (event count, files touched, interprocedural, statistical evidence),
-against the legibility rule. Keep both in the dataset; keep both off the
-slide.
+What stays here is **demo-worthiness**, which is not a verdict: a finding can
+be perfectly real and still be the wrong thing to put on screen. See the
+legibility rule in `references/selection.md`.
 
 ## Step 5: Publish the dataset to the archive
 
@@ -440,6 +500,10 @@ interrogating the directory to work out how.
 ```
 publish_dataset.py --workspace . --project <name> --slug <what-distinguishes-it>     --archive-root <library> --cov-bin <analysis>/bin     --source-repo <clone> --description "..."
 ```
+
+Coverage and Test Advisor data are planned but not yet part of this skill.
+`references/planned-coverage-and-ta.md` records what has been decided and
+measured; follow it only as direction.
 
 `references/archive-layout.md` has the layout, the MANIFEST contract, and the
 checklist of what publishing expects of a workspace -- use that checklist to
@@ -453,6 +517,11 @@ that can be made locally -- every version present and analyzed, one pinned
 analyzer across the corpus, each idir's recorded build root genuinely
 prefixing its own captured paths, stripped paths lining up across versions,
 non-zero merge-key overlap within each stream, and stream shape per rule 29.
+One exception is reported rather than refused: upstream moving its files
+(`src/` to `src/main/java/`, say) breaks the line-up for real, with the same
+strip root on both sides and the basenames still matching. Publish names the
+break, records it in `capture.file_history_breaks`, and the dataset's
+description should say so.
 A failure writes **nothing**, including no partial dataset. Committing *from*
 the library then does only quick checks, because whoever does that wants data
 in Connect promptly and could not fix a structural problem anyway. A broken
@@ -472,9 +541,9 @@ path:
 Hand off the dataset's location, plus:
 
 - The Phase 2 population table, since it is the evidence for what the data shows
-- The triage records (`audit/<tag>/triage.json` and its report) when the user
-  chose triage, naming who produced the verdicts and how; otherwise the plain
-  statement that the dataset is untriaged
+- The plain statement that the dataset is untriaged, and that anyone who
+  intends to feature a finding should triage it first -- separately, with
+  `coverity-triage` against the published dataset
 - The reminder that the consumer takes **their own** database backup before
   committing, because first detected is write-once on their instance
 

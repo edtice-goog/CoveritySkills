@@ -521,6 +521,13 @@ The denominator includes the build system's own throwaway compilations (CMake
 rejects good builds; a `= 100% → pass` gate accepts empty ones. Reconcile
 against *product* translation units, in both directions.
 
+A partial percentage is sometimes the whole finding. An unsupported compiler
+option stops a translation unit being captured while the real compiler still
+runs, so the object, the link, the binary and the exit status all look right
+and only the count moves, short by exactly the files carrying the flag.
+Measured, including the byte-identical binary. See
+`references/capture-fidelity.md`.
+
 Source: verified — `coverity-build-fidelity`.
 
 ### 12. Always pass `--all` to `coverity list`
@@ -1011,6 +1018,28 @@ gave 16 at defaults and 189 under `--all --aggressiveness-level high`.
 Source: verified -- `coverity-pathout`, `references/path-explosion.md`,
 `references/analysis-log.md`.
 
+### 39. After any `--directive-file` run, read `output/directives.log`
+
+A security directive that loads but does not apply is dropped, and the
+analysis carries on without it. `cov-analyze` exits 0, prints one line
+pointing at `<idir>/output/directives.log`, and reports nothing from the
+directive. The reason is in that file and nowhere else.
+
+- A pattern with a typo, matching no method, is the quietest case: the console
+  line is only a `[WARNING]`.
+- A pattern that matches only methods the directive cannot apply to, such as a
+  `method_returns_tainted_data` that matches a constructor, gets an `[ERROR]`
+  line. Exit status and the run are unchanged.
+
+Only malformed JSON or an unknown directive name stops the run (exit 2).
+
+So nothing a directive run shows means anything until that log is empty --
+least of all "no change" or "not found" (rule 20).
+
+Source: verified -- reproduced on a synthetic Java fixture, 2026.9.0, after a
+`coverity-defect-detectability` run reported it for C#; C# was not re-run
+here. See `CALIBRATION.md`.
+
 ---
 
 ## Committing to Coverity Connect
@@ -1120,14 +1149,24 @@ authentication entry of `CALIBRATION.md`. The browser detour is observed: a
 session given the admin password spent about twenty turns creating a key
 through the UI.
 
-### 31. Always `--strip-path` when committing, and confirm it took effect
+### 31. Always `--strip-path` when committing — once per checkout — and confirm it took effect
 
-Commit results with `--strip-path` set to the build root. Without it every path
-in Coverity Connect carries the directory the build happened to run in —
-`/home/someone/demo/proj/src/fsio.c` instead of `/src/fsio.c`. That is harder
+Commit results with `--strip-path` set to the **root of each source checkout
+the build read from**: the top level of the SCM working copy, not the directory
+the build ran in and not anything computed from the captured paths. Without it
+every path in Coverity Connect carries the directory the build happened to run
+in — `/home/someone/demo/proj/src/fsio.c` instead of `/src/fsio.c`. That is harder
 to read, harder to search, harder to correlate with a repository, and in a
 customer-facing setting it exposes a local directory layout nobody wants on
 screen.
+
+**One per checkout, never derived from the captured files.** The option
+repeats, and each file takes the longest prefix that matches. The tempting
+alternative, the path common to every captured file, collapses or climbs above
+the checkout as soon as one file comes from outside it. The directory the build
+ran in is what Coverity records, and it is wrong for any out-of-tree build.
+Most open source builds in-tree from one checkout, where every method gives the
+same answer, which is why the wrong one goes unnoticed.
 
 **The functional reason is bigger than the cosmetic one.** When stripped paths
 do not agree across the snapshots in a stream, Connect **declines to line files
@@ -1147,9 +1186,9 @@ version built in two differently-named directories produced identical merge key
 sets, 112 of 112. Stripping is about the UI lining up *files*, not about
 Coverity lining up *defects*.
 
-Since `--strip-path` is per-commit and each idir records its own build root in
-`build-cwd.txt`, differing build paths across versions are workable: strip each
-to the same relative shape. What must agree is the stripped result.
+Since `--strip-path` is per-commit, checkouts that sit in different places for
+different versions are workable: give each commit its own checkout roots. What
+must agree across a stream's snapshots is the stripped result.
 
 **The trap: a prefix that does not match is a silent no-op.** No error, no
 warning, no diagnostic of any kind — the commit reports complete success and
@@ -1201,6 +1240,18 @@ Source: verified — `coverity-demo-data`. A 24-snapshot proftpd dataset
 committed every path in full because Git Bash rewrote the prefix; nothing in
 the commit output indicated it. Confirmed by re-running with
 `MSYS_NO_PATHCONV=1` and no trailing separator, which strips correctly.
+
+The checkout root, once per checkout, is the repository owner's ruling
+(2026-11-06). **Measured** in `coverity-demo-data`'s tests: rockbox, one
+checkout built out of tree, recorded its build directory as the build root.
+That prefixed only the generated files under it, and 637 of 699 captured paths
+sat above it, so the dataset publisher refused every version rather than strip
+there. Nothing wrongly stripped reached Connect. **Reasoned, not observed:** a
+build with two checkouts, and an outside file pulling an inferred prefix above
+the checkout; no case of either has been seen. That the option repeats and the
+longest matching prefix wins is the documented behaviour of both
+`cov-commit-defects` and `cov-format-errors` (`--help`, 2026.9.0); passing it
+more than once has not been run here.
 
 ### 29. One stream per branch; a stream must move forward only
 

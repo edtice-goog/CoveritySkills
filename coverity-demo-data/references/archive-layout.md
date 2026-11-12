@@ -58,8 +58,25 @@ collide.
 
 **Store idirs uncompressed.** Compression and decompression time does not pay
 for itself on a fast network, and it makes running directly from the archive
-host worse. Budget roughly 29 MB per analyzed version -- about 700 MB for a
-24-version corpus.
+host worse.
+
+**Budget storage as k x source size x versions,** where source size is one
+version's checkout (`git archive <tag> | tar -tvf -`, summed) and k depends
+heavily on the language and the analysis options. Two measured corpora, both
+analyzed idirs on Coverity 2026.9.0:
+
+| corpus | language, options | source per version | idir per version | k |
+|---|---|---|---|---|
+| proftpd, 24 releases | C, default checkers | 51-61 MB | 26-33 MB | about 0.5 |
+| Traccar, 97 releases | Java, `--webapp-security` | 0.3-6.5 MB | 0.2-1.8 GB | about 270 overall, 150-300 per version |
+
+The gap is mostly not the project's own code. A Java capture also emits
+bytecode for every classpath jar and the JDK modules, which is a fixed cost
+that grows with the dependency list rather than the source. That is why k is
+highest for the smallest versions (about 680 for Traccar's first). Expect C
+and C++ near the low end and Java near the high end. For anything else,
+capture and analyze one version, take k from it, and use the newest version's
+source size, since both source and k tend to grow over a project's history.
 
 ## MANIFEST.json
 
@@ -93,7 +110,18 @@ branches (rule 29).
 **Derive, do not ask.** An analyzed idir is self-describing, so publish reads
 these from the artifacts instead of trusting a human:
 
-- `build-cwd.txt` -- the build root, hence `strip_path`
+- `scm-root.txt` -- the top level of the SCM checkout the build ran in, which
+  `capture.sh` writes. **This is `strip_path`.** It usually equals where the
+  build ran, which Coverity records in `build-cwd.txt`, but not for an
+  out-of-tree build (a cmake `build/`, `configure` run from a build directory,
+  `make O=`). The strip path is never inferred from the captured paths. "The
+  nearest folder holding every captured file" climbs above the checkout as
+  soon as the build reads anything from outside it. Files outside the checkout
+  keep their full paths, like system headers, and publish reports how many
+  there are. For idirs captured without `scm-root.txt`, pass `--scm-root`. An
+  in-tree build whose `build-cwd.txt` prefixes every captured path is accepted
+  as it stands. `capture/<tag>.json` records `build_cwd`, `build_root` and
+  where the root came from.
 - `output/version` -- the Coverity version that produced it
 - `output/ANALYSIS.metrics.xml` -- present iff the idir was analyzed
 - `output/analysis-settings.json` -- the exact analysis configuration
@@ -109,7 +137,7 @@ now wants it in the standard shape. Required:
 ```
 <workspace>/
   idirs/<tag>/           one ANALYZED idir per version (cov-analyze has run)
-  tag-streams.txt        "<tag> <YYYY-MM-DD> [stream]", one per line
+  tag-streams.txt        "<label> <YYYY-MM-DD> [stream [version]]", one per line
 ```
 
 The date is the release date to backdate to. The third field is the stream, and
@@ -117,20 +145,21 @@ it is how concurrent release lines stay apart (rule 29); omit it only for a
 single-stream corpus. Pass `--tags` if the file lives elsewhere or is named
 differently.
 
-Carried through if present, ignored if not: `audit/`, `logs/`, and a top-level
-triage report. `MANIFEST.json` lists every `coverity-triage` records file under
-`audit/` (`audit.triage_records`); an empty list means the dataset is
-untriaged.
+Carried through if present, ignored if not: `logs/`. Nothing from triage is
+carried: this skill does not triage, and a dataset holds no verdicts.
 
 Nothing else is asked for, because everything else is **derived** from the
-idirs -- the strip path from `build-cwd.txt`, the analyzer version from
+idirs -- the strip path from `scm-root.txt` (or `build-cwd.txt` for an in-tree build), the analyzer version from
 `output/version`, whether analysis ran from `output/ANALYSIS.metrics.xml`, the
 captured file list from `cov-manage-emit`. You do not supply those and cannot
 get them wrong.
 
 Run with `--validate-only` first. It reports every problem it can find without
 writing anything, which is the cheap way to discover that a corpus has mixed
-analyzer versions or a stream carrying two releases on one date.
+analyzer versions or a stream carrying two releases on one date. Two versions
+on one date in one stream pass only with `--source-repo`, and only when, in
+the tags file's order, each is a proper ancestor of the next. Same-date
+versions keep the file's order all the way into `commit.sh`.
 
 Choose `--slug` to name what distinguishes this dataset from another of the
 same project -- the version span, the checker configuration, the analyzer
@@ -144,7 +173,7 @@ it.
 
 ```json
 {
-  "schema": 2,
+  "schema": 5,
   "project": "proftpd",
   "dataset": "2026-10-13-releases24-defaults",
   "description": "24 releases across five branch streams, 2015-2025 ...",
@@ -156,19 +185,29 @@ it.
     "suggested_project": "proftpd"
   },
   "streams": [
-    { "tag": "v1.3.5a", "date": "2015-05-27", "stream": "proftpd-1.3.5", "cids": 176 }
+    { "tag": "v1.3.5a", "version": "v1.3.5a", "date": "2015-05-27",
+      "stream": "proftpd-1.3.5", "cids": 176 }
   ],
   "source": {
     "url": "https://github.com/proftpd/proftpd.git",
     "shas": { "v1.3.5a": "379bdb0d413f9489768c29c3a36e7bc854c85395" }
   },
   "counts": { "versions": 24, "streams": ["proftpd-1.3.5"], "cids_at_tip": 112 },
-  "audit": { "triaged": true, "triage_records": ["audit/v1.3.9/triage.json"] }
+  "capture": { "findings": { "v1.3.5a": "findings/v1.3.5a.json" },
+               "inventory": { "v1.3.5a": "capture/v1.3.5a.json" } }
 }
 ```
 
+`tag` is the version's unique label: its idir's name and the key of every
+per-version file. `version` is what the snapshot is committed as, and what
+`source.shas` resolves. They are equal unless one release is built more than
+once -- two hardware targets, say, each in its own stream -- in which case the
+two labels share one version, and a view pinned to that version shows both
+builds. Manifests before schema 5 have no `version`; read it as the `tag`.
+
 `strip_path` is the single root when the whole corpus shares one, and `null`
-otherwise; `strip_path_per_tag` always carries every version's own root. Build
+otherwise; `strip_path_per_tag` always carries every version's own root, and
+`commit.sh` passes it per label. Build
 roots need not match across versions -- merge keys are path-independent and
 `--strip-path` is per-commit -- so a corpus assembled from differently-rooted
 builds is legal. What must hold is that the *stripped* paths agree, which is
