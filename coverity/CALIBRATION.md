@@ -149,6 +149,25 @@ exception is *Connect authentication* at the end of this file, which ran on
     (`DEGRADED`, 2/2/2/1, naming `f2` at `src/part.c:5`) with the earlier
     `CONSISTENT` and `SHORTFALL` cases re-run as regressions.
 
+### Directive validation (rule 39)
+
+Synthetic Java fixture, Coverity 2026.9.0: one class whose
+`returns_tainted_data()` feeds `prepareStatement`; `cov-build` with `javac`
+from the installation's `jdk26`, 1 TU; `cov-analyze --webapp-security
+--distrust-all --directive-file <file>`, one `method_returns_tainted_data`
+directive per file.
+
+| Directive file | Exit | Console | Defects | `output/directives.log` |
+|---|---|---|---|---|
+| valid pattern | 0 | -- | 1 SQLI | empty |
+| pattern matches only the constructor | 0 | one `[ERROR] Directive errors were discovered during directive validation` line | 0 | `[WARNING] ... doesn't have a return` and `[ERROR] ... matched methods in the emit but does not actually apply to any of them` |
+| pattern with a typo, matches nothing | 0 | one `[WARNING] Potential directive issues ...` line | 0 | `[WARNING] ... does not match any methods in the emit` |
+| unknown directive name | 2 | `[ERROR] ... during directive parsing` | -- | `[FATAL ERROR] Unknown directive` |
+| invalid JSON escape | 2 | `Cannot parse malformed JSON` | -- | not written |
+
+First reported for C# by a `coverity-defect-detectability` run; C# was not
+re-run here.
+
 ## Not found in the shipped documentation (2026.6.0)
 
 Recorded so the gap can be closed, not as a selling point: a command whose

@@ -100,15 +100,22 @@ EOF
 
 # The stream map lives only in MANIFEST.json -- a second copy on disk is the
 # drift that silently flattens branches (rule 29). Derive it at run time.
-TAGS="$(mktemp)"; trap 'rm -f "$TAGS"' EXIT
+TAGS="$(mktemp)"; STRIPS="$(mktemp)"; trap 'rm -f "$TAGS" "$STRIPS"' EXIT
 "$PY" -c "
 import json,sys
 m=json.load(open(sys.argv[1]))
 for s in m['streams']:
-    print(s['tag'], s['date'], s['stream'])" "$MANIFEST" > "$TAGS"
+    print(s['tag'], s['date'], s['stream'], s.get('version', s['tag']))" "$MANIFEST" > "$TAGS"
+
+# Per-label build roots. With more than one root there is no single
+# strip_path, and committing without these would store full build paths.
+"$PY" -c "
+import json,sys
+m=json.load(open(sys.argv[1]))
+json.dump(m['commit'].get('strip_path_per_tag') or {}, open(sys.argv[2],'w'))" "$MANIFEST" "$STRIPS"
 
 ARGS=(--idirs-root "$HERE/idirs" --tags "$TAGS" --url "$URL"
-      --auth-key-file "$KEY" --cov-bin "$INSTALL/bin")
+      --auth-key-file "$KEY" --cov-bin "$INSTALL/bin" --strip-map "$STRIPS")
 [ -n "$STRIP" ] && ARGS+=(--strip-path "$STRIP")
 [ -n "$PLATFORM_BIN" ] && ARGS+=(--platform-bin "$PLATFORM_BIN")
 [ -n "$DRY" ] && ARGS+=("$DRY")

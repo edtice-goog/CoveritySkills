@@ -1,0 +1,13 @@
+// method_returns_tainted_data on a constructor: the directive is dropped,
+// with a line in output/directives.log and nothing on the console.
+{
+  "type" : "Coverity analysis configuration",
+  "format_version" : 12,
+  "language" : "C#",
+  "directives" : [
+    {
+      "method_returns_tainted_data" : { "named" : "System.IO.MemoryStream::.ctor(System.Byte[])System.Void" },
+      "taint_kind" : "http"
+    }
+  ]
+}

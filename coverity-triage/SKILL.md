@@ -14,17 +14,19 @@ description: >
   "triage these findings", "triage a sample of this run", "classify these
   defects", "are these false positives", "triage before I hand this off",
   "triage in lanes", "which lane does this finding belong in", "place this
-  custom checker", "set Defect Category and Triage Method", and whenever
-  another coverity-* skill that produces findings hands them off for
-  verdicts. The skill never starts on a default: triage spends model time
-  per finding, so which findings and which method per lane are fixed by
-  the user (or by the calling skill, which asks its user) before anything
-  runs. Unattended, it reports what it needs and stops. It writes a records
-  file and touches no server; whoever owns the Connect instance applies the
-  records, with or without the custom attributes. Needs the findings as
-  cov-format-errors JSON and the source at the analyzed version, from git
-  or, when there is no git source, from the intermediate directory itself.
-  No Coverity Connect, and no build.
+  custom checker", "set Defect Category and Triage Method", "apply the
+  triage to Connect", and whenever another coverity-* skill that produces
+  findings hands them off for verdicts. The skill never starts on a
+  default: triage spends model time per finding, so which findings and
+  which method per lane are fixed by the user (or by the calling skill,
+  which asks its user) before anything runs. Unattended, it reports what it
+  needs and stops. It writes a records file. On request, it then creates
+  the two custom attributes on a Connect instance and applies the records
+  there, writing nothing without an explicit yes and never overwriting
+  triage someone already set. Needs the findings as cov-format-errors JSON
+  and the source at the analyzed version, from git or, when there is no git
+  source, from the intermediate directory itself. No build, and Coverity
+  Connect only for the optional apply.
 ---
 
 # Coverity triage
@@ -85,7 +87,7 @@ flowchart LR
     V --> R[("Records file<br/>Classification, Action,<br/>Severity, Comment<br/>+ Defect Category, Triage Method")]
     PO --> R
     O --> R
-    R -.->|"applied by whoever<br/>owns the instance"| C["Coverity Connect"]
+    R -.->|"Step 6, on request:<br/>connect_apply.py"| C["Coverity Connect"]
 ```
 
 Read `coverity/RULES.md` first: rules 22, 23, 26, 30 and 38 carry most of
@@ -104,19 +106,25 @@ lane's method, and writes the records and a report.
 - **Decide what is in scope.** Which code was captured and which checkers
   were enabled were decided before analysis (`coverity` skill, rules 2 and
   9-11). A finding in code that should not have been captured is a capture
-  question, not a verdict.
+  question, not a verdict. The one exception is a finding in a compiler's
+  own headers: it is recorded Intentional by rule, with no method
+  (*Step 1*).
 - **Rank severity or judge exploitability.** The verdict set has one
   severity word, *low severity*, and nothing more.
 - **Second-guess a policy.** Policy findings carry their lane and nothing
   else.
-- **Write to Connect.** It writes a records file in Connect's attribute
-  names. Applying it, with or without the two custom attributes, belongs
-  to whoever owns the instance (*Records, and getting them to Connect*).
+- **Write to Connect unasked.** It writes a records file in Connect's
+  attribute names. Applying the file is a separate, optional step (*Step 6*),
+  run only when the instance's owner says so. The same holds for creating the
+  two custom attributes, the only definitions the skill ever creates.
 - **Use Connect's AI-Assisted Triage.** Its methods run where this skill
   runs, and the records say which ones ran.
 - **Decide what is worth showing.** A correct verdict on a finding nobody
   can follow in a demo is still a correct verdict; demo-worthiness belongs
   to `coverity-demo-data`.
+- **Write triage history.** It triages open findings in a stream's latest
+  snapshot. Triage for a dataset's earlier snapshots is the job of whoever
+  loads the dataset into Connect.
 
 ## Cost: nothing starts on a default
 
@@ -158,20 +166,53 @@ triages because a step in its procedure came up.
 
 | input | where it comes from |
 |---|---|
-| the findings | `cov-format-errors --dir <idir> --json-output-v10 <file>` on the analyzed idir (rule 26 lists the fields). A Connect CID is turned into a merge key and the idir's findings with `coverity-verify/tools/cid_lookup.py` |
+| the findings | `cov-format-errors --dir <idir> --json-output-v10 <file>` on the analyzed idir (rule 26 lists the fields) |
+| or a Connect CID | the usual live start. Look for the CID in everything the user's key can see. It can come back several times (several streams, several snapshots). **Unless the user says otherwise, triage its latest occurrence**: the newest snapshot that reports it, and the idir that produced that snapshot. `coverity-verify/tools/cid_lookup.py` turns a CID into a merge key and the idir's findings, within a stream the caller names |
 | the source at the analyzed version | **the default:** a git repository and the tag or commit the idir was built from. **Read from git, never from the working tree**: a working tree holds whatever was checked out last, which is the wrong source in a way that reads as entirely plausible. **The backup, when there is no git source** (an analyzed tree with no tag or commit to read): the intermediate directory, with the `bin/` of the installation that wrote it (rule 3) |
 | the build root | the path prefix to strip from recorded paths (`--strip-prefix`) |
 | the selection | `--merge-key` for named findings (repeatable), `--per-checker N` for rule 26's stratified sample, `--all` for every finding |
+| earlier releases' records | for every release after the first: the `triage.json` of each earlier release (`--prior`, *Step 1*), so only the delta is triaged |
 | the checker tables | the skill's own `references/checker-lanes.json`, plus any organization or producer table (`--table`, *Step 2*) |
 | the plan | the method per lane (*Step 3*), the model for inference, and optionally a verify route for the whole plan |
+| the by-catch folder | where defects noticed outside the selected findings go: `bycatch/` beside `triage.json`, never in the records, or a folder the caller names with `--bycatch-dir` (`references/records.md`, *By-catch*) |
 
 ## Step 1: Bundle the selection
 
 ```
 python3 tools/bundle.py --issues <findings.json> --git-repo <repo> --tag <tag> \
     --strip-prefix <build-root> [--per-checker N] [--merge-key K ...] [--all] \
-    --out <dir> [--plan]
+    [--prior <earlier triage.json> ...] [--compiler-header <dir> ...] \
+    [--name <project>] [--version-date YYYY-MM-DD] --out <dir> [--plan]
 ```
+
+**Say what is being triaged.** Every triage comment ends with it, for
+example `Triaged against ProFTPD v1.3.9 from 2025-03-14.` Connect's "last
+triaged" date says when an answer was written, not what it was about, and
+cannot be backdated. The line also explains small mismatches, such as an
+answer read against a slightly different version. `--name` is the project
+as its readers know it, with the build when builds of one version are
+triaged apart (`Rockbox ipodvideo`); default: the git repository's
+directory name. The version is `--tag`.
+`--version-date` is the version's date (default: the date of the commit the
+tag names). With `--idir`, give both `--name` and `--version-date`: without
+them the records step refuses every verdict.
+
+**One release at a time, oldest first.** Never select across a dataset's
+releases in one run. Triage the first release. For each later release, pass
+the records of every earlier one with `--prior`. A merge key they already
+settled, with a verdict or a lane that takes no method (Policy, Other), is
+left out, and only the delta is triaged. A key with no verdict yet (method
+`None`, or awaiting a person) is bundled again. A key named with
+`--merge-key` is bundled whatever `--prior` says. `--plan` and `index.json`
+give the count left out.
+
+**Compiler headers are never triaged.** A finding whose main event is in a
+compiler's own headers (libstdc++, libc++, GCC's, Clang's, MSVC's) is a
+residual false positive. `--per-checker` and `--all` always include it, and
+it never takes a sample's place. `index.json` marks it `compiler_header`,
+and the next steps record it Intentional with no method (`references/
+lanes.md`, *Compiler headers*). `--compiler-header <dir>` adds another
+compiler's include directory.
 
 **With no git source,** replace `--git-repo` and `--tag` with `--idir <idir>
 --cov-bin <install>/bin`, plus `--tag <label>` if the idir's directory name
@@ -214,9 +255,10 @@ python3 tools/lanes.py assign --bundles <dir> [--table <file> ...] --out <dir>/l
 `references/lanes.md` has the lanes, the tests that decide one, and the
 rules below in full.
 
-1. **From the checker table, with no model.** A finding whose checker has a
-   fixed lane takes it. The skill's table covers the checkers whose
-   languages include C in Coverity 2025.9.0. An organization's own table,
+1. **From the checker table, with no model.** A finding in a compiler
+   header takes Other first, whatever its checker (*Step 1*). A finding whose
+   checker has a fixed lane takes it. The skill's table covers every checker
+   Coverity 2026.9.0 lists, in every language. An organization's own table,
    or a producer's rows for its custom checkers, follows it through
    `--table`, and a later row replaces an earlier one.
 2. **Inference, only where the table gives candidates.** For a checker whose
@@ -227,9 +269,12 @@ rules below in full.
    deciding events. It never returns a verdict. It runs on the plan's
    `assigner` model, which the plan has fixed: the step reads event traces,
    and a misrouted finding gets the wrong method.
-3. **A custom checker with no row is placed once**, not per finding. Its
-   row comes from the producer's rows if it ships any, from the built-in
-   checker it stands in for, or from its description. A checker that is
+3. **A checker with no row is placed once**, not per finding: a custom
+   checker, or a built-in one the table does not have yet (from a later
+   Coverity release, or a coding-standard rule). Its row comes from the
+   producer's rows if it ships any, from the built-in checker it stands in
+   for, or from its description. A built-in checker's row then belongs in
+   the skill's own table, so the next user is not asked. A checker that is
    noisy by design, built to be verified, carries the method
    `Execution: coverity-verify` in its row. Interactive, show the proposed
    rows and ask; otherwise report them and stop (rule 38). Either way, write
@@ -289,7 +334,8 @@ A finding in **Policy** takes no method, ever. A finding in **Other** takes
   and the verdict set, plus its bundles. Nothing from other lanes, and
   nothing about why the findings were selected.
 - **What it writes:** one verdict file (format in `references/records.md`),
-  stating the model it ran on.
+  stating the model it ran on. Any by-catch goes in a separate file in the
+  by-catch folder the reader is given, never in a verdict.
 - **What it reads:** the code the argument depends on, including the
   callees the events go through. When it has not read them, the verdict is
   `unresolved`, in either direction.
@@ -315,6 +361,8 @@ A finding in **Policy** takes no method, ever. A finding in **Other** takes
   method.
 - **No fallback.** Nothing falls back to reading unless the plan says so,
   because the record must name the one method that produced its verdict.
+- **Bycatch.** A crash verify's free run hits elsewhere is by-catch. It
+  goes to the by-catch folder, never into the verdict's reason.
 
 ## Step 4: Assemble the records
 
@@ -342,7 +390,11 @@ check fails, and it checks every finding it was given:
 - **a `false positive - global invariant` names the invariant, where it is
   enforced, and what would break it** (rule 30: no location, no dismissal);
 - no comment carries a control character other than tab, LF or CR, and no
-  comment exceeds Connect's limit.
+  comment exceeds Connect's limit;
+- no verdict carries by-catch, as a field or in the usual by-catch phrasing;
+- every by-catch file in the by-catch folder is well-formed, and names a
+  bundled finding. Assemble collects them into `bycatch/bycatch.json`, and
+  prints `by-catch: N item(s) in <path>` (or `by-catch: none`).
 
 The verdict maps onto Connect's fields as below. The comment carries the
 argument, the lane and who assigned it, and the method.
@@ -375,39 +427,116 @@ A sample is a sample: "triaged 18 of 147 findings across 13 checkers",
 never a false-positive rate for the run (rule 26). Mark what was executed
 and what was read (rule 23).
 
-## Records, and getting them to Connect
+**By-catch is reported beside the records, never in them.** Say how many
+items there are, the path of `bycatch.json`, and that they are unverified
+notes: defects to fix in your own code, or something for whoever handles
+unreported vulnerabilities in code that is not yours. Interactive, say it
+in the reply. Unattended, the stdout line from `assemble` is the report.
+Nothing about by-catch goes into `TRIAGE-REPORT.md`, not even a count.
+
+## Step 6 (optional): Apply the records to Connect
 
 `triage.json` holds one record per finding, keyed by **merge key** (a CID is
 a label local to one Connect database; rule 27). It carries the triage state
 in the attribute names that Connect's triage-store export uses. Format and
 field rules: `references/records.md`.
 
-Applying it is not this skill's step. Whoever owns the instance decides,
-per apply, whether to set the standard attributes only or the two custom
-attributes as well.
+Applying it writes triage that other people see, and triage history keeps
+every write. So it runs only when whoever owns the instance asks for it.
+Interactive, show the plan and ask. Unattended, run the plan only, report
+it, and stop, unless the inputs already say to apply (rule 38). Each apply
+decides whether to set the standard attributes only, or the two custom ones
+as well.
 
-- The custom ones are pick lists that must exist on the instance before
-  anything can set them, with a value for every method that will be
-  recorded (one per model).
-- Creating an attribute definition takes the v9 SOAP configuration
-  service's `createAttribute`. `coverity-cvss-report/tools/cvss_attributes.py`
-  uses it for its own attributes. REST and `cov-manage-im` cannot create
-  them.
+**Triage lives in triage stores.** A CID has one answer per triage store,
+and the streams that share a store share it. Streams with stores of their
+own, one per build target say, can hold different answers for the same
+CID, since a defect in one build can be harmless in another. Apply writes
+to the stream's own store. Every comment ends with what was triaged
+(*Step 1*), so a reader can tell which code an answer was about.
+
+**A changed decision** (a new reading, or a commit that changes it) is
+applied again with `--overwrite`, from records that hold only the changed
+findings, after checking that each finding's current answer is this
+skill's own: its last comment ends with this skill's two closing lines. A
+field the new record leaves null keeps its old value, so a move to
+*unresolved* leaves the old Classification in place.
+
+**1. The custom attributes.** Skip this with `--standard-only`.
+
+- `Defect Category` and `Triage Method` are pick lists. They must exist on
+  the instance, with a value for everything the records set
+  (one `Triage Method` value per model), before anything can set them.
+- `tools/connect_attributes.py` creates them over REST:
+
+  ```
+  python3 tools/connect_attributes.py check --url <connect-url> [--records triage.json] [--model "Sonnet 5.5"]
+  python3 tools/connect_attributes.py setup --url <connect-url> [--records triage.json] [--model "Sonnet 5.5"] [--yes]
+  ```
+
+  - **`check`** reads the instance and says what is missing. It exits 3 when
+    something is, and 0 when nothing is.
+  - **`setup`** prints the same plan and changes nothing. With `--yes` it
+    creates the missing attributes and adds the missing values. Run it once
+    per instance, and again when a records file uses a new model.
+  - **What it never does:** delete or rename an attribute or a value, or
+    change an attribute's type.
+  - **The two attributes are instance-global.** They appear in every
+    project's triage pane, so only whoever owns the instance runs `setup
+    --yes`. Interactive, ask them first; unattended, report the `check`
+    output and stop (rule 38).
+  - **Credentials and target:** an auth key file, by default
+    `~/.coverity/ak-<host>-<port>` (the `coverity` skill's `connect_auth.py`
+    writes it there). The URL comes from `--url` only, never from the key
+    file (rule 28).
+
+**2. Apply.**
+
+```
+python3 tools/connect_apply.py --url <connect-url> --records triage.json \
+    --project <project> --stream <stream-of-the-analyzed-version> [--standard-only] [--overwrite] [--yes]
+```
+
+- **Finding the CIDs.** It finds each record's finding in the stream by
+  merge key and writes to the stream's own triage store. A record whose
+  merge key the stream does not have is listed, and not applied. It assumes
+  open findings in the stream's latest snapshot. Anything else, such as
+  triage for snapshots a dataset has already moved past, is the caller's to
+  arrange.
+- **It writes only what differs.** A field the record leaves null (no
+  verdict, no severity) is left alone. A field that already holds the
+  record's value is skipped. The comment is skipped when it is already the
+  finding's last triage comment, so a second apply does not post it twice.
+- **It never overwrites someone's triage.** A finding whose Classification,
+  Action, Severity or custom attribute already holds a value that someone
+  set, which differs from the record, is listed and left alone unless
+  `--overwrite`.
+- **Without `--yes`, it changes nothing.** It prints the plan, and exits 3
+  when there is something to write. With `--yes` it writes, reads the
+  findings back, and fails (exit 1) if a value did not take.
+- **Exit codes.** It exits 0 only when every record's finding holds what the
+  record sets, and 3 when a record was skipped (not found, or left alone).
+  `--json` prints one object for a script.
+- **By-catch is never applied:** it is not in the records.
+
+Then report what was applied, what was left alone and why, and what was not
+found (rule 22).
 
 ## Handing off to this skill
 
-A skill that produces findings hands off with the inputs of Step 0, after
-its user has chosen the selection and the plan. Examples are
-`coverity-demo-data`'s datasets, `coverity-pathout`'s candidates, or a
-findings file from any run. With its findings, it gives:
+Most runs start from a user with a findings file: from any analysis, or
+from a dataset `coverity-demo-data` built. A skill that produces findings
+for triage, such as `coverity-pathout` with its candidates, hands off with
+the inputs of Step 0, after its user has chosen the selection and the plan.
+With its findings, it gives:
 
 - the rows for its own custom checkers, if it has any, as a table file;
 - which lane and method it expects, if any (*When the caller expects a
-  lane*).
+  lane*);
+- where by-catch should go, if it has a destination of its own.
 
-It gets back the bundles, `triage.json` and `TRIAGE-REPORT.md`, and keeps
-its own concerns: which findings a story surfaces, whether a true positive
-is legible on screen.
+It gets back the bundles, `triage.json`, `TRIAGE-REPORT.md` and, when there
+is any, `bycatch/bycatch.json`. It keeps its own concerns.
 
 ## Anti-patterns
 
@@ -440,14 +569,18 @@ is legible on screen.
   verdict.
 - Quietly running a different method, or none, on a finding that did not
   land in the lane its caller expected. Report it and let the user choose.
-- Writing triage to Connect from this skill.
+- Writing by-catch into a `reason`, a verdict file, `run.json` or the
+  report. Those travel with the records; by-catch goes to `bycatch/`.
+- Running `connect_apply.py --yes` or `connect_attributes.py setup --yes`
+  on an instance without its owner's say-so, or passing `--overwrite` to
+  replace triage someone set without being asked to.
 
 ## Where other skills take over
 
 | Question | Skill |
 |---|---|
 | Verify one finding by running it; "was this fixed or silenced?" | `coverity-verify` |
-| A defect history dated per release; a dataset for adoption or a demo, and which of its findings a story should show | `coverity-demo-data` |
+| A defect history dated per release; a dataset for adoption or a demo, and which of its findings a story should show (triage it afterwards, here, as a separate step) | `coverity-demo-data` |
 | Candidates from functions that reached the path bound | `coverity-pathout` |
 | The sample looks noisy: is the capture sound? A PARSE_ERROR? | `coverity` (rules 2, 9, 26) |
 | A CVSS score per finding | `coverity-cvss-report` |
@@ -461,14 +594,16 @@ coverity-triage/
 ├── CALIBRATION.md               # what was run, on what, and what was not
 ├── references/
 │   ├── lanes.md                 # the six lanes, the tests, the table, custom checkers, methods
-│   ├── checker-lanes.json       # the checker table: C checkers in Coverity 2025.9.0
+│   ├── checker-lanes.json       # the checker table: every checker Coverity 2026.9.0 lists
 │   ├── reading.md               # the reading method: each lane's questions, the verdict set
 │   └── records.md               # the table format, run.json, lanes.json, verdict files, triage.json
 ├── tools/
 │   ├── bundle.py                # select + bundle: trace and source from git at the tag (or the idir); --plan
 │   ├── lanes.py                 # lanes from the checker table; what is left for inference; check-table
-│   └── records.py               # assemble + validate the records; check-lanes; TRIAGE-REPORT.md
+│   ├── records.py               # assemble + validate the records; check-lanes; TRIAGE-REPORT.md
+│   ├── connect_attributes.py    # check / create Defect Category and Triage Method on a Connect (REST)
+│   └── connect_apply.py         # apply triage.json to a Connect stream: plan, --yes, read back (REST)
 └── evals/
     ├── evals.json
-    └── test_tools.py            # the three tools on a generated fixture, negatives included
+    └── test_tools.py            # the tools on a generated fixture and a fake Connect, negatives included
 ```

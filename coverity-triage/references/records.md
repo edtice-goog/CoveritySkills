@@ -129,7 +129,7 @@ unplaced checker gets a row in a table file, and `assign` runs again. Before
 |---|---|
 | `lane` | one of `Construction`, `Intent`, `Contract`, `Value or path`, `Policy`, `Other` |
 | `reason` | required: the row's `why`, or the sentence inference wrote naming the events |
-| `assigned_by` | `checker table`, the plan's `assigner` (with `candidates`, and a lane among them), or `Human` (a person moving a finding, with the reason) |
+| `assigned_by` | `checker table`, the plan's `assigner` (with `candidates`, and a lane among them), `Human` (a person moving a finding, with the reason), or `compiler header` (always lane `Other`, and only for a finding `index.json` marks with `compiler_header`) |
 | `method`, `route` | copied from the checker's row, when it has them |
 
 ## `verdicts/*.json`: one per reader batch
@@ -190,8 +190,86 @@ reachable.
 - Put the tier, and the reach count or the crash evidence, in `reason`.
 - Copy verify's `route`, `route_reason`, `as_code` and `stubbed`.
 
-A *bycatch* is not a verdict on the finding. Mention it in `reason`, so a
-person sees it.
+A *bycatch* tier is not a verdict on the finding. It goes to the by-catch
+directory (next section), never into `reason`.
+
+## By-catch: never in the records
+
+By-catch is a defect noticed while working on a different finding: a crash
+verify's free run hit elsewhere, or a bug a reader saw in code it read. In
+your own code it is usually just another defect to fix. In code that is not
+yours (a vendored library, an open-source dependency), it may be an
+unreported vulnerability.
+
+The records are what people pass around: `triage.json` gets applied to
+Connect and the report gets shared. By-catch has no CID for Connect to
+attach to, and may not be yours to share. So it is kept out of the records
+entirely:
+
+- not in `reason`, nor in any other verdict field, a verdict file or
+  `run.json`;
+- not in `triage.json` or `TRIAGE-REPORT.md`, not even as a count;
+- not in the bundles.
+
+`records.py assemble` refuses a verdict that carries a by-catch field, or a
+`reason` written in the usual by-catch phrasing ("side observation",
+"aside, not part of this finding", "present but unreported", "worth its
+own check", "bycatch"). That refusal is a backstop: by-catch described in
+other words passes it, and the convention is what protects you.
+
+**Where it goes: the `bycatch/` folder of the run**, beside `triage.json`
+(the directory of `assemble --out`) but never inside the records. That is
+`<out>/bycatch/` in the layout above, and still beside `triage.json` when
+the bundles sit in a folder of their own. A caller can name another folder
+instead (`--bycatch-dir`), such as a security team's intake folder.
+`assemble` refuses to run while by-catch files sit in a `bycatch/` folder
+it is not reading (beside the records or beside the bundles), so none is
+missed silently.
+
+- **What the readers write.** One file per reader batch or verify run, named
+  `<lane>-<n>.json` or `verify-<n>.json`:
+
+  ```json
+  {
+   "noticed_by": "LLM: Sonnet 5.5",
+   "model": "claude-sonnet-5-5",
+   "items": [
+    {"site": "<path>:<line>",
+     "claim": "<what looks wrong there, in one sentence, with file:line>",
+     "noticed_while": "<merge key of the finding being read>",
+     "sites_read": ["<path>:<first>-<last>"]}
+   ]
+  }
+  ```
+
+- **What `assemble` adds.** It checks every by-catch file (each item needs a
+  `site`, a `claim`, and a `noticed_while` naming a bundled finding). It
+  writes `bycatch.json` in the same folder, with every item and the file it
+  came from. It also prints one line a script can read:
+
+  ```
+  by-catch: 2 item(s) in <out>/bycatch/bycatch.json
+  ```
+
+  With no by-catch, it writes no `bycatch.json`, and prints `by-catch: none`.
+
+```json
+{
+ "format": "coverity-triage-bycatch",
+ "schema": 1,
+ "tag": "v2.0",
+ "items": [
+  {"site": "...", "claim": "...", "noticed_while": "...", "sites_read": ["..."],
+   "noticed_by": "LLM: Sonnet 5.5", "model": "claude-sonnet-5-5", "file": "Contract-1.json"}
+ ]
+}
+```
+
+An item is a note, not a verdict: nobody has verified it. In your own code,
+treat it like any other defect report. In code that is not yours, hand it to
+whoever handles unreported vulnerabilities there (a product security team,
+or the upstream project's security contact). Sharing the whole run folder
+shares `bycatch/` with it, and the folder's name says so.
 
 ## `triage.json`: the records
 
@@ -202,11 +280,13 @@ person sees it.
  "run": { ...run.json..., "tables": ["references/checker-lanes.json"],
           "source": {"issues": "v1.3.9.json", "git_repo": "...", "tag": "v1.3.9",
                      "source": {"mode": "git", "repo": "...", "rev": "v1.3.9"},
-                     "strip_prefix": "/home/me/proftpd"} },
+                     "strip_prefix": "/home/me/proftpd",
+                     "triaged_against": {"project": "ProFTPD", "version": "v1.3.9",
+                                         "date": "2025-03-14"}} },
  "records": [
   {"mergeKey": "6b0b0c...",
    "checker": "NULL_RETURNS",
-   "judged": {"tag": "v1.3.9",
+   "judged": {"tag": "v1.3.9", "project": "ProFTPD", "date": "2025-03-14",
               "sites": [{"file": "modules/mod_log.c", "line": 1324, "function": "log_openfile"}]},
    "lane": "Contract",
    "lane_reason": "a callee's NULL return is used",
@@ -215,7 +295,7 @@ person sees it.
    "verdict": "false positive - global invariant",
    "triageState": {"classification": "False Positive", "action": "Ignore",
                    "severity": null,
-                   "comment": "False positive (global invariant): The else branch ...\n[coverity-triage 2026-10-28] Lane: Contract (assigned by checker table). Method: LLM: Sonnet 5.5, read, not executed.",
+                   "comment": "False positive (global invariant): The else branch ...\n[coverity-triage 2026-10-28] Lane: Contract (assigned by checker table). Method: LLM: Sonnet 5.5, read, not executed.\nTriaged against ProFTPD v1.3.9 from 2025-03-14.",
                    "customTriage": {"Defect Category": "Contract",
                                     "Triage Method": "LLM: Sonnet 5.5"}},
    "evidence": {"reason": "...", "invariant": "...", "enforced_at": "...", "breaks_if": "...",
@@ -233,6 +313,9 @@ person sees it.
   export: `classification`, `action`, `severity`, `comment`, and
   `customTriage` for custom attributes. **`null` means leave that
   attribute alone** on the target.
+- **`judged`** says what was triaged: `tag` (the version), `project` and
+  `date` (from `index.json`'s `triaged_against`). Every comment ends with
+  them (*The comment*).
 - **`judged.sites`** lists every site the merge key was reported at in
   this version. A merge key does not depend on the file, so copy-pasted
   code in two files can share one key; a verdict on it covers all of them,
@@ -256,22 +339,44 @@ person sees it.
 | `false positive - global invariant` | False Positive | Ignore | null |
 | `false positive - heuristic misfire` | False Positive | Ignore | null |
 | `unresolved`; Policy; Other; method `None`; awaiting a person | null | null | null |
+| a compiler header (Other, by rule) | Intentional | Ignore | null |
 
 The comment is set on every record that has a verdict, `unresolved`
 included, so the argument reaches whoever opens the finding. A record with
 no verdict sets only the two custom attributes: Policy, Other, method `None`,
 or awaiting a person.
 
+**A finding in a compiler header** is the one record with a verdict and no
+method. `assemble` writes it without a verdict file: lane `Other`,
+`lane_assigned_by` `compiler header`, method `None`, verdict `intentional`,
+and a comment naming the header. Classification Intentional takes it out of
+every view of outstanding findings for good. A tracker with no Intentional
+classification takes False Positive instead.
+
 ### The comment
 
 ```
 <Label>: <reason>
 [coverity-triage <date>] Lane: <lane> (assigned by <checker table | assigner>). Method: <method>, <read, not executed | executed>.
+Triaged against <project> <version> from <version date>.
 ```
 
 with `<Label>` one of *Real defect*, *Real defect, low severity*,
 *Intentional*, *False positive (global invariant)*, *False positive
 (heuristic misfire)*, *Unresolved*.
+
+- **The last line says what was triaged**, for example `Triaged against
+  ProFTPD v1.3.9 from 2025-03-14.` Connect's own "last triaged" date
+  records when an answer was written, not what it was about, and cannot be
+  backdated. So the comment says it.
+- **Where it comes from:** `bundle.py` writes it to `index.json`
+  (`triaged_against`). The project is `--name` (default: the git
+  repository's directory name). The version is `--tag`. The date is
+  `--version-date` (default: the date of the commit the tag names; with
+  `--idir`, it must be given).
+- **No comment without it.** `assemble` refuses every verdict, and every
+  compiler-header record, while `index.json` lacks any of the three.
+  `validate` refuses a comment that does not end with it.
 
 - For a global invariant, the reason is followed by `Invariant: ...
   Enforced at: ... Breaks if: ...`.
@@ -283,10 +388,15 @@ with `<Label>` one of *Real defect*, *Real defect, low severity*,
 
 ## The two custom attributes
 
-| attribute | Connect type | values |
-|---|---|---|
-| `Defect Category` | pick list | `Construction`, `Intent`, `Contract`, `Value or path`, `Policy`, `Other` |
-| `Triage Method` | pick list | `LLM: <model>` (one value per model used), `Execution: coverity-verify`, `Human`, `None` |
+| attribute | Connect type | default | values |
+|---|---|---|---|
+| `Defect Category` | pick list | `Unassigned` | `Unassigned`, `Construction`, `Intent`, `Contract`, `Value or path`, `Policy`, `Other` |
+| `Triage Method` | pick list | `None` | `None`, `Execution: coverity-verify`, `Human`, `LLM: <model>` (one value per model used) |
+
+Connect gives every pick list a default, which is what a finding nobody has
+triaged shows. `Unassigned` is not a lane, and the records never set it.
+`None` means no method ran, which is also true of a finding nobody has
+triaged.
 
 `Defect Category` holds the finding's lane. It is not Connect's built-in
 Category, which is the checker's category (for example "Null pointer
@@ -295,4 +405,58 @@ dereferences"), and the two are set independently.
 They must exist on the instance, with every value the records use, before
 anything can set them. Whoever applies the records chooses, per apply,
 whether to set them or only the standard attributes. The records always
-carry both, so the choice is the applier's and not this skill's.
+carry both, so the choice is made at apply time (`--standard-only`).
+
+**Creating them: `tools/connect_attributes.py`** (SKILL.md, *Step 6*).
+
+- **The API it uses.** It works over REST at `/api/v2/triageAttributes`:
+  POST creates an attribute, and GET or PUT on
+  `/api/v2/triageAttributes/<name>` reads or changes one. That is what a
+  Connect 2026.9.0 server serves. Its REST reference names the path
+  `/api/v2/attributes`, and the same server answered GET and OPTIONS there
+  with 404. The tool therefore uses the path the server was measured to
+  serve.
+- **Requests.**
+  - **Create:** a POST carrying `name`, `description`, `attributeType`
+    (`LIST_OF_VALUES`), `showInTriage`, `defaultValueName` and
+    `attributeValues` (`[{"name": ...}]`).
+  - **Add a value:** a PUT sending the definition back, with every value it
+    already has (ids included) plus the new ones. A PUT replaces the value
+    list, so a value left out of it is removed. Existing values keep their
+    ids.
+- **What it will not do:** delete or rename an attribute or a value, or
+  change an attribute's type. An attribute that already exists with another
+  type, or a needed value marked deprecated, stops it with a message.
+
+## Applying the records: `tools/connect_apply.py`
+
+SKILL.md, *Step 6*, gives the command and when to run it. Here is what it
+sends.
+
+- **Finding each record's finding.** A POST to `/api/v2/issues/search`,
+  filtered by the project and the stream, returns every finding in the
+  stream with its CID, merge key, Classification, Action, Severity, last
+  triage comment and the two custom attributes, in pages of 200. A merge key
+  that comes back with two CIDs stops the apply. The search names no
+  snapshot scope, so it returns only the findings in the stream's latest
+  snapshot (measured on 2026.9.0). A merge key last reported in an earlier
+  snapshot is reported as not found.
+- **The judged version.** The plan prints the records' `judged.tag`
+  (`judgedAt` in `--json`).
+- **The triage store.** A GET on `/api/v2/streams/<name>` gives the stream's
+  `triageStoreName`, and the write goes to that store.
+- **The write.** A PUT to `/api/v2/issues/triage?triageStoreName=<store>`
+  with `{"cids": [...], "attributeValuesList": [{"attributeName": ...,
+  "attributeValue": ...}]}`. The comment is the attribute `Comment`. One
+  request carries every finding that gets the same values.
+- **What each field becomes.** `triageState.classification`, `action`,
+  `severity` and `comment` go to Classification, Action, Severity and
+  Comment, and `customTriage` to the two custom attributes, by name. A null
+  is not sent.
+- **What counts as someone's triage.** Any value other than the attribute's
+  default: `Unclassified`, `Undecided`, `Unspecified`, `Unassigned` and
+  `None`. A comment is never a conflict. It is posted when it differs from
+  the finding's last triage comment, ignoring line endings and surrounding
+  white space.
+- **The read-back.** After the write, the same search runs again, and each
+  finding written must now hold every value its record sets.

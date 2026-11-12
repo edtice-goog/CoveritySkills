@@ -71,8 +71,7 @@ out 0 confirmed, 5 refuted with the finding's line reached hundreds of
 thousands of times and the claim never false, 2 refuted as model gaps
 (the analyzer's generic model records no writes to globals, and the stub
 reproduced the analyzer's own false positive with the missing write
-named), 2 reachable only through a value the harness supplied, and one
-real one-byte stack overflow found next to a false OVERRUN. Every
+named), and 2 reachable only through a value the harness supplied. Every
 "confirmation" on that batch fell to reading the stub choices behind it,
 which is why the trace exists and why "confirmed" always lists them.
 

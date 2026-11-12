@@ -41,8 +41,9 @@ report: Policy is decided, Other is unplaced.
 `tools/lanes.py assign` reads the bundles' `index.json` and the checker
 table, then writes `lanes.json`:
 
-1. **The table.** It starts from the skill's own `checker-lanes.json` (the
-   checkers whose languages include C, Coverity 2025.9.0). Each `--table`
+1. **The table.** It starts from the skill's own `checker-lanes.json`
+   (every checker Coverity 2026.9.0 lists, in every language; a checker met
+   later gets its row then). Each `--table`
    file is read after it, in order, and a later row replaces an earlier one
    for the same checker. An organization keeps its own table this way, and a
    producer of custom checkers ships the rows for its own.
@@ -60,6 +61,27 @@ table, then writes `lanes.json`:
 
 Format of the table and of `lanes.json`: `records.md`.
 
+## Compiler headers
+
+A finding whose main event is in a compiler's own headers is a residual
+false positive. Nobody finds a defect in libstdc++ or in MSVC's headers with
+an out-of-the-box analysis. Such a finding is never triaged:
+
+- `bundle.py` marks it `compiler_header` in `index.json`. `--per-checker`
+  and `--all` always include it, and it never takes a sample's place.
+- `lanes.py` gives it lane **Other**, `assigned_by` `compiler header`,
+  before any table is read. No inference runs, and its checker needs no row.
+- `records.py` records it **Intentional**, with method `None` and a comment
+  naming the header, so it never shows among outstanding findings again.
+  No override and no verdict file can change that.
+
+The directories are a compiler's own: libstdc++ and libc++ (`include/c++/`),
+GCC's and Clang's own `include` directories, and MSVC's (`VC/Tools/MSVC/
+<version>/include`, with ATL and MFC). The C library's headers and other
+installed libraries' headers are not on the list: a finding there gets a
+lane like any other. `--compiler-header <dir>` adds another compiler's
+directory (an embedded toolchain, say).
+
 ## Deciding a lane
 
 These are the tests for writing a row for a checker the table does not have,
@@ -72,7 +94,10 @@ and for choosing among a row's candidates. Take the first that answers yes.
    no claim that the code misbehaves?** That is **Policy**. The test: if the
    checker asserts anything that could turn out untrue (that a value is a
    secret, that a path reaches a sink), it gets triage, and it is not
-   Policy.
+   Policy. A performance finding (a copy where a move would do, a large
+   parameter passed by value) is Policy even when its premise could be
+   checked: the code is correct either way, so triage has no question to
+   answer.
 3. **Is the behaviour wrong or undefined for some input the code can
    receive, judged from types, declared sizes or the shape of a call, with
    no particular value needed?** **Construction.** This includes a construct

@@ -17,6 +17,7 @@ flowchart TB
     end
     subgraph analyzer["Questions about the analyzer"]
         DD["coverity-defect-detectability"]
+        MM["coverity-missing-models"]
         PO["coverity-pathout"]
         FS["coverity-function-slice"]
     end
@@ -29,15 +30,21 @@ flowchart TB
         IT["coverity-issue-transition-inference"]
         RE["coverity-recreate-from-emit"]
     end
+    subgraph changes["Changes and tests"]
+        TA["coverity-test-advisor"]
+    end
     CVSS["coverity-cvss-report"]
 
     CC -->|"configuration"| CV
+    BF -->|"changed files captured"| TA
+    TA -.->|"a finding in the changed code"| TR
     CV -->|"verified capture"| BF
     PO -->|"body"| FS
     PO -->|"candidates"| TR
-    DM -->|"findings, if chosen"| TR
+    TR -->|"false positives:<br/>a function's behaviour"| MM
+    DM -.->|"a published dataset,<br/>triaged separately"| TR
     TR -->|"execution method"| VE
-    VE -->|"target"| FS
+    VE -->|"slice set, TU manifest"| FS
     BF -->|"build held constant"| IT
     RE -->|"old code, new analyzer"| IT
 ```
@@ -79,27 +86,67 @@ fields and a record of which lane and method produced it.
 ```mermaid
 flowchart LR
     IN["Findings<br/>a sample, a story's findings,<br/>or another skill's batch"] --> P{"Plan chosen?<br/>which findings,<br/>which method per lane"}
-    P -->|"no: show the counts, ask"| P
-    P -->|"yes"| A{"Assign a lane"}
+    P -->|"no"| Q["ask when interactive;<br/>otherwise report and stop"]
+    P -->|"yes"| A{"Assign a lane<br/>checker table first,<br/>inference where it varies"}
+    A -.->|"no row"| PC["a custom checker:<br/>place it once,<br/>in a table you keep"]
+    PC -.-> A
     A -->|"construction"| L1["Construction lane<br/>is the construct there?"]
+    A -->|"intent"| LI["Intent lane<br/>did the author mean this?"]
     A -->|"contract"| L2["Contract lane<br/>what does the callee promise?"]
     A -->|"value or path"| L3["Value-or-path lane<br/>is the path feasible, the value handled?"]
-    A -->|"other"| O["Other<br/>no verdict"]
-    L3 -.->|"when the plan says execution"| VE["coverity-verify"]
-    L1 & L2 & L3 & VE --> R[("Records<br/>Classification, Action, Severity, Comment<br/>+ Triage lane, Triage method")]
-    O --> R
+    A -->|"policy"| PO["Policy<br/>a rule-set match: never triaged"]
+    A -->|"other"| O["Other<br/>no method, no verdict"]
+    L1 & LI & L2 & L3 --> M["Method<br/>your choice for the finding,<br/>else the checker's own,<br/>else the lane's"]
+    M -.->|"execution"| VE["coverity-verify"]
+    M & VE --> R[("Records<br/>Classification, Action, Severity, Comment<br/>+ Defect Category, Triage Method")]
+    PO & O --> R
 ```
 
-- `coverity-triage` does this. Each lane's method is chosen separately: a
-  reading by a model you name, execution through `coverity-verify` for the
-  value-or-path lane, or a person. Different lanes can use different models.
+- `coverity-triage` does this, in six lanes:
+  - **Construction:** the construct does the wrong thing, or something
+    undefined, for some input it can receive, whatever input actually
+    arrives. It is real when the construct is there, and is never dismissed
+    by arguing that the bad input is unlikely.
+  - **Intent:** the code is well-defined, but a pattern suggests it may not do
+    what its author meant, which the checker cannot know (a copy-paste slip, a
+    missing `break`, a `sizeof` of the wrong thing, dead code).
+  - **Contract:** a call ignores a failure its callee can report, or uses a
+    result that can be invalid.
+  - **Value or path:** a value or state reaches a point, along a path, that
+    does not handle it.
+  - **Policy:** a match against a rule set, a list of calls not to make or a
+    threshold, with no claim that the code misbehaves. The record carries the
+    lane and nothing else.
+  - **Other:** none of the above fits, or the finding is not a claim about
+    the code at all (a parse error is a capture problem, for the `coverity`
+    skill); no verdict.
+- Most checkers make one kind of claim, so a checker table assigns the lane;
+  only the findings of the few checkers whose claims vary are assigned by
+  reading the events.
+- A custom checker the table does not know is placed once, before anything
+  runs: from rows its producer ships, from the built-in checker it stands in
+  for, or from its description. You see the proposed rows, and they go into a
+  table file you keep, so the next run asks nothing.
+- Each lane has a preferred method: a reading by a model you name, execution
+  through `coverity-verify`, or a person. Different lanes can use different
+  models. A checker built for one method keeps it whatever its lane, and your
+  choice for a single finding overrides both. No lane rules a method out:
+  Intent findings are well-defined code with nothing to crash, so a reading
+  suits them, but nothing forbids another method. Policy takes no method,
+  ever; Other takes none unless you give one to a finding, with the reason.
 - Nothing runs until you have chosen which findings and which methods, because
-  every method costs time per finding.
+  every method costs time per finding. Run unattended, it assigns what the
+  table can, then reports the plan it needs and stops.
 - A skill that hands its findings over can say which lane it expects. A
   finding that lands elsewhere is reported to you before any method runs.
 - The output is a records file in Connect's attribute names. Applying it to
   Connect, with or without the two custom attributes, is up to whoever owns the
-  instance.
+  instance. The two custom attributes are pick lists that must exist first; a
+  setup tool in the skill checks for them and, on request, creates them over
+  REST. It writes the attribute definitions only, never a verdict.
+- A defect a reader notices while judging a different finding (a by-catch)
+  goes to a `bycatch/` folder of its own, never into the records or the
+  report, so nothing that travels with the verdicts carries it.
 
 ## Settle one finding by running it
 
@@ -112,16 +159,34 @@ only silenced the analyzer.
 flowchart LR
     F["A finding<br/>CID or findings-file entry"] --> D{"A claim a sanitizer or<br/>an assertion can judge?"}
     D -->|"no: injection, resource,<br/>concurrency"| X["suggest external verification"]
-    D -->|"yes"| S["coverity-function-slice<br/>the function, standalone"]
-    S --> M["stubs from Coverity's own<br/>models of the callees"]
-    M --> Z["fuzz: focused, then free"]
-    Z --> V["verdict with its tier<br/>and the evidence"]
+    D -->|"yes"| RT{"Router: does the caller's<br/>preferred route apply?<br/>(harness by default)"}
+    RT -->|"harness"| H["the whole translation unit,<br/>compiled with its recorded flags,<br/>a driver linked in; model stubs<br/>only for what it does not define"]
+    RT -->|"extraction"| S["coverity-function-slice<br/>the slice set, standalone;<br/>model stubs outside it"]
+    RT -->|"it does not apply"| Q["ask when interactive;<br/>otherwise report and stop"]
+    H & S --> Z["fuzz: focused, then free"]
+    Z --> V["verdict with its tier,<br/>the route and the evidence"]
     FX["a fix in hand"] -.-> K["the fix check:<br/>fixed, or silenced?"]
     V -.-> K
 ```
 
-- `coverity-verify` does this, using `coverity-function-slice` for the target.
-- Run on a batch, verification is one lane method of `coverity-triage`.
+- `coverity-verify` does this. Its one method runs on one of two routes,
+  with the same verdict tiers on both:
+  - **Harness:** the translation unit's real source, compiled as the build
+    compiled it, with a driver linked in and the original function run
+    unchanged. Only the externals the unit does not define are stubbed, from
+    Coverity's own models of them. It is the cheaper route and the default.
+  - **Extraction:** the slice set from the emit, printed by
+    `coverity-function-slice`, with every callee outside the set stubbed from
+    its model. It is the route `coverity-pathout`'s shapes were built for, and
+    the one for a program the harness route cannot take, or a defect type
+    that has been shown to need it.
+- The caller names the route it prefers: `coverity-pathout`'s shapes prefer
+  extraction, other callers harness. A user whose program does not suit the
+  harness route overrides it for that program. When the preferred route
+  does not apply, the router never switches on its own: it asks in an
+  interactive session, and otherwise reports why and stops.
+- Run on a batch, verification is one method of `coverity-triage`, and a
+  checker's table row can carry the route it prefers.
 
 ## Look where the analyzer reached its path bound
 
@@ -136,9 +201,9 @@ flowchart LR
     W --> M["measure: cost of a higher --paths,<br/>or restructure the function"]
     W --> SC["path-insensitive shape catalogue<br/>over the idir, kept to those functions"]
     SC --> C["candidates"]
-    C --> A{"coverity-triage<br/>assign a lane<br/>(expected: value or path)"}
-    A -->|"value or path"| VE["coverity-verify<br/>run it"]
-    A -->|"anything else"| Q{"Told before anything runs;<br/>you choose"}
+    C --> A{"coverity-triage<br/>a lane from pathout's shape table;<br/>the row names the method"}
+    A -->|"the row's method"| VE["coverity-verify<br/>extraction route"]
+    A -->|"lands elsewhere"| Q{"Told before anything runs;<br/>you choose"}
     Q -->|"verify anyway,<br/>where realistic"| VE
     Q -->|"that lane's reader"| RD["reading"]
     Q -->|"leave it"| SK["untriaged"]
@@ -148,11 +213,17 @@ flowchart LR
   catalogue there, and measures what a higher bound costs. With many
   functions at the bound, it pilots one, prices the rest (triage of each
   candidate included) and asks before going on.
-- Its candidates are built to be run: `coverity-verify` is their triage
-  method. They still pass through `coverity-triage`'s lane assignment, which is
-  cheap and checks that each candidate's claim is what the shape assumed.
-- A candidate that lands outside value or path is reported before any method
-  runs, and you choose: verify it anyway where that is realistic, run that
+- Its candidates are built to be run. `coverity-pathout` ships a row per shape
+  for `coverity-triage`'s table, naming the lane of the built-in checker the
+  shape stands in for and the method, execution through `coverity-verify` on
+  the extraction route, the chain the shapes were built for. A row's method
+  overrides its lane, so a
+  candidate standing in for a Contract or Construction checker still goes to
+  `coverity-verify`.
+- They still pass through `coverity-triage`'s lane assignment, which is cheap
+  and checks that each candidate's claim is what the shape assumed. A
+  candidate that lands elsewhere is reported before any method runs, and you
+  choose: verify it anyway where that is realistic, run that
   lane's reader, or leave it untriaged. Any choice is fine; none happens by
   surprise, and the record says which one you made.
 
@@ -167,6 +238,91 @@ investigating a miss.
   while the answer is still "not found", then narrow to the minimal setting.
   It checks that the verdict carries over to the real code.
 
+## Teach the analyzer what a function does
+
+**You want:** fewer false positives, or defects the analyzer starts
+reporting, because it now knows what one function really does: it never
+returns, frees or keeps its argument, never returns NULL, initializes its
+output.
+
+```mermaid
+flowchart LR
+    FP["false positives from coverity-triage<br/>traced to what a function does"] --> Q{"A model question?"}
+    ESC["a defect a later phase caught<br/>fuzzing, review, pen test, production"] --> Q
+    Q -->|"no: an invariant no single function states;<br/>for an escape: capture, checker or option, path bound"| OTHER["the finding stays triaged;<br/>coverity, coverity-defect-detectability,<br/>coverity-pathout"]
+    Q -->|"yes"| B["what the analyzer believes now<br/>callgraph metrics, derived models"]
+    B --> W["the smallest model"]
+    W --> RA["re-analyze a copy of the idir"]
+    RA --> C["check: model applied, same code,<br/>target changed, canary did not,<br/>every other finding that moved"]
+    C --> O{"The owner decides:<br/>keep or drop"}
+    C -.->|"new findings, if you want verdicts"| TR["coverity-triage"]
+    C -.->|"a finding to run"| VE["coverity-verify"]
+```
+
+- `coverity-missing-models` does this. Two things start it: false positives
+  that `coverity-triage` traced to what a function does, and a defect that a
+  later phase caught because the analyzer did not know a function's behaviour.
+- For a false positive, it first checks that the invariant is a fact about
+  one function. One that is not, such as a relation between the caller's
+  values, stays a triaged finding.
+- For an escape, it first rules out the cheaper answers: the capture
+  (`coverity`), the checker or option (`coverity-defect-detectability`), the
+  path bound (`coverity-pathout`).
+- It proves what the model changed on a copy of the intermediate directory,
+  and the owner decides whether to keep it. Each re-analysis is a full
+  analysis of that copy, so it asks before each one; unattended, it writes and
+  builds the model and stops. Triaging the findings a model
+  surfaces is `coverity-triage`'s job and is opt-in: it is offered, with the
+  count.
+- What it learns is kept in the skill's `references/idioms.md`. It is the
+  detection loop's *write a model or fact, feed it back as analyzer input*
+  step ([`collateral/detection-loop/`](collateral/detection-loop/README.md)).
+
+## Find the changed behaviour your tests don't exercise
+
+**You want:** before pushing a change, to know which of the behaviour it
+introduces no test exercises, including when line coverage says the changed
+lines ran.
+
+```mermaid
+flowchart LR
+    BASE["base idir<br/>the commit the change starts from"] --> P{"Preflight: same analysis<br/>on both sides, each idir<br/>from its commit, C or Java"}
+    HEAD["head idir<br/>built and analyzed<br/>with the base's commands"] --> P
+    BF["coverity-build-fidelity<br/>capture coverage: the changed<br/>files reached the head"] --> P
+    COV["coverage of the head's tests<br/>gcov JSON or JaCoCo XML"] --> P
+    P -->|"fails"| STOP["stops, with the reason"]
+    P -->|"passes"| A["affected functions<br/>code changed, a callee's derived<br/>model changed, or its own model<br/>changed with no line changed"]
+    A --> R["fixed rules settle the clear cases<br/>the function never ran, or a changed line,<br/>or its call into a changed function, never ran"]
+    R --> J{"judge the rest against the tests?<br/>priced, and asked first"}
+    J -->|"yes"| JU["did a test exercise the<br/>changed behaviour, or only<br/>run the lines?"]
+    J -->|"no, or unattended"| OUT
+    JU --> OUT[("report, and a local errors.xml<br/>one issue per gap,<br/>with a suggested test")]
+```
+
+- `coverity-test-advisor` does this. A function is affected when its code
+  changed, when it calls an affected function whose Coverity derived model
+  changed (a callee that now may return NULL changes every caller, though
+  their code did not change), or when its own model changed though none of
+  its lines did (a header macro, an inline function or a type it uses).
+- You bring two analyzed intermediate directories, the base and the head,
+  analyzed with the same commands and Coverity version, plus coverage of the
+  head's tests. It builds nothing and runs no tests.
+- It needs `coverity-build-fidelity`'s capture-coverage check of the head
+  first, because a changed file the capture missed would look like a clean
+  result. Build fidelity's binary comparison applies only when the tests ran
+  on the build made under `cov-build`, and runs only when you ask.
+- Judging reads the tests function by function, so it is priced and asked
+  before it runs. Unattended, the skill stops after the fixed rules.
+- Each gap is a report entry and a Coverity issue
+  (`TA.INSUFFICIENT_TEST_COVERAGE`) in a local `errors.xml`, with the reason
+  and a suggested test. Nothing is committed to Coverity Connect.
+- This version covers C and Java, gcov JSON (measured on GCC 14) or JaCoCo
+  XML, and Coverity Analysis 2026.9.0 on Linux. C++ is refused, because callers through
+  a base class would be missed. A Connect snapshot as the base, clang
+  coverage, and other versions are not in it yet.
+- Whether a Coverity finding in the changed code is real is
+  `coverity-triage`'s question.
+
 ## Adopt Coverity on a codebase that already has history
 
 **You want:** findings dated to the release they arrived in, rather than to
@@ -177,17 +333,15 @@ tool, or preparing a demo, POC or training instance.
 flowchart LR
     C["capture and analyze<br/>every release"] --> P["select versions and streams<br/>offline (merge-key arithmetic)"]
     P --> K["commit oldest-first<br/>--backdate"]
-    K --> Q{"Triage?<br/>(asked, never assumed)"}
-    Q -->|"no"| PUB["publish the dataset, untriaged"]
-    Q -->|"which findings, which methods"| TR["coverity-triage"]
-    TR --> PUB
+    K --> PUB["publish the dataset"]
+    PUB -.->|"verdicts, if you want them:<br/>run separately"| TR["coverity-triage"]
 ```
 
 - `coverity-demo-data` builds the history: one stream per branch, commits in
   global date order, the commit phase guarded because first-detected dates can
   be written only once.
-- Triage is optional and never automatic. The skill asks which findings, if
-  any, go to `coverity-triage`.
+- It does not triage. If you want verdicts on a published dataset's findings,
+  run `coverity-triage` against it yourself.
 
 ## Upgrade Coverity without confusing tool changes with code changes
 
@@ -261,11 +415,13 @@ and which came from a CWE with no mapping.
 | `coverity-compiler-configuration` | template configurations; cross-compilers, embedded toolchains and wrappers; diagnosing and regenerating a tainted configuration | verifying the capture; judging the build | `coverity` (capture verification) |
 | `coverity-build-fidelity` | native vs `cov-build` comparison of the product; capture coverage; a release-gate verdict and a profile draft | guessing at unexplained differences (it escalates to a person); work where the build cannot run | `coverity-recreate-from-emit` when the build cannot run |
 | `coverity-defect-detectability` | an empirical detectability verdict; the minimal configuration; a repro command | triaging real findings; speculating about what a checker would do instead of running it | `coverity-triage` for verdicts on findings |
-| `coverity-demo-data` | a multi-version history with real release dates; streams per branch; guarded oldest-first commits; a self-contained published dataset | triaging on its own or by default; the customer narrative; backdating triage history | `coverity-triage`, when the user chooses |
-| `coverity-pathout` | which functions reached the path bound and which checker; the shape catalogue there; the cost of raising the bound; restructuring; a priced pilot before a large run | judging its candidates; analyzing an idir from a version that is not installed (it stops and asks) | `coverity-function-slice` for bodies; `coverity-triage` for candidates, expecting value or path with `coverity-verify`; anything else goes to the user |
-| `coverity-function-slice` | one function from the AST; a standalone file that compiles and analyzes; an obfuscated twin with proof | deciding whether a finding is real | `coverity-pathout`, `coverity-verify` (its callers) |
-| `coverity-verify` | an execution verdict on one finding (fuzzing under model stubs) with its tier and evidence; the fix check | injection, resource and concurrency claims (it suggests external verification); triaging a batch by reading | `coverity-function-slice` for the target |
-| `coverity-triage` | a lane per finding; a method and model per lane; records in Connect's fields plus Triage lane and Triage method | choosing the findings; writing to Connect; severity beyond "low"; exploitability; Connect's AI-Assisted Triage; demo-worthiness | `coverity-verify` for the execution method |
+| `coverity-missing-models` | the smallest user model for a function whose behaviour the analyzer gets wrong; proof on a re-analyzed copy (model applied, same code, target, canary, every other finding that moved); what was learned, in `references/idioms.md` | deciding to keep a model (the owner does); triaging the findings a model surfaces; capture, checker selection and the path bound (ruled out first) | `coverity-triage` (new findings, opt-in), `coverity-verify` (a finding to run) |
+| `coverity-demo-data` | a multi-version history with real release dates; streams per branch; guarded oldest-first commits; a self-contained published dataset that keeps each release's findings export and capture inventory | triaging, on request or otherwise (run `coverity-triage` on a published dataset yourself); the customer narrative; backdating triage history | nothing: triage is run separately |
+| `coverity-pathout` | which functions reached the path bound and which checker; the shape catalogue there; the cost of raising the bound; restructuring; a priced pilot before a large run | judging its candidates; analyzing an idir from a version that is not installed (it stops and asks) | `coverity-function-slice` for bodies; `coverity-triage` for candidates, through its own shape table (method: execution through `coverity-verify`, extraction route); anything that lands elsewhere goes to the user |
+| `coverity-function-slice` | one function from the AST; a standalone file that compiles and analyzes; an obfuscated twin with proof; a manifest of a whole translation unit for the harness route | deciding whether a finding is real | `coverity-pathout`, `coverity-verify` (its callers) |
+| `coverity-verify` | an execution verdict on one finding, on the caller's preferred route (harness by default, or extraction), with its tier, the route and the evidence; the fix check | injection, resource and concurrency claims (it suggests external verification); switching route on its own; triaging a batch by reading | `coverity-function-slice` for the slice set and the translation-unit manifest |
+| `coverity-triage` | a lane per finding (construction, intent, contract, value or path, policy, other), from a checker table where the checker decides it; a custom checker placed once, in a table you keep; a method and model per lane, which a checker's own method overrides; records in Connect's fields plus Defect Category (the lane) and Triage Method; policy findings recorded, not triaged | choosing the findings; writing verdicts to Connect (it creates its two attribute definitions only, on request); severity beyond "low"; exploitability; Connect's AI-Assisted Triage; demo-worthiness | `coverity-verify` for the execution method |
 | `coverity-issue-transition-inference` | the control run; per-finding code-vs-analyzer attribution; annotation, after asking how | comparing raw merge keys (Connect lines findings up); vendor-level cause as the headline | `coverity-build-fidelity`, `coverity-recreate-from-emit` for the control |
 | `coverity-recreate-from-emit` | an analyzable idir without the original build; fast-forward and local-update reuse, behind gates | reuse when a gate fails; the default path when the build can run | `coverity-issue-transition-inference` (its consumer) |
 | `coverity-cvss-report` | the report per the documentation; an audit of which scores were judged; the CVSS_Audited attribute | writing a security profile; judging exploitability | `coverity-verify` for whether a finding is real and reachable |
+| `coverity-test-advisor` | every function a change can affect (code changed, a callee's derived model changed, or its own model changed with none of its lines); fixed-rule verdicts, and judged ones behind a priced ask; a report and a local errors.xml with a reason and a suggested test per gap | building or running the tests; committing to Connect; a Connect snapshot as the base; C++; clang coverage; versions other than 2026.9.0 on Linux | `coverity-build-fidelity` (capture coverage of the head, required); `coverity-triage` (a finding in the changed code) |

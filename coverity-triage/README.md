@@ -15,9 +15,10 @@ question triage has to answer depends on the kind of claim:
 | **Other** | not a claim about the code, or nothing fits | none: no method, no verdict |
 
 **Most findings get their lane from a checker table**, with no model
-involved: one row per checker, covering the C checkers of Coverity
-2025.9.0. **Inference runs only for the few checkers whose findings vary**,
-and chooses among that checker's candidate lanes. A custom checker is placed
+involved: one row per checker, covering every checker Coverity 2026.9.0
+lists, in every language. A checker met later gets its row then.
+**Inference runs only for the few checkers whose findings vary**, and
+chooses among that checker's candidate lanes. A custom checker is placed
 once, with a row of its own, and a producer can ship the rows for its
 checkers.
 
@@ -54,15 +55,35 @@ finding, so nothing runs until the selection (which findings) and the plan
 `tools/lanes.py assign` show the counts for free. Unattended, the skill does
 those free steps, reports what it needs and stops, leaving the work on disk
 to resume from. A skill that hands its findings here, such as
-[coverity-demo-data](../coverity-demo-data/README.md), asks its user first,
-and "no triage" is always one of the answers.
+[coverity-pathout](../coverity-pathout/README.md), asks its user first,
+and "no triage" is always one of the answers. A dataset built by
+[coverity-demo-data](../coverity-demo-data/README.md) is triaged here as a
+separate step, when someone chooses to.
 
-**Write to Connect.** The output is a records file in Connect's own
-attribute names. Applying it, with or without the custom attributes, is the
-job of whoever owns the instance.
+**Getting the triage into Connect** is an optional last step, run when
+whoever owns the instance asks for it. The output is a records file in
+Connect's own attribute names, and two tools take it there over REST:
+
+- `tools/connect_attributes.py` creates the two custom attributes,
+  `Defect Category` and `Triage Method`. `check` reports what is missing;
+  `setup --yes` writes, and only the attribute definitions.
+- `tools/connect_apply.py` applies the records to one stream. Without
+  `--yes` it prints what it would change and changes nothing. It finds each
+  finding by merge key and writes only what differs. It leaves alone any
+  value someone already set, unless `--overwrite`. `--standard-only` leaves
+  the custom attributes out. After a write it reads the findings back.
 
 ## What the skill knows that saves time
 
+- **Releases are triaged one at a time, oldest first, and a later release
+  only for its delta.** `bundle.py --prior` takes the earlier releases'
+  records and leaves out every merge key they already settled.
+- **Every triage comment says what was triaged**, on its last line:
+  `Triaged against ProFTPD v1.3.9 from 2025-03-14.` Connect's own "last
+  triaged" date says when, not which version.
+- **A finding in a compiler's own headers** (libstdc++, MSVC's and the
+  like) is a residual false positive. It is recorded Intentional by rule,
+  with no model and no method, so it never shows as outstanding again.
 - **The source is read from git at the analyzed version**, never from the
   working tree, and split on the line terminators a C compiler counts: one
   form feed in a file otherwise shifts every excerpt after it a line away
@@ -79,6 +100,11 @@ job of whoever owns the instance.
 - **A NUL in a triage comment** (from a C `'\0'` quoted into the argument)
   makes Connect refuse the whole triage write; the records tool refuses it
   first.
+- **By-catch never travels with the records.** A defect noticed outside the
+  selected findings has no CID. In code that is not yours, it may also be
+  an unreported vulnerability. It goes to the run's `bycatch/` folder, with
+  `bycatch.json` and a stdout line saying how many and where, and never
+  into a reason, `triage.json` or the report.
 
 ## Layout
 
@@ -88,16 +114,18 @@ coverity-triage/
 ├── CALIBRATION.md               # what was run, on what, and what was not
 ├── references/
 │   ├── lanes.md                 # the six lanes, the tests, the table, custom checkers, methods
-│   ├── checker-lanes.json       # the checker table: a lane, or candidates, per C checker
+│   ├── checker-lanes.json       # the checker table: a lane, or candidates, per checker
 │   ├── reading.md               # each lane's questions, the verdict set and its discipline
 │   └── records.md               # the table format, run.json, lanes.json, verdict files, triage.json
 ├── tools/
-│   ├── bundle.py                # selection (--merge-key, --per-checker, --all), --plan, bundles
+│   ├── bundle.py                # selection (--merge-key, --per-checker, --all, --prior), --plan, bundles
 │   ├── lanes.py                 # lanes from the checker table; pending and unplaced; check-table
-│   └── records.py               # assemble (all checks before any write) and validate
+│   ├── records.py               # assemble (all checks before any write) and validate
+│   ├── connect_attributes.py    # check / create Defect Category and Triage Method on a Connect
+│   └── connect_apply.py         # apply triage.json to a Connect stream: plan, --yes, read back
 └── evals/
     ├── evals.json               # behaviour: asks before spending, unattended stop, Policy, refusals
-    └── test_tools.py            # the three tools on a generated fixture, refusals and overrides included
+    └── test_tools.py            # the tools on a generated fixture and a fake Connect, refusals and overrides included
 ```
 
 ## Requirements
@@ -108,3 +136,8 @@ coverity-triage/
 - Python 3, standard library only; git.
 - For the execution method only: what `coverity-verify` needs (the idir, the
   Coverity version that wrote it, clang with libFuzzer and ASan).
+- For `connect_attributes.py` only: the Connect's URL and an auth key with
+  permission to manage triage attributes.
+- For `connect_apply.py` only: the Connect's URL, the project and stream
+  the findings were committed to, and an auth key with permission to triage
+  in that stream's triage store.

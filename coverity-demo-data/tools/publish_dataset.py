@@ -45,7 +45,17 @@ import datetime
 #      and listed under capture.findings and capture.inventory. A
 #      column needs both to be comparable to another column, and
 #      neither can be regenerated once the matching install is gone.
-SCHEMA = 3
+#   4: the audit block is gone. This skill builds datasets and does not
+#      triage, so a dataset carries no verdicts to describe. Triage is
+#      invoked separately against a published dataset and its output
+#      stays with whoever ran it.
+#   5: streams[] carries "version" beside "tag". The tag is the unique
+#      label (idir name, file key); the version is the snapshot version
+#      and the git ref. They differ when one release is built twice --
+#      e.g. for two targets in parallel streams -- and a consumer that
+#      read the tag as the version would commit "<target>-v1.0" where
+#      "v1.0" was meant. Absent in older manifests: version == tag.
+SCHEMA = 5
 
 
 def fail(msg):
@@ -54,7 +64,21 @@ def fail(msg):
 
 
 def read_tags(path, default_stream="default"):
-    """'<tag> <YYYY-MM-DD> [stream]' per line, sorted globally by date."""
+    """'<label> <YYYY-MM-DD> [stream [version]]' per line, sorted globally by date.
+
+    The label is the unique key: the idir's directory name and the name of
+    every per-version file. The version is what the snapshot is committed as
+    and what git resolves; it defaults to the label. They differ when one
+    release is built more than once -- two targets in two parallel streams
+    carry the same version under two labels, so a view pinned to that
+    version shows both builds side by side.
+
+    Date only, and stable: versions that share a date keep the file's order.
+    --backdate is day-granular, so a parent and child committed the same day
+    share a date, and only the file knows which came first. A tiebreak on the
+    tag would order them by label -- child-first for short SHAs, and wrong for
+    describe names once a count crosses a digit ("-10-" < "-9-").
+    """
     rows = []
     for line in pathlib.Path(path).read_text(encoding="utf-8").splitlines():
         line = line.strip()
@@ -67,10 +91,21 @@ def read_tags(path, default_stream="default"):
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
             fail(f"bad date for {tag!r}: {date!r} (want YYYY-MM-DD)")
         rows.append({"tag": tag, "date": date,
-                     "stream": parts[2] if len(parts) > 2 else default_stream})
+                     "stream": parts[2] if len(parts) > 2 else default_stream,
+                     "version": parts[3] if len(parts) > 3 else tag})
     if not rows:
         fail(f"no versions in {path}")
-    rows.sort(key=lambda r: (r["date"], r["tag"]))
+    labels = collections.Counter(r["tag"] for r in rows)
+    dup = sorted(t for t, n in labels.items() if n > 1)
+    if dup:
+        fail(f"label used more than once in {path}: {', '.join(dup)} -- a label "
+             f"names one idir; to put one release in two streams, give each "
+             f"its own label and the shared version as the fourth column")
+    per_stream = collections.Counter((r["stream"], r["version"]) for r in rows)
+    dup = sorted(f"{v} in {s}" for (s, v), n in per_stream.items() if n > 1)
+    if dup:
+        fail(f"version committed twice to one stream in {path}: {', '.join(dup)}")
+    rows.sort(key=lambda r: r["date"])
     return rows
 
 
@@ -80,7 +115,11 @@ def idir_facts(idir, cov_bin):
     bc = idir / "build-cwd.txt"
     if not bc.is_file():
         fail(f"{idir}: no build-cwd.txt -- not a capture directory")
-    f["build_root"] = bc.read_text(encoding="utf-8", errors="replace").strip()
+    f["build_cwd"] = bc.read_text(encoding="utf-8", errors="replace").strip()
+    sr = idir / "scm-root.txt"
+    f["scm_root"] = (sr.read_text(encoding="utf-8", errors="replace").strip() or None
+                     if sr.is_file() else None)
+    f["build_root"] = f["build_cwd"]   # settled by settle_root() in validate()
 
     if not (idir / "output" / "ANALYSIS.metrics.xml").is_file():
         fail(f"{idir}: not analyzed (no output/ANALYSIS.metrics.xml). "
@@ -118,9 +157,47 @@ def idir_facts(idir, cov_bin):
 
 
 def strip_root(path, root):
+    """path relative to root, or None if root is not a whole-component prefix.
+
+    "/b/proj" must not claim "/b/project2/x.c": that would strip to "ect2/x.c"
+    here and leave the path unstripped in Connect.
+    """
     p = path.replace("\\", "/")
     r = root.replace("\\", "/").rstrip("/")
-    return p[len(r):].lstrip("/") if r and p.startswith(r) else None
+    if not r or not (p == r or p.startswith(r + "/")):
+        return None
+    return p[len(r):].lstrip("/")
+
+
+def settle_root(f, given):
+    """(strip root, where it came from, problem or None) for one idir.
+
+    The strip root is the SCM checkout the build ran in -- never a folder
+    inferred from the captured paths. Inference is wrong exactly when the
+    build reads files from outside the checkout: "the nearest folder holding
+    every captured file" then climbs above the checkout to take them in.
+    Files outside the checkout keep their own paths, as system headers do.
+
+    In order: the idir's scm-root.txt (capture.sh writes it), then
+    --scm-root for idirs captured without one. A build directory that holds
+    every captured path is accepted as the checkout for older in-tree
+    captures; an out-of-tree capture with no recorded checkout is refused.
+    """
+    norm = lambda p: p.replace("\\", "/").rstrip("/")
+    rec, cwd = f["scm_root"], f["build_cwd"]
+    if rec and given and norm(rec) != norm(given):
+        return rec, "scm-root.txt", (f"scm-root.txt says {rec!r} but --scm-root "
+                                     f"says {given!r}")
+    if rec or given:
+        return norm(rec or given), ("scm-root.txt" if rec else "--scm-root"), None
+    if all(strip_root(p, cwd) is not None for p in f["tus"]):
+        return norm(cwd), "build-cwd.txt", None
+    bad = [p for p in f["tus"] if strip_root(p, cwd) is None]
+    return norm(cwd), "build-cwd.txt", (
+        f"build directory {cwd!r} does not prefix {len(bad)} of {len(f['tus'])} "
+        f"captured paths (e.g. {bad[0]}) and no checkout is recorded -- an "
+        f"out-of-tree build; pass --scm-root with the checkout's top level "
+        f"(git rev-parse --show-toplevel), or recapture with capture.sh")
 
 
 def findings_export(idir, cov_bin, scratch):
@@ -153,38 +230,55 @@ def merge_keys(idir, cov_bin, scratch):
     return {i["mergeKey"] for i in data.get("issues", []) if i.get("mergeKey")}
 
 
-def bycatch_backstop(ws):
-    """Refuse to publish material that admits to carrying by-catch.
+def git_cmd(repo):
+    """safe.directory is overridden for these invocations only -- a repo
+    reached over a UNC path or a WSL share is "dubious ownership" to git, and
+    the global config is not ours to edit for the sake of a read."""
+    return ["git", "-c", "safe.directory=" + str(repo), "-C", str(repo)]
 
-    A by-catch is a defect noticed while working on a different finding,
-    i.e. a potential zero-day. Datasets are delivered to demo instances,
-    where one could be put on screen by accident, so it must not ship.
 
-    This is a BACKSTOP, not a detector. coverity-triage records a by-catch
-    in a record's free-text `reason`, so one described without the word is
-    invisible here. It fails loudly on the conventional case; it cannot
-    certify a dataset clean. Keep by-catch out of what you publish.
+def same_date_problems(stream, chain, source_repo):
+    """Equal dates in one stream are legal only as a strict ancestor chain.
+
+    A stream is one branch moving forward (rule 29), and two versions on one
+    date usually mean two lines. But --backdate is day-granular, so a parent
+    and child committed the same day collide too. Git can tell them apart: in
+    file order, each same-date version must be a proper ancestor of the next.
     """
-    suspect = []
-    d = ws / "audit"
-    if d.is_dir():
-        for q in sorted(d.rglob("*")):
-            if q.is_file() and q.suffix.lower() in (".json", ".md", ".txt"):
-                try:
-                    txt = q.read_text(encoding="utf-8", errors="replace")
-                except OSError:
-                    continue
-                if re.search(r"by[-_ ]?catch", txt, re.I):
-                    suspect.append(q.relative_to(ws).as_posix())
-    q = ws / "TRIAGE-REPORT.md"
-    if q.is_file() and re.search(r"by[-_ ]?catch",
-                                 q.read_text(encoding="utf-8", errors="replace"),
-                                 re.I):
-        suspect.append("TRIAGE-REPORT.md")
-    return suspect
+    groups = collections.defaultdict(list)
+    for r in chain:
+        groups[r["date"]].append(r["version"])
+    groups = {d: ts for d, ts in groups.items() if len(ts) > 1}
+    if not groups:
+        return []
+    if not source_repo:
+        return [f"{stream}: more than one version on the same date "
+                f"{sorted(groups)} -- concurrent lines need separate streams; "
+                f"same-day commits on one line are allowed only with "
+                f"--source-repo, which proves the ancestry"]
+    git, out = git_cmd(source_repo), []
+    for date, tags in sorted(groups.items()):
+        for a, b in zip(tags, tags[1:]):
+            sa = subprocess.run(git + ["rev-parse", "--verify", "-q", a + "^{commit}"],
+                                capture_output=True, text=True).stdout.strip()
+            sb = subprocess.run(git + ["rev-parse", "--verify", "-q", b + "^{commit}"],
+                                capture_output=True, text=True).stdout.strip()
+            if not sa or not sb:
+                out.append(f"{stream}: {date}: cannot resolve "
+                           f"{a if not sa else b} in {source_repo}")
+                continue
+            anc = subprocess.run(git + ["merge-base", "--is-ancestor", sa, sb],
+                                 capture_output=True).returncode == 0
+            if sa == sb or not anc:
+                out.append(
+                    f"{stream}: {a} and {b} share the date {date} but {a} is "
+                    f"not a proper ancestor of {b} -- concurrent lines need "
+                    f"separate streams; if they are one line, list them "
+                    f"parent first in the tags file")
+    return out
 
 
-def validate(rows, idirs_root, cov_bin, scratch):
+def validate(rows, idirs_root, cov_bin, scratch, source_repo=None, scm_root=None):
     """Every check that can be made locally. Returns derived facts."""
     facts, problems = {}, []
 
@@ -214,14 +308,34 @@ def validate(rows, idirs_root, cov_bin, scratch):
     # path-independent, and --strip-path is per-commit. What must hold is that
     # each idir's recorded root really prefixes its own captured paths, or the
     # strip silently does nothing at commit time (rule 31).
+    # The strip root is the SCM checkout (settle_root), which for an
+    # out-of-tree build is not where the build ran.
     for tag, f in facts.items():
-        bad = [p for p in f["tus"] if strip_root(p, f["build_root"]) is None]
-        if bad:
-            problems.append(
-                f"{tag}: build root {f['build_root']!r} does not prefix "
-                f"{len(bad)} of {len(f['tus'])} captured paths "
-                f"(e.g. {bad[0]}) -- --strip-path would not clean them")
-        f["stripped"] = {s for s in (strip_root(p, f["build_root"]) for p in f["tus"]) if s}
+        root, src, problem = settle_root(f, scm_root)
+        if problem:
+            problems.append(f"{tag}: {problem}")
+        f["build_root"], f["root_source"] = root, src
+        inside = [s for s in (strip_root(p, root) for p in f["tus"]) if s is not None]
+        f["stripped"] = set(inside)
+        # Only meaningful against a settled root; a refused one would count noise.
+        f["outside_checkout"] = 0 if problem or not inside else len(f["tus"]) - len(inside)
+        if not inside and not problem:
+            problems.append(f"{tag}: checkout {root!r} prefixes none of the "
+                            f"{len(f['tus'])} captured paths -- wrong checkout?")
+    moved = sorted(t for t, f in facts.items()
+                   if f["build_root"] != f["build_cwd"].replace("\\", "/").rstrip("/"))
+    if moved:
+        f0 = facts[moved[0]]
+        print(f"out-of-tree builds: {len(moved)} version(s) strip at the checkout, "
+              f"not the build directory, e.g. {moved[0]}: "
+              f"{f0['build_cwd']} -> {f0['build_root']} ({f0['root_source']})")
+    outside = {t: f["outside_checkout"] for t, f in facts.items() if f["outside_checkout"]}
+    if outside:
+        t0 = max(outside, key=outside.get)
+        print(f"files outside the checkout keep their full paths: {len(outside)} "
+              f"version(s), at most {outside[t0]} files ({t0}). Normal for "
+              f"headers or sources the build pulls from elsewhere; review if "
+              f"the count is large.")
 
     # --- stripped paths line up across versions within a stream ----------
     # This is what --strip-path actually buys: when stripped paths disagree,
@@ -230,18 +344,58 @@ def validate(rows, idirs_root, cov_bin, scratch):
     by_stream = collections.defaultdict(list)
     for r in rows:
         by_stream[r["stream"]].append(r)
+    #
+    # A low overlap is a strip mistake -- unless upstream moved the files. The
+    # two are told apart by the root: with ONE strip root on both sides, the
+    # stripping is identical, so a disagreement can only come from the tree
+    # itself. Then the basenames still match (src/x/A.java ->
+    # src/main/java/x/A.java), and the break is real history to report, not a
+    # dataset to refuse. With different roots, a basename match proves nothing:
+    # per-version checkout directories under a too-short root look the same.
+    history_breaks = []
     for stream, chain in sorted(by_stream.items()):
         for a, b in zip(chain, chain[1:]):
             fa, fb = facts[a["tag"]]["stripped"], facts[b["tag"]]["stripped"]
             shared = len(fa & fb)
+            if shared >= 0.5 * max(len(fa), 1):
+                continue
+            base = lambda s: {p.rsplit("/", 1)[-1] for p in s}
+            tail = lambda s: {p.split("/", 1)[1] for p in s if "/" in p}
+            ba = base(fa)
+            same_root = facts[a["tag"]]["build_root"] == facts[b["tag"]]["build_root"]
+            shared_base = len(ba & base(fb))
+            # Paths that agree once the top directory is dropped, built in
+            # different directories, are not a move: that is one strip root laid
+            # over per-version checkouts. (Built in the same directory, a
+            # top-level rename such as source/ -> src/ is a real move.)
+            top_only = len(tail(fa) & tail(fb)) >= 0.5 * max(len(fa), 1)
+            moved_cwd = facts[a["tag"]]["build_cwd"] != facts[b["tag"]]["build_cwd"]
+            if top_only and moved_cwd:
+                problems.append(
+                    f"{stream}: {a['tag']} -> {b['tag']} differ only in their top "
+                    f"directory -- one strip root over per-version checkouts? "
+                    f"Strip each version at its own checkout")
+                continue
+            if same_root and shared_base >= 0.5 * max(len(ba), 1):
+                history_breaks.append({
+                    "stream": stream, "from": a["tag"], "to": b["tag"],
+                    "shared_paths": shared, "shared_basenames": shared_base,
+                    "basenames": len(ba)})
+                continue
             if shared == 0:
                 problems.append(
                     f"{stream}: {a['tag']} and {b['tag']} share no stripped "
                     f"file paths -- the UI will not line files up across them")
-            elif shared < 0.5 * max(len(fa), 1):
+            else:
                 problems.append(
                     f"{stream}: {a['tag']} -> {b['tag']} share only {shared} "
                     f"stripped paths of {len(fa)} -- check the build roots")
+    for h in history_breaks:
+        facts[h["to"]]["history_break"] = h
+        print(f"[warn] {h['stream']}: file history does not line up across "
+              f"{h['from']} -> {h['to']}: upstream moved files ({h['shared_paths']} "
+              f"paths shared, {h['shared_basenames']} of {h['basenames']} "
+              f"basenames). Say so in the dataset description.")
 
     # --- defect continuity within each stream ----------------------------
     for stream, chain in sorted(by_stream.items()):
@@ -261,20 +415,7 @@ def validate(rows, idirs_root, cov_bin, scratch):
         dates = [r["date"] for r in chain]
         if dates != sorted(dates):
             problems.append(f"{stream}: dates are not monotonic: {dates}")
-        dupes = [d for d, n in collections.Counter(dates).items() if n > 1]
-        if dupes:
-            problems.append(
-                f"{stream}: two releases on the same date {dupes} -- a stream "
-                f"is one branch moving forward; concurrent lines need separate "
-                f"streams")
-
-    for hit in bycatch_backstop(idirs_root.parent):
-        problems.append(
-            f"{hit}: contains by-catch text. A by-catch is a potential "
-            f"zero-day and must not ship -- datasets go to demo instances. "
-            f"Move it out of the audit material and send it to whoever tracks "
-            f"by-catch. (Backstop only: one described without the word is "
-            f"invisible to this check.)")
+        problems.extend(same_date_problems(stream, chain, source_repo))
 
     if problems:
         print("[FATAL] dataset is not publishable:", file=sys.stderr)
@@ -287,16 +428,11 @@ def validate(rows, idirs_root, cov_bin, scratch):
 
 
 def source_shas(repo, rows):
-    """Resolve the commit behind each tag, for reproducibility.
-
-    safe.directory is overridden for these invocations only -- a repo reached
-    over a UNC path or a WSL share is "dubious ownership" to git, and the global
-    config is not ours to edit for the sake of reading two dozen SHAs.
-    """
-    git = ["git", "-c", "safe.directory=" + str(repo), "-C", str(repo)]
+    """Resolve the commit behind each version, keyed by label."""
+    git = git_cmd(repo)
     out = {}
     for r in rows:
-        p = subprocess.run(git + ["rev-parse", r["tag"] + "^{commit}"],
+        p = subprocess.run(git + ["rev-parse", r["version"] + "^{commit}"],
                            capture_output=True, text=True)
         if p.returncode == 0:
             out[r["tag"]] = p.stdout.strip()
@@ -357,6 +493,10 @@ def main():
     ap.add_argument("--tags", help="default <workspace>/tag-streams.txt")
     ap.add_argument("--cov-bin", required=True)
     ap.add_argument("--source-repo")
+    ap.add_argument("--scm-root",
+                    help="top level of the SCM checkout the build ran in, as "
+                         "the build saw it, for idirs captured without "
+                         "scm-root.txt. The strip root; see settle_root()")
     ap.add_argument("--date", default=datetime.date.today().isoformat())
     ap.add_argument("--description", default="")
     ap.add_argument("--link", action="store_true",
@@ -377,7 +517,8 @@ def main():
 
     rows = read_tags(tags)
     print(f"validating {len(rows)} versions ...")
-    facts = validate(rows, idirs_root, args.cov_bin, scratch)
+    facts = validate(rows, idirs_root, args.cov_bin, scratch, args.source_repo,
+                     args.scm_root)
     print("validation passed")
     if args.validate_only:
         return 0
@@ -407,13 +548,9 @@ def assemble(dataset, rows, facts, args, ws, idirs_root, version, scratch):
     for r in rows:
         print(f"  copying {r['tag']} ...", flush=True)
         copy_tree(idirs_root / r["tag"], dataset / "idirs" / r["tag"], args.link)
-    for sub in ("audit", "logs"):
+    for sub in ("logs",):
         if (ws / sub).is_dir():
             copy_tree(ws / sub, dataset / sub, args.link)
-    for name in ("TRIAGE-REPORT.md",):
-        if (ws / name).is_file():
-            shutil.copy2(ws / name, dataset / name)
-
     here = pathlib.Path(__file__).parent
     shutil.copy2(here / "commit_sweep.py", dataset / "tools" / "commit_sweep.py")
     shutil.copy2(here / "commit_template.sh", dataset / "commit.sh")
@@ -435,17 +572,22 @@ def assemble(dataset, rows, facts, args, ws, idirs_root, version, scratch):
         log = ws / "logs" / f"{tag}.build.log"
         n = None
         if log.is_file():
-            hits = re.findall(r"^Emitted (\d+) C/C\+\+ compilation units",
+            # One summary line per language ("C/C++", "Java", "C#", ...); a
+            # mixed build prints several. Last count per language, summed.
+            hits = re.findall(r"^Emitted (\d+) (.+?) compilation units",
                               log.read_text(encoding="utf-8", errors="replace"),
                               re.M)
             if hits:
-                n = int(hits[-1])
+                n = sum(dict((lang, int(c)) for c, lang in hits).values())
         emitted[tag] = n
         (dataset / "capture" / f"{tag}.json").write_text(json.dumps({
             "tag": tag,
             "tu_count": len(facts[tag]["tu_records"]),
             "emitted_from_build_log": n,
             "build_root": facts[tag]["build_root"],
+            "build_cwd": facts[tag]["build_cwd"],
+            "build_root_from": facts[tag]["root_source"],
+            "outside_checkout": facts[tag]["outside_checkout"],
             "translation_units": facts[tag]["tu_records"],
         }, indent=2) + chr(10), encoding="utf-8")
 
@@ -462,8 +604,6 @@ def assemble(dataset, rows, facts, args, ws, idirs_root, version, scratch):
     # speaker-test/speaker-test.c as an installed program). Record the shape so
     # the builder sees it before publishing and a consumer sees it in the
     # manifest without re-deriving it.
-    triage_records = sorted(q.relative_to(dataset).as_posix()
-                            for q in (dataset / "audit").glob("**/triage.json"))
     tip = rows[-1]["tag"]
     tip_dirs = collections.Counter(s.split("/")[0]
                                   for s in facts[tip]["stripped"] if "/" in s)
@@ -484,22 +624,15 @@ def assemble(dataset, rows, facts, args, ws, idirs_root, version, scratch):
             "strip_path_per_tag": {r["tag"]: facts[r["tag"]]["build_root"] for r in rows},
             "suggested_project": args.project,
         },
-        "streams": [{"tag": r["tag"], "date": r["date"], "stream": r["stream"],
-                     "cids": facts[r["tag"]]["cids"]} for r in rows],
+        "streams": [{"tag": r["tag"], "version": r["version"], "date": r["date"],
+                     "stream": r["stream"], "cids": facts[r["tag"]]["cids"]}
+                    for r in rows],
         "source": {"url": url, "shas": shas},
         "counts": {
             "versions": len(rows),
             "streams": sorted({r["stream"] for r in rows}),
             "cids_at_tip": facts[rows[-1]["tag"]]["cids"],
         },
-        # coverity-triage records, so a consumer finds the verdicts without
-        # guessing. An empty list means untriaged, which is a normal and
-        # expected state: triage is the user's choice, not a default. Report
-        # the records themselves rather than whether an audit/ directory
-        # exists -- a directory can hold anything, and "a directory is there"
-        # reads as "this was checked" when it may not have been.
-        "audit": {"triaged": bool(triage_records),
-                  "triage_records": triage_records},
         "capture": {
             "tu_by_top_dir_at_tip": dict(sorted(tip_dirs.items(),
                                                 key=lambda kv: -kv[1])),
@@ -510,6 +643,10 @@ def assemble(dataset, rows, facts, args, ws, idirs_root, version, scratch):
             "findings": {r["tag"]: f"findings/{r['tag']}.json" for r in rows},
             "inventory": {r["tag"]: f"capture/{r['tag']}.json" for r in rows},
             "emitted_from_build_log": emitted,
+            # Adjacent versions whose files upstream moved: Connect will not
+            # line file history up across these, by the tree's own doing.
+            "file_history_breaks": [facts[r["tag"]]["history_break"] for r in rows
+                                    if "history_break" in facts[r["tag"]]],
         },
     }
     (dataset / "MANIFEST.json").write_text(
@@ -521,10 +658,6 @@ def assemble(dataset, rows, facts, args, ws, idirs_root, version, scratch):
         f"- {len(rows)} versions, {', '.join(manifest['counts']['streams'])}",
         f"- {manifest['counts']['cids_at_tip']} CIDs at the newest version",
         f"- analyzed with Coverity {version}",
-        ("- triage: " + (f"{len(triage_records)} record(s) under audit/"
-                         if triage_records else
-                         "NONE. Nothing here has been checked; triage anything "
-                         "you intend to feature before showing it.")), "",
         "## Commit it", "",
         "Take a database backup of the target Connect first: the dates this",
         "writes are write-once per merge key and cannot be corrected in place.",

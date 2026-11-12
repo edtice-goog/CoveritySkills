@@ -70,6 +70,8 @@ coverity-demo-data/
 │   ├── corpus.md                     # choosing a corpus, target-poor projects,
 │   │                                 #   cross-platform capture
 │   ├── selection.md                  # story shapes and the legibility rule
+│   ├── planned-coverage-and-ta.md    # NOT YET IMPLEMENTED: coverage and Test
+│   │                                 #   Advisor data, decided and measured
 │   ├── worked-example-proftpd.md     # the calibration session, with the numbers
 │   └── worked-example-fp-audit.md    # a real triage pass: 4 of 9 sampled
 │                                     #   defects were false positives
