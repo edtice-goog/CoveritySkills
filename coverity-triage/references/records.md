@@ -345,9 +345,10 @@ shares `bycatch/` with it, and the folder's name says so.
 | an Other finding whose table row names an action (PARSE_ERROR) | null | the row's: Analysis calibration | null |
 
 The action is the reader's recommendation, within what the verdict allows
-(`reading.md`, *The recommended action*); a person may change it. These are
-Coverity Parallel's action values. Connect's built-in Action does not have
-them until `connect_attributes.py setup` adds them beside its own.
+(`reading.md`, *The recommended action*); a person may change it. The six
+actions are the skill's own vocabulary, and whatever stores the triage has
+to offer them. Connect's built-in Action does not have them until
+`connect_attributes.py setup` adds them beside its own.
 
 The comment is set on every record that has a verdict, `unresolved`
 included, so the argument reaches whoever opens the finding, and on an
