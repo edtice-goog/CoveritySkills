@@ -587,6 +587,27 @@ def test_releases_and_headers(work, repo):
     assert sorted(x["mergeKey"] for x in idx2["bundles"]) == ["a2", "a3"], idx2
     assert idx2["left_out_by_prior"] == 3 and idx2["prior"] == [str(t1)], idx2
     bundle(f2, "--all", "--prior", f1, "--plan", ok=False)       # not a records file
+    # --models: the callees come from the events (calls and named functions), not from
+    # variables, the example_ events or the finding's own function; it needs --cov-bin.
+    called = at("c1", "CHECKED_RETURN", src, 5, "int f(const char *)")
+    called["events"] = [
+        {"eventTag": "check_return", "lineNumber": 5, "main": True, "filePathname": src,
+         "strippedFilePathname": src,
+         "eventDescription": 'Calling "pr_set_block(p, c)" without checking return value.'},
+        {"eventTag": "var_assigned", "lineNumber": 5, "main": False, "filePathname": src,
+         "strippedFilePathname": src,
+         "eventDescription": 'Assigning: "tmp" = "NULL" return value from "strchr".'},
+        {"eventTag": "path", "lineNumber": 4, "main": False, "filePathname": src,
+         "strippedFilePathname": src,
+         "eventDescription": 'Condition "f(s) == 0", taking true branch.'},
+        {"eventTag": "example_checked", "lineNumber": 9, "main": False, "filePathname": src,
+         "strippedFilePathname": src,
+         "eventDescription": 'Example 1: "other_fn(x)" has its value checked.'}]
+    fm = d / "models.json"
+    wjson(fm, dict(FINDINGS, issues=[called]))
+    bundle(fm, "--all", "--models", d, "--plan", ok=False)          # no --cov-bin
+    p = bundle(fm, "--all", "--models", d, "--cov-bin", d, "--plan").stdout
+    assert "callees to look up for models (--models): 2 distinct" in p, p
     # --since: a sample draws only from keys first seen in this release. a2 had no
     # verdict, so --prior alone brings it back; --since leaves it out as not new.
     p = bundle(f2, "--per-checker", "5", "--prior", t1, "--since", f1, "--plan").stdout

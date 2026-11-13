@@ -72,6 +72,17 @@ what is reasoned rather than measured.
     (Undecided, Fix Required, Fix Submitted, Modeling Required, Ignore).
     Setup adds the six actions, keeps the existing values and their ids,
     and leaves Action built in. An instance with no Action is refused.
+  - **Callee models (`bundle.py --models`)**, on a real idir: a C project
+    analyzed with Coverity 2025.9.0, read with that installation's
+    `cov-find-function --save --exact`. A per-checker sample of 21 findings
+    named 21 distinct callees in its events; 9 had a derived model and were
+    shown as one line per behaviour (from the model's `.traces`), and 12
+    were library functions with none. The 21 bundles took 14 s in all,
+    about 0.7 s per callee. On the fixture: callees come from calls and
+    named functions in the events, never from variables, the `example_`
+    events or the finding's own function, and `--models` without
+    `--cov-bin` is refused. Whether readers reach better verdicts with the
+    models is not yet measured.
   - **Compiler headers, what was triaged, and a later release**, on a
     fixture of its own, in 18 cases:
     - A finding in libstdc++ (`/usr/include/c++/13/...`) and one in MSVC's

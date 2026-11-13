@@ -135,6 +135,26 @@ that no caller can make fail) → `intentional`.
 Not read. A Policy finding is a match against a rule set, a list or a
 threshold, and its record carries the lane and nothing else.
 
+## Reading a callee's model
+
+A bundle or a request may carry Coverity's **derived model** of each callee
+the events name: one line per behaviour the analysis believes the callee
+has, such as `<arg 0> == 0; <return value> <- == -1; negative_return(<return
+value>)`. The finding was computed from these models, so they answer what
+the analysis thought a callee does without reading its body:
+
+- **What a model settles:** whether the callee can return NULL or a
+  negative value, and when; whether it frees, stores or dereferences an
+  argument; whether it returns at all. That covers most of what a Contract
+  reading asks, and the callee half of a Value-or-path one.
+- **What it cannot settle:** who calls the function under triage, and with
+  what. A dismissal that rests on the callers' guard needs their code.
+- **Where it is wrong, that is the finding's cause.** A model that lets a
+  function return when it never does, or that reads what the real callee
+  never reads, is a missing or wrong model: Analysis calibration.
+- **No model** means a library function, whose built-in model the analysis
+  used, or one it never saw. Reason from its documentation.
+
 ## The verdict set
 
 Use these words, in this order of preference when several could apply:

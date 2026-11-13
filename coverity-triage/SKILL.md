@@ -182,7 +182,7 @@ triages because a step in its procedure came up.
 python3 tools/bundle.py --issues <findings.json> --git-repo <repo> --tag <tag> \
     --strip-prefix <build-root> [--per-checker N] [--merge-key K ...] [--all] \
     [--since <earlier findings.json> ...] [--prior <earlier triage.json> ...] \
-    [--compiler-header <dir> ...] \
+    [--compiler-header <dir> ...] [--models <idir> --cov-bin <install>/bin] \
     [--name <project>] [--version-date YYYY-MM-DD] --out <dir> [--plan]
 ```
 
@@ -208,6 +208,15 @@ release chain costs one full sample per release. Pass the earlier records
 with `--prior` too: a key they settled (a verdict, or Policy or Other) is
 left out. A key named with `--merge-key` is bundled whatever either says.
 `--plan` and `index.json` give the counts left out.
+
+**Give the readers the callees' models.** `--models <idir>` adds, after the
+source, Coverity's derived model of every callee the events name, read from
+the analyzed idir with `cov-find-function` and the installation that wrote
+it (`--cov-bin`; git stays the source of the code). It costs about one to
+three seconds per distinct callee, and `--plan` gives the count. The models
+are what the analysis believed about each callee, so they settle much of
+what a reading would otherwise have to open the callee for
+(`references/reading.md`, *Reading a callee's model*).
 
 **Compiler headers are never triaged.** A finding whose main event is in a
 compiler's own headers (libstdc++, libc++, GCC's, Clang's, MSVC's) is a
@@ -596,6 +605,7 @@ is any, `bycatch/bycatch.json`. It keeps its own concerns.
 | Candidates from functions that reached the path bound | `coverity-pathout` |
 | The sample looks noisy: is the capture sound? A PARSE_ERROR? | `coverity` (rules 2, 9, 26) |
 | A CVSS score per finding | `coverity-cvss-report` |
+| Triage requested inside a service that holds the findings, the stored source and the derived models, with no tree and no execution | `coverity-triage-server`, which uses this skill's lanes, table and reading rules |
 
 ## Layout
 

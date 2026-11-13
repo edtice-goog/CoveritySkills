@@ -32,6 +32,11 @@ default the git repository's directory name), the version (--tag) and its
 date (--version-date, default the date of the commit the tag names). Every
 triage comment ends with them; with --idir, give --name and --version-date.
 
+CALLEE MODELS: --models <idir> --cov-bin <bin> adds, after the source, the
+derived model of every callee the events name, read with cov-find-function
+from the analyzed idir (git stays the source of the code). About 1-3 s per
+distinct callee; --plan says how many.
+
 COMPILER HEADERS ARE NEVER TRIAGED. A finding whose main event is in a
 compiler's own headers (libstdc++, libc++, GCC's, Clang's, MSVC's) is a
 residual false positive: --per-checker and --all always include it, it never
@@ -261,6 +266,102 @@ class IdirSource:
         return self.cache[relpath]
 
 
+CALLED = re.compile(r'\b([A-Za-z_]\w*)\s*\(')
+NAMED = re.compile(r'(?:\bfrom|\bin|\bto|\bfunction|\bCalling)\s+"([A-Za-z_]\w*)"|^"([A-Za-z_]\w*)" returns')
+NOT_CALLEES = {"if", "while", "for", "switch", "return", "sizeof", "defined", "NULL"}
+
+
+def own_name(issue):
+    """'int f(const char *)' -> 'f': the function the finding is in."""
+    words = str(issue.get("functionDisplayName") or "").split("(")[0].split("::")[-1].split()
+    return words[-1] if words else ""
+
+
+def callees(occ):
+    """Function names the events call or name, the finding's own function excepted."""
+    own = {own_name(o) for o in occ}
+    names = set()
+    for o in occ:
+        for e in o.get("events", []):
+            if str(e.get("eventTag", "")).startswith("example_"):
+                continue        # other call sites of the same callee, shown as evidence
+            d = str(e.get("eventDescription") or "")
+            names.update(CALLED.findall(d))
+            names.update(a or b for a, b in NAMED.findall(d))
+    return sorted(names - NOT_CALLEES - own)
+
+
+class Models:
+    """Coverity's derived model of each callee, from the analyzed idir, with
+    `cov-find-function --save`: about a second or three per callee, once per run."""
+
+    def __init__(self, idir, cov_bin, strip, out):
+        self.idir, self.strip, self.out = str(idir), strip, pathlib.Path(out) / "models"
+        exe = pathlib.Path(cov_bin) / "cov-find-function.exe"
+        self.exe = str(exe if exe.exists() else pathlib.Path(cov_bin) / "cov-find-function")
+        have, wrote = installed_version(cov_bin), idir_version(idir)
+        if wrote and have and wrote != have:
+            raise SystemExit("[ERROR] --models: the idir was written by Coverity " + wrote
+                             + " but --cov-bin is " + have + "; use the installation that "
+                             "wrote it (rule 3)")
+        self.cache = {}
+
+    def get(self, name):
+        """[{file, traces: [behaviour, ...]}] for every definition; [] when there is none."""
+        if name in self.cache:
+            return self.cache[name]
+        d = self.out / name
+        d.mkdir(parents=True, exist_ok=True)
+        p = subprocess.run([self.exe, "--dir", self.idir, "--save", "-of", str(d),
+                            "--module", "generic", "--exact", name],
+                           capture_output=True, text=True)
+        found, where = [], None
+        for line in (p.stdout or "").splitlines():
+            m = re.match(r"^(.+):" + re.escape(name) + r"$", line.strip())
+            if m:
+                where = rel(m.group(1), self.strip)
+            m = re.match(r"^File name base: (\S+)$", line.strip())
+            if m:
+                traces, cur = [], None
+                try:
+                    text = (d / (m.group(1) + ".traces")).read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    text = ""
+                for t in text.splitlines():
+                    if t.startswith("---- Trace"):
+                        cur = []
+                        traces.append(cur)
+                    elif cur is not None and t.strip():
+                        cur.append(re.sub(r"^\[\d+\]:\s*", "", t.strip()).rstrip("; "))
+                found.append({"file": where, "traces": ["; ".join(t) for t in traces]})
+        self.cache[name] = found
+        return found
+
+
+def render_models(names, models):
+    L = ["## Callee models", "",
+         "Coverity's derived models of the callees the events name: each line is one "
+         "behaviour the analysis believes the callee has. A model says what a callee "
+         "does, never who calls the function under triage (`references/reading.md`).", ""]
+    shown = []
+    for n in names:
+        for m in models.get(n):
+            L.append("### `" + n + "`" + (" -- " + m["file"] if m["file"] else ""))
+            L.append("")
+            for i, t in enumerate(m["traces"][:20], 1):
+                L.append(str(i) + ". " + t)
+            if len(m["traces"]) > 20:
+                L.append("... " + str(len(m["traces"]) - 20) + " more behaviours in the model")
+            L.append("")
+            shown.append({"callee": n, "file": m["file"], "behaviours": len(m["traces"])})
+    none = [n for n in names if not models.get(n)]
+    if none:
+        L.append("No derived model (a library function, whose built-in model applies, or "
+                 "a name the analysis did not see): " + ", ".join("`" + n + "`" for n in none))
+        L.append("")
+    return L, shown
+
+
 def merge_ranges(nums, context):
     """Line numbers -> merged (start, end) windows with context."""
     spans = sorted((max(1, n - context), n + context) for n in nums)
@@ -292,7 +393,8 @@ def site(issue, strip):
             "function": issue.get("functionDisplayName")}
 
 
-def render(occ, src, strip, context):
+def render(occ, src, strip, context, models=None):
+    """The bundle's markdown, and the callee models it shows (None without --models)."""
     issue = occ[0]
     events = issue.get("events", [])
     L = []
@@ -354,7 +456,11 @@ def render(occ, src, strip, context):
                 L.append(mark + format(n, "6d") + "  " + lines[n - 1])
             L.append("```")
             L.append("")
-    return "\n".join(L)
+    shown = None
+    if models is not None:
+        more, shown = render_models(callees(occ), models)
+        L += more
+    return "\n".join(L), shown
 
 
 def files_needed(occ, strip):
@@ -408,7 +514,12 @@ def main():
                          "With --idir: a label for the version (default: the idir's name)")
     ap.add_argument("--idir", help="the backup source, when there is no git source: the "
                                    "intermediate directory, read with extract-files")
-    ap.add_argument("--cov-bin", help="with --idir: bin/ of the installation that wrote it")
+    ap.add_argument("--cov-bin", help="with --idir or --models: bin/ of the installation "
+                                      "that wrote the idir")
+    ap.add_argument("--models", metavar="IDIR",
+                    help="add each callee's Coverity derived model, read from this analyzed "
+                         "idir with cov-find-function (about 1-3 s per distinct callee); "
+                         "needs --cov-bin")
     ap.add_argument("--strip-prefix", default="",
                     help="build path prefix to remove, e.g. /home/me/demo/proj")
     ap.add_argument("--name", help="the project's name as readers know it, for the line every "
@@ -447,6 +558,10 @@ def main():
         return 1
     if args.idir and not args.cov_bin:
         print("[ERROR] --idir needs --cov-bin, the installation that wrote it", file=sys.stderr)
+        return 1
+    if args.models and not args.cov_bin:
+        print("[ERROR] --models needs --cov-bin, the installation that wrote the idir",
+              file=sys.stderr)
         return 1
     if not args.git_repo and not args.idir and not args.plan:
         print("[ERROR] no source: pass --git-repo and --tag, or (when there is no git "
@@ -487,6 +602,10 @@ def main():
             print("left out, settled at an earlier release (--prior): " + str(skipped))
         if args.since:
             print("left out, not new: reported by an earlier release (--since): " + str(not_new))
+        if args.models:
+            n = len(set().union(*(callees(issues[mk]) for mk in ordered)))
+            print("callees to look up for models (--models): " + str(n) + " distinct, about "
+                  + str(n) + "-" + str(3 * n) + " s")
         print("by checker:")
         for c, n in sorted(by_checker.items()):
             print("  " + str(n).rjust(5) + "  " + c)
@@ -520,11 +639,13 @@ def main():
              "|---|---|---|---|"]
     records = []
     missing = 0
+    models = Models(args.models, args.cov_bin, args.strip_prefix, out) if args.models else None
     for n, mk in enumerate(ordered, 1):
         occ = issues[mk]
         issue = occ[0]
         name = format(n, "03d") + "-" + str(issue.get("checkerName", "?")) + ".md"
-        (out / name).write_bytes(render(occ, src, args.strip_prefix, args.context).encode("utf-8"))
+        text, shown = render(occ, src, args.strip_prefix, args.context, models)
+        (out / name).write_bytes(text.encode("utf-8"))
         loc = main_path(issue, args.strip_prefix) + ":" + str(issue.get("mainEventLineNumber"))
         index.append("| [" + format(n, "03d") + "](" + name + ") | "
                      + str(issue.get("checkerName")) + " | `" + loc + "` | "
@@ -538,6 +659,8 @@ def main():
                         "selected_because": selected[mk]})
         if mk in headers:
             records[-1]["compiler_header"] = headers[mk]
+        if shown is not None:
+            records[-1]["callee_models"] = shown
     (out / "INDEX.md").write_bytes(("\n".join(index) + "\n").encode("utf-8"))
     (out / "index.json").write_bytes((json.dumps({
         "issues": str(args.issues),
@@ -549,10 +672,15 @@ def main():
         "triaged_against": against,
         "prior": [str(p) for p in args.prior], "left_out_by_prior": skipped,
         "since": [str(s) for s in args.since], "left_out_by_since": not_new,
+        "models": ({"idir": str(args.models), "callees": len(models.cache),
+                    "with_a_model": sum(1 for v in models.cache.values() if v)}
+                   if models else None),
         "bundles": records}, indent=1) + "\n").encode("utf-8"))
 
     print("wrote " + str(len(ordered)) + " bundles to " + str(out) + "/ (INDEX.md, index.json)"
-          + ("; " + str(skipped) + " left out, settled at an earlier release" if args.prior else ""))
+          + ("; " + str(skipped) + " left out, settled at an earlier release" if args.prior else "")
+          + ("; models for " + str(sum(1 for v in models.cache.values() if v)) + " of "
+             + str(len(models.cache)) + " callees" if models else ""))
     if not (against["project"] and against["date"]):
         print("[WARN] index.json does not say what was triaged (" + ", ".join(
             k for k in ("project", "date") if not against[k]) + " missing): records.py "
