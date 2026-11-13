@@ -96,7 +96,9 @@ what is reasoned rather than measured.
       out the keys with a verdict, a Policy key and a compiler header. It
       bundles again a key with no verdict, and a new one. A key named with
       `--merge-key` is bundled anyway, and a findings file passed as
-      `--prior` is refused.
+      `--prior` is refused. With `--since` (the first release's findings)
+      as well, a per-checker sample takes only the new key, and leaves out
+      the old one that had no verdict.
 
     Shown working:
     - by-catch collected into `bycatch/bycatch.json` (from the default
@@ -295,8 +297,13 @@ what is reasoned rather than measured.
   met: 18 of 225 merge keys in a C++ analysis on Linux, all in
   `/usr/include/c++/<version>/` or `/usr/lib/gcc/.../include/`. Clang's and
   MSVC's directories have met only the fixture.
-- **Releases and the delta.** `--prior` has run only on the fixture. No
-  multi-release dataset has been triaged release by release yet.
+- **Releases and the delta.** `--prior` and `--since` have run only on the
+  fixture. No multi-release dataset has been triaged release by release
+  yet. Why `--since` exists was measured: replaying the per-checker
+  selection over a 24-release chain of one C project, a later release with
+  no new keys still drew a fresh sample of 24 old ones, and one key per
+  checker across the chain came to 523 keys, against 284 when only keys
+  first seen at each release are sampled.
   `connect_apply.py` covers open findings in the stream's latest snapshot,
   and that was measured. A C++ project's dataset was committed as 17
   backdated snapshots into one stream, and its records were applied release

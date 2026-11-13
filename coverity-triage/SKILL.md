@@ -171,7 +171,7 @@ triages because a step in its procedure came up.
 | the source at the analyzed version | **the default:** a git repository and the tag or commit the idir was built from. **Read from git, never from the working tree**: a working tree holds whatever was checked out last, which is the wrong source in a way that reads as entirely plausible. **The backup, when there is no git source** (an analyzed tree with no tag or commit to read): the intermediate directory, with the `bin/` of the installation that wrote it (rule 3) |
 | the build root | the path prefix to strip from recorded paths (`--strip-prefix`) |
 | the selection | `--merge-key` for named findings (repeatable), `--per-checker N` for rule 26's stratified sample, `--all` for every finding |
-| earlier releases' records | for every release after the first: the `triage.json` of each earlier release (`--prior`, *Step 1*), so only the delta is triaged |
+| earlier releases | for every release after the first: each earlier release's findings (`--since`) and `triage.json` (`--prior`), so only the delta is triaged (*Step 1*) |
 | the checker tables | the skill's own `references/checker-lanes.json`, plus any organization or producer table (`--table`, *Step 2*) |
 | the plan | the method per lane (*Step 3*), the model for inference, and optionally a verify route for the whole plan |
 | the by-catch folder | where defects noticed outside the selected findings go: `bycatch/` beside `triage.json`, never in the records, or a folder the caller names with `--bycatch-dir` (`references/records.md`, *By-catch*) |
@@ -181,7 +181,8 @@ triages because a step in its procedure came up.
 ```
 python3 tools/bundle.py --issues <findings.json> --git-repo <repo> --tag <tag> \
     --strip-prefix <build-root> [--per-checker N] [--merge-key K ...] [--all] \
-    [--prior <earlier triage.json> ...] [--compiler-header <dir> ...] \
+    [--since <earlier findings.json> ...] [--prior <earlier triage.json> ...] \
+    [--compiler-header <dir> ...] \
     [--name <project>] [--version-date YYYY-MM-DD] --out <dir> [--plan]
 ```
 
@@ -197,14 +198,16 @@ directory name. The version is `--tag`.
 tag names). With `--idir`, give both `--name` and `--version-date`: without
 them the records step refuses every verdict.
 
-**One release at a time, oldest first.** Never select across a dataset's
-releases in one run. Triage the first release. For each later release, pass
-the records of every earlier one with `--prior`. A merge key they already
-settled, with a verdict or a lane that takes no method (Policy, Other), is
-left out, and only the delta is triaged. A key with no verdict yet (method
-`None`, or awaiting a person) is bundled again. A key named with
-`--merge-key` is bundled whatever `--prior` says. `--plan` and `index.json`
-give the count left out.
+**One release at a time, oldest first, and a later release only for its
+delta.** Never select across a dataset's releases in one run. Triage the
+first release. For each later one, pass every earlier release's findings
+with `--since`: `--per-checker` and `--all` then draw only from keys first
+seen in this release. Without it, a per-checker sample of a later release
+is drawn again from old keys an earlier sample passed over, and a long
+release chain costs one full sample per release. Pass the earlier records
+with `--prior` too: a key they settled (a verdict, or Policy or Other) is
+left out. A key named with `--merge-key` is bundled whatever either says.
+`--plan` and `index.json` give the counts left out.
 
 **Compiler headers are never triaged.** A finding whose main event is in a
 compiler's own headers (libstdc++, libc++, GCC's, Clang's, MSVC's) is a

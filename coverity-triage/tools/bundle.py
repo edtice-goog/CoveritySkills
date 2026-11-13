@@ -19,10 +19,13 @@ Selection (combine freely; nothing is selected by default):
                     before the plan is agreed: triage costs model time per
                     finding, and the count is the first thing to agree on.
 
-RELEASES RUN ONE AT A TIME, OLDEST FIRST. For every later release, pass the
-earlier releases' records with --prior (repeatable): a merge key one of them
-already settled (a verdict, or a lane that takes no method) is left out, so
-only the delta is triaged. A key named with --merge-key is still bundled.
+RELEASES RUN ONE AT A TIME, OLDEST FIRST, AND A LATER ONE ONLY FOR ITS DELTA.
+For every later release, pass the earlier releases' findings files with
+--since (repeatable): --per-checker and --all then draw only from keys first
+seen in this release, so a sample is not drawn again from old keys. Pass
+their records with --prior (repeatable) as well: a key they settled (a
+verdict, or a lane that takes no method) is left out. A key named with
+--merge-key is bundled whatever either says.
 
 WHAT WAS TRIAGED: index.json's triaged_against names the project (--name,
 default the git repository's directory name), the version (--tag) and its
@@ -364,19 +367,20 @@ def files_needed(occ, strip):
     return need
 
 
-def select(issues, args, headers, prior):
-    """{merge key: why selected}, and how many keys --prior left out."""
+def select(issues, args, headers, prior, seen):
+    """{merge key: why selected}, and how many keys --prior and --since left out."""
     selected = {}
     for mk in args.merge_key:
         if mk not in issues:
             raise SystemExit("[ERROR] merge key not present in these findings: " + mk)
         selected[mk] = "named (unconditional)"
     if not (args.per_checker or args.all):
-        return selected, 0
+        return selected, 0, 0
+    old = set(prior) | seen
     for mk in sorted(headers):
-        if mk not in prior:
+        if mk not in old:
             selected.setdefault(mk, "compiler header (no triage)")
-    open_keys = [mk for mk in issues if mk not in prior and mk not in headers]
+    open_keys = [mk for mk in issues if mk not in old and mk not in headers]
     if args.per_checker:
         by_checker = collections.defaultdict(list)
         for mk in open_keys:
@@ -387,7 +391,9 @@ def select(issues, args, headers, prior):
     if args.all:
         for mk in open_keys:
             selected.setdefault(mk, "all findings")
-    return selected, sum(1 for mk in issues if mk in prior and mk not in selected)
+    by_prior = sum(1 for mk in issues if mk in prior and mk not in selected)
+    by_since = sum(1 for mk in issues if mk in seen and mk not in prior and mk not in selected)
+    return selected, by_prior, by_since
 
 
 def main():
@@ -420,7 +426,11 @@ def main():
     ap.add_argument("--all", action="store_true", help="bundle every finding")
     ap.add_argument("--prior", action="append", default=[],
                     help="an earlier release's records (triage.json); keys it settled are "
-                         "left out, so only the delta is triaged; repeatable")
+                         "left out; repeatable")
+    ap.add_argument("--since", action="append", default=[],
+                    help="an earlier release's findings (cov-format-errors JSON); --per-checker "
+                         "and --all draw only from keys none of these report, the delta; "
+                         "repeatable")
     ap.add_argument("--compiler-header", action="append", default=[],
                     help="another compiler's include directory: findings there are "
                          "never triaged; repeatable")
@@ -451,10 +461,13 @@ def main():
     extra = [e.replace("\\", "/").rstrip("/").lower() + "/" for e in args.compiler_header]
     headers = {mk: h for mk, occ in issues.items() for h in [compiler_header(occ[0], extra)] if h}
     prior = decided_before(args.prior)
-    selected, skipped = select(issues, args, headers, prior)
+    seen = set().union(*(load(pathlib.Path(s)) for s in args.since))
+    selected, skipped, not_new = select(issues, args, headers, prior, seen)
     if not selected:
         print("[ERROR] nothing selected: pass --merge-key, --per-checker or --all"
-              + (" (--prior already settled " + str(skipped) + ")" if skipped else ""),
+              + (" (--prior already settled " + str(skipped) + ")" if skipped else "")
+              + (" (" + str(not_new) + " reported by an earlier release, --since)"
+                 if not_new else ""),
               file=sys.stderr)
         return 1
 
@@ -472,6 +485,8 @@ def main():
             print("  " + str(n).rjust(5) + "  " + r)
         if args.prior:
             print("left out, settled at an earlier release (--prior): " + str(skipped))
+        if args.since:
+            print("left out, not new: reported by an earlier release (--since): " + str(not_new))
         print("by checker:")
         for c, n in sorted(by_checker.items()):
             print("  " + str(n).rjust(5) + "  " + c)
@@ -533,6 +548,7 @@ def main():
         "strip_prefix": args.strip_prefix, "findings_in_file": len(issues),
         "triaged_against": against,
         "prior": [str(p) for p in args.prior], "left_out_by_prior": skipped,
+        "since": [str(s) for s in args.since], "left_out_by_since": not_new,
         "bundles": records}, indent=1) + "\n").encode("utf-8"))
 
     print("wrote " + str(len(ordered)) + " bundles to " + str(out) + "/ (INDEX.md, index.json)"

@@ -587,6 +587,13 @@ def test_releases_and_headers(work, repo):
     assert sorted(x["mergeKey"] for x in idx2["bundles"]) == ["a2", "a3"], idx2
     assert idx2["left_out_by_prior"] == 3 and idx2["prior"] == [str(t1)], idx2
     bundle(f2, "--all", "--prior", f1, "--plan", ok=False)       # not a records file
+    # --since: a sample draws only from keys first seen in this release. a2 had no
+    # verdict, so --prior alone brings it back; --since leaves it out as not new.
+    p = bundle(f2, "--per-checker", "5", "--prior", t1, "--since", f1, "--plan").stdout
+    assert "selected: 1" in p and "1  CHECKED_RETURN" in p, p
+    assert "not new: reported by an earlier release (--since): 1" in p, p
+    p = bundle(f2, "--all", "--since", f1, "--merge-key", "a2", "--plan").stdout
+    assert "selected: 2" in p and "named (unconditional)" in p, p
     return cases
 
 
