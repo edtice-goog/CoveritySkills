@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Create the two custom triage attributes that coverity-triage's records set.
+"""Create the two custom triage attributes that coverity-triage's records set,
+and add the skill's actions to Connect's built-in Action.
 
   connect_attributes.py check --url <url> [--key-file <f>] [--records triage.json]
                               [--model "Sonnet 5.5" ...] [--json]
@@ -10,7 +11,9 @@ Defect Category holds a finding's lane; Triage Method holds the method that
 produced its verdict (references/records.md). Both are pick lists, and a
 record can set only a value its list already has. Triage Method needs one
 "LLM: <model>" value per model, given with --model or read from the methods
-a triage.json uses.
+a triage.json uses. Action is built in and never created; the six actions
+the records recommend (Fix, Mitigate, Transfer, Accept, None, Analysis
+calibration) are added to its list beside Connect's own values, which stay.
 
 check reads the instance and reports what is missing. setup without --yes
 prints the same plan and changes nothing; with --yes it creates the missing
@@ -24,7 +27,9 @@ missing (check, or setup without --yes); 1 an error or a refusal.
 
 REST, measured on Connect 2026.9.0: /api/v2/triageAttributes (the REST
 reference names /api/v2/attributes; that server answered GET and OPTIONS
-there with 404).
+there with 404). GET on /api/v2/triageAttributes/Action returns it as a
+LIST_OF_VALUES with builtIn true and ids on its values; whether a PUT may add
+values to a built-in attribute was not measured.
 Authentication is HTTP Basic with an auth key's username and key. The URL
 comes from --url and never from the key file's comments (coverity rule 28).
 """
@@ -43,6 +48,7 @@ LANES = ("Construction", "Intent", "Contract", "Value or path", "Policy", "Other
 LANE_DEFAULT = "Unassigned"
 METHOD_BASE = ("None", "Execution: coverity-verify", "Human")
 METHOD_DEFAULT = "None"
+ACTIONS = ("Fix", "Mitigate", "Transfer", "Accept", "None", "Analysis calibration")
 DESCRIPTIONS = {
     "Defect Category": "The finding's lane in coverity-triage: the kind of claim it makes",
     "Triage Method": "The method that produced the finding's triage verdict",
@@ -116,7 +122,8 @@ def needed_values(models, records):
                 raise Refusal(records + ": a record carries Defect Category " + repr(lane)
                               + ", which is not a lane")
     return {"Defect Category": (LANE_DEFAULT, [LANE_DEFAULT] + list(LANES)),
-            "Triage Method": (METHOD_DEFAULT, methods)}
+            "Triage Method": (METHOD_DEFAULT, methods),
+            "Action": (None, list(ACTIONS))}     # built in: no default of ours, never created
 
 
 def plan(conn, needs):
@@ -124,6 +131,8 @@ def plan(conn, needs):
     out = []
     for name, (default, values) in needs.items():
         a = conn.get_attribute(name)
+        if a is None and default is None:
+            raise Refusal(name + " is built into Connect, and this instance has none")
         if a is None:
             out.append((name, "create", values, {
                 "name": name, "description": DESCRIPTIONS[name],
@@ -200,7 +209,7 @@ def main():
     if args.json:
         print(json.dumps(result, indent=1))
     elif not result["changes"]:
-        print("nothing missing: Defect Category and Triage Method have every value needed")
+        print("nothing missing: Defect Category, Triage Method and Action have every value needed")
     else:
         for ch in result["changes"]:
             print(("done: " if result["applied"] else "missing: ") + ch["attribute"] + ": "

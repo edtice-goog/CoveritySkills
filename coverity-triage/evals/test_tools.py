@@ -148,7 +148,9 @@ def main():
                           ("none-method", {"lane": "Intent", "why": "x", "method": "None"}),
                           ("route-no-verify", {"lane": "Intent", "why": "x", "route": "harness"}),
                           ("bad-route", {"lane": "Value or path", "why": "x",
-                                         "method": "Execution: coverity-verify", "route": "fast"})]:
+                                         "method": "Execution: coverity-verify", "route": "fast"}),
+                          ("action-not-other", {"lane": "Intent", "why": "x", "action": "Fix"}),
+                          ("bad-action", {"lane": "Other", "why": "x", "action": "Ignore"})]:
             bad = work / ("bad-" + name + ".json")
             wjson(bad, dict(CUSTOM_TABLE, checkers={"X": row}))
             run(TOOLS / "lanes.py", "check-table", bad, ok=False)
@@ -183,10 +185,13 @@ def main():
         verdicts = {"lane": "Contract", "method": "LLM: Sonnet 5.5", "model": "test-model",
                     "verdicts": [GOOD_INVARIANT,
                                  {"mergeKey": "k3", "verdict": "real, low severity",
-                                  "reason": "ignored; cosmetic at src/a.c:5"}]}
+                                  "reason": "ignored; cosmetic at src/a.c:5", "action": "Transfer",
+                                  "action_reason": "the helper is vendored; the fix belongs upstream"}]}
         intent = {"lane": "Intent", "method": "LLM: Sonnet 5.5", "model": "test-model",
                   "verdicts": [{"mergeKey": "k4", "verdict": "false positive - heuristic misfire",
-                                "reason": "the two checks at src/a.c:4 are distinct by design"}]}
+                                "reason": "the two checks at src/a.c:4 are distinct by design",
+                                "action": "Analysis calibration",
+                                "action_reason": "a checker option would stop this shape"}]}
         executed_k7 = {"lane": "Value or path", "method": "Execution: coverity-verify",
                        "model": None, "verdicts": [{
                            "mergeKey": "k7", "verdict": "real", "executed": True,
@@ -221,6 +226,7 @@ def main():
             "\nTriaged against repo v1 from " + v1_date + "."), recs["k1"]["triageState"]["comment"]
         assert recs["k3"]["triageState"]["severity"] == "Minor"
         assert recs["k4"]["lane"] == "Intent" and recs["k4"]["triageState"]["classification"] == "False Positive"
+        report = (d / "TRIAGE-REPORT.md").read_text()
         assert recs["k2"]["method"] == "Human" and recs["k2"]["verdict"] is None
         assert recs["k2"]["evidence"]["status"].startswith("awaiting")
         assert len(recs["k2"]["judged"]["sites"]) == 2
@@ -231,12 +237,22 @@ def main():
                                                               "Triage Method": "None"}}
         assert recs["k6"]["evidence"]["status"] == "not triaged: Policy"
         assert recs["k8"]["lane"] == "Other" and recs["k8"]["method"] == "None"
+        # The recommended action: the verdict's default, or a reader's choice with its reason;
+        # PARSE_ERROR's comes from its table row.
+        assert recs["k1"]["triageState"]["action"] == "None"
+        assert recs["k3"]["triageState"]["action"] == "Transfer", recs["k3"]
+        assert "Recommended action: Transfer: the helper is vendored" in recs["k3"]["triageState"]["comment"]
+        assert recs["k4"]["triageState"]["action"] == "Analysis calibration"
+        assert recs["k8"]["triageState"]["action"] == "Analysis calibration", recs["k8"]
+        assert recs["k8"]["triageState"]["comment"].startswith("Recommended action: Analysis calibration: a capture")
+        assert recs["k8"]["triageState"]["classification"] is None
+        assert recs["k7"]["triageState"]["action"] == "Fix"
+        assert "## By recommended action" in report and "| Transfer | 1 | the helper is vendored" in report
         # The checker's own method wins over the lane's (Value or path is Human in this plan).
         assert recs["k7"]["method"] == "Execution: coverity-verify", recs["k7"]
         assert "checker's own method" in recs["k7"]["method_reason"]
         assert recs["k7"]["evidence"]["route"] == "harness" and recs["k7"]["evidence"]["as_code"] == ["g", "h"]
         assert recs["k7"]["evidence"]["route_preference"] == "harness"
-        report = (d / "TRIAGE-REPORT.md").read_text()
         assert "## By lane" in report and "not triaged (Policy)" in report, report
         assert "7 from the checker table" in report, report
 
@@ -261,6 +277,13 @@ def main():
             attempt(name, lanes_doc, run_doc, vdocs, False)
 
         refuse("no-location", lanes, runj, with_v(enforced_at=""))
+        # Actions: one the verdict does not allow; an unknown one; a non-default one with
+        # no reason; any action on unresolved.
+        refuse("action-not-allowed", lanes, runj, with_v(action="Fix", action_reason="x"))
+        refuse("action-unknown", lanes, runj, with_v(action="Ignore", action_reason="x"))
+        refuse("action-no-reason", lanes, runj, with_v(action="Analysis calibration"))
+        refuse("action-on-unresolved", lanes, runj, with_v(verdict="unresolved", action="Fix",
+                                                           action_reason="x"))
         refuse("bad-word", lanes, runj, with_v(verdict="probably fine"))
         refuse("control-char", lanes, runj, with_v(reason="the literal '\x00' at src/a.c:5"))
         refuse("missing-verdict", lanes, runj, [dict(verdicts, verdicts=[GOOD_INVARIANT]),
@@ -410,7 +433,7 @@ def main():
         release_cases = test_releases_and_headers(work, repo)
 
         print("ok: bundle plan, bundles (git at the tag, form feed, two sites), 6 bundle refusals, "
-              "the checker table and 11 bad rows, lanes from the table (fixed, candidates, "
+              "the checker table and 13 bad rows, lanes from the table (fixed, candidates, "
               "unplaced, a producer's row), one assembly, a plan-level route, "
               + str(refusals) + " records refusals, verify in the Contract lane, expected-lane "
               "overrides, check-lanes, shortened comment, connect_attributes against a fake "
@@ -505,7 +528,7 @@ def test_releases_and_headers(work, repo):
     recs = {r["mergeKey"]: r for r in json.loads(t1.read_text())["records"]}
     h1 = recs["h1"]
     assert (h1["verdict"], h1["method"], h1["lane"]) == ("intentional", "None", "Other"), h1
-    assert h1["triageState"]["classification"] == "Intentional" and h1["triageState"]["action"] == "Ignore"
+    assert h1["triageState"]["classification"] == "Intentional" and h1["triageState"]["action"] == "None"
     assert "compiler header (" + libstdcxx + ")" in h1["triageState"]["comment"]
     # Every comment ends with what was triaged.
     for k in ("h1", "a1"):
@@ -574,7 +597,15 @@ class FakeConnect:
         import http.server
         import threading
         from urllib.parse import parse_qs, urlsplit
-        self.attrs, self.writes = {}, []
+        # Connect's built-in Action, as GET returned it on 2026.9.0.
+        self.attrs = {"Action": {"name": "Action", "attributeType": "LIST_OF_VALUES",
+                                 "builtIn": True, "defaultValueName": "Undecided",
+                                 "showInTriage": True, "attributeValues": [
+                                     {"id": i, "name": n, "displayValue": n, "deprecated": False}
+                                     for i, n in enumerate(("Undecided", "Fix Required",
+                                                            "Fix Submitted", "Modeling Required",
+                                                            "Ignore"), 1)]}}
+        self.writes = []
         # For connect_apply.py: streams, and issues as {cid: {column: value}}.
         self.streams, self.issues, self.drop = {}, {}, None
         token = "Basic " + __import__("base64").b64encode(
@@ -646,7 +677,8 @@ class FakeConnect:
                     vals = [dict(v, id=v.get("id", 900 + i), displayValue=v["name"],
                                  deprecated=v.get("deprecated", False))
                             for i, v in enumerate(body["attributeValues"])]
-                    fake.attrs[self.name()] = dict(body, attributeValues=vals, builtIn=False)
+                    built_in = (fake.attrs.get(self.name()) or {}).get("builtIn", False)
+                    fake.attrs[self.name()] = dict(body, attributeValues=vals, builtIn=built_in)
                     return self.reply(200)
                 return self.reply(404, {"message": "not found"})
 
@@ -689,11 +721,19 @@ def test_connect_attributes(work):
 
         out = tool_run("check", *common, code=3).stdout
         assert "Defect Category: create" in out and "Triage Method: create" in out, out
+        assert "Action: add values: Fix, Mitigate, Transfer, Accept, None, Analysis calibration" in out
         tool_run("setup", *common, "--model", "Sonnet 5.5", code=3)
         assert fake.writes == [], "setup without --yes wrote to the instance"
+        before = [(v["id"], v["name"]) for v in fake.attrs["Action"]["attributeValues"]]
         res = json.loads(tool_run("setup", *common, "--model", "Sonnet 5.5", "--yes", "--json",
                                   code=0).stdout)
-        assert res["applied"] is True and len(res["changes"]) == 2, res
+        assert res["applied"] is True and len(res["changes"]) == 3, res
+        # Action stays built in, keeps Connect's values with their ids, and gains the six.
+        act = fake.attrs["Action"]
+        assert act["builtIn"] is True and act["defaultValueName"] == "Undecided"
+        assert [(v["id"], v["name"]) for v in act["attributeValues"]][:5] == before
+        assert [v["name"] for v in act["attributeValues"]][5:] == [
+            "Fix", "Mitigate", "Transfer", "Accept", "None", "Analysis calibration"]
         dc, tm = fake.attrs["Defect Category"], fake.attrs["Triage Method"]
         assert dc["defaultValueName"] == "Unassigned" and dc["attributeType"] == "LIST_OF_VALUES"
         assert [v["name"] for v in dc["attributeValues"]] == [
@@ -729,6 +769,9 @@ def test_connect_attributes(work):
         fake.attrs["Defect Category"]["attributeType"] = "STRING"
         tool_run("setup", *common, "--yes", code=1)
         fake.attrs["Defect Category"]["attributeType"] = "LIST_OF_VALUES"
+        action = fake.attrs.pop("Action")                       # built in: never created
+        tool_run("setup", *common, "--yes", code=1)
+        fake.attrs["Action"] = action
         wjson(work / "ak-wrong", {"username": "triager", "key": "wrong"})
         tool_run("check", "--url", fake.url, "--key-file", work / "ak-wrong", code=1)
         wjson(work / "ak-empty", {"comments": {"host": "x"}})
@@ -771,7 +814,7 @@ def test_connect_apply(work, records):
             return p
 
         def puts():
-            return [w for w in fake.writes if w[0] == "PUT"]
+            return [w for w in fake.writes if w[0] == "PUT" and "/issues/triage" in w[1]]
 
         tool_run(*common, code=1)          # the custom attributes do not exist yet
         res = json.loads(tool_run(*common, "--standard-only", "--json", code=3).stdout)
@@ -782,7 +825,7 @@ def test_connect_apply(work, records):
         res = json.loads(tool_run(*common, "--json", code=3).stdout)
         assert len(fake.writes) == n, "a plan-only run wrote"
         assert res["judgedAt"] == ["v1"], res.get("judgedAt")
-        assert "judged at v1" in tool_run(*common, code=3).stdout
+        assert "records judged at v1" in tool_run(*common, code=3).stdout
         by = {e["mergeKey"]: e for e in res["plan"]}
         assert by["k2"]["status"] == "not-found" and by["k3"]["status"] == "conflict", by
         assert by["k6"]["set"] == {"Defect Category": "Policy"}, by["k6"]   # Triage Method is None already
@@ -793,7 +836,7 @@ def test_connect_apply(work, records):
         k1 = fake.issues[cid_of["k1"]]
         rec1 = next(r for r in json.loads(pathlib.Path(records).read_text())["records"]
                     if r["mergeKey"] == "k1")
-        assert k1["classification"] == "False Positive" and k1["action"] == "Ignore", k1
+        assert k1["classification"] == "False Positive" and k1["action"] == "None", k1
         assert k1["lastTriageComment"] == rec1["triageState"]["comment"], k1
         assert k1["column_custom_Defect Category"] == "Contract", k1
         assert k1["column_custom_Triage Method"] == "LLM: Sonnet 5.5", k1

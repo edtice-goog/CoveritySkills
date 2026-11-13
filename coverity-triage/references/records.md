@@ -45,6 +45,7 @@ validates a table.
 | `decide` | required with `lanes`: what tells the candidates apart |
 | `method` | optional: the method the checker was built for (`LLM: <model>`, `Execution: coverity-verify` or `Human`). It overrides the lane's method in the plan. Never on a Policy or Other row; a checker that is never triaged is Policy |
 | `route` | optional, only beside `Execution: coverity-verify`: `harness` or `extraction`, the route verify should prefer |
+| `action` | optional, only on an Other row: the action its findings take with no verdict (PARSE_ERROR: `Analysis calibration`) |
 
 ## `run.json`: the plan
 
@@ -159,6 +160,7 @@ unplaced checker gets a row in a table file, and `assign` runs again. Before
 | `verdict` | a word from the verdict set (`reading.md`) |
 | `reason` | required: the argument, with `file:line` for each claim about the code. A reader that thinks the lane is wrong uses `unresolved`, and starts the reason with `wrong lane: <lane>` |
 | `invariant`, `enforced_at`, `breaks_if` | required and non-empty for `false positive - global invariant`; ignored otherwise |
+| `action`, `action_reason` | the recommended action (`reading.md`, *The recommended action*): one the verdict allows. Left out, it is the verdict's default; any other needs `action_reason`, which the comment carries |
 | `sites_read` | the code read, as `path:line` or `path:first-last` |
 | `executed` | `true` only when the verdict rests on running the code (the execution method) |
 | `route`, `route_reason`, `as_code`, `stubbed` | from `coverity-verify`'s record: the route that ran and why, what ran as code, and what was stubbed. Carried into the record's evidence |
@@ -331,19 +333,26 @@ shares `bycatch/` with it, and the folder's name says so.
 
 ### The mapping
 
-| verdict | classification | action | severity |
+| verdict | classification | action (default first) | severity |
 |---|---|---|---|
-| `real` | Bug | Fix Required | null |
-| `real, low severity` | Bug | Fix Required | Minor |
-| `intentional` | Intentional | Ignore | null |
-| `false positive - global invariant` | False Positive | Ignore | null |
-| `false positive - heuristic misfire` | False Positive | Ignore | null |
+| `real` | Bug | Fix, Mitigate, Transfer | null |
+| `real, low severity` | Bug | Fix, Mitigate, Transfer, Accept | Minor |
+| `intentional` | Intentional | None | null |
+| `false positive - global invariant` | False Positive | None, Analysis calibration | null |
+| `false positive - heuristic misfire` | False Positive | None, Analysis calibration | null |
 | `unresolved`; Policy; Other; method `None`; awaiting a person | null | null | null |
-| a compiler header (Other, by rule) | Intentional | Ignore | null |
+| a compiler header (Other, by rule) | Intentional | None | null |
+| an Other finding whose table row names an action (PARSE_ERROR) | null | the row's: Analysis calibration | null |
+
+The action is the reader's recommendation, within what the verdict allows
+(`reading.md`, *The recommended action*); a person may change it. These are
+Coverity Parallel's action values. Connect's built-in Action does not have
+them until `connect_attributes.py setup` adds them beside its own.
 
 The comment is set on every record that has a verdict, `unresolved`
-included, so the argument reaches whoever opens the finding. A record with
-no verdict sets only the two custom attributes: Policy, Other, method `None`,
+included, so the argument reaches whoever opens the finding, and on an
+Other finding with an action from its row. Any other record with no
+verdict sets only the two custom attributes: Policy, Other, method `None`,
 or awaiting a person.
 
 **A finding in a compiler header** is the one record with a verdict and no
@@ -357,6 +366,7 @@ classification takes False Positive instead.
 
 ```
 <Label>: <reason>
+Recommended action: <action>: <action_reason>          (only when not the default)
 [coverity-triage <date>] Lane: <lane> (assigned by <checker table | assigner>). Method: <method>, <read, not executed | executed>.
 Triaged against <project> <version> from <version date>.
 ```

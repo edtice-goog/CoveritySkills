@@ -32,6 +32,7 @@ POLICY, OTHER = "Policy", "Other"
 ALL_LANES = METHOD_LANES + (POLICY, OTHER)
 ROW_METHOD = re.compile(r"^(LLM: \S.*|Execution: coverity-verify|Human)$")
 ROUTES = ("harness", "extraction")
+ACTIONS = ("Fix", "Mitigate", "Transfer", "Accept", "None", "Analysis calibration")
 TABLE = "checker table"
 HEADER = "compiler header"
 
@@ -72,6 +73,9 @@ def row_problems(name, row):
     if r is not None and (r not in ROUTES or m != "Execution: coverity-verify"):
         p.append(name + ": route is harness or extraction, and only beside the method "
                  "Execution: coverity-verify")
+    if row.get("action") is not None and (fixed != OTHER or row["action"] not in ACTIONS):
+        p.append(name + ": action is one of " + ", ".join(ACTIONS) + ", and only on an "
+                 "Other row (findings of other lanes get theirs from a verdict)")
     return p
 
 
@@ -119,7 +123,7 @@ def assign(args):
         elif "lane" in row:
             entry = {"mergeKey": mk, "checker": checker, "lane": row["lane"],
                      "reason": row["why"].strip(), "assigned_by": TABLE}
-            for k in ("method", "route"):
+            for k in ("method", "route", "action"):
                 if k in row:
                     entry[k] = row[k]
             fixed.append(entry)

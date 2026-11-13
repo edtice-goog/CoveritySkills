@@ -179,7 +179,7 @@
   "OVERLAPPING_COPY": {"lane": "Value or path", "why": "a copy whose source and destination overlap"},
   "OVERLY_BROAD_EXCEPTION": {"lane": "Policy", "why": "a coding rule: no throwing or catching std::exception and similar broad types"},
   "OVERRUN": {"lane": "Value or path", "why": "an index or length found along a path exceeds a buffer"},
-  "PARSE_ERROR": {"lane": "Other", "why": "a capture problem, not a claim about the code: a question for the coverity skill"},
+  "PARSE_ERROR": {"lane": "Other", "why": "a capture problem, not a claim about the code: a question for the coverity skill", "action": "Analysis calibration"},
   "PASS_BY_VALUE": {"lane": "Policy", "why": "a performance guideline: large parameters passed by value"},
   "PATH_MANIPULATION": {"lane": "Value or path", "why": "untrusted data reaches a file name or path"},
   "POINTER_NONDETERMINISM": {"lane": "Construction", "why": "unrelated pointers compared: the result is unspecified"},

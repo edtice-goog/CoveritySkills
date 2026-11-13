@@ -29,16 +29,19 @@ ROUTES = ("harness", "extraction")
 TABLE = "checker table"
 HEADER = "compiler header"
 INVARIANT = "false positive - global invariant"
-# verdict -> (classification, action, severity, comment label)
+# verdict -> (classification, severity, comment label, the actions it allows, default first)
+CALIBRATE = "Analysis calibration"
 MAPPING = {
-    "real": ("Bug", "Fix Required", None, "Real defect"),
-    "real, low severity": ("Bug", "Fix Required", "Minor", "Real defect, low severity"),
-    "intentional": ("Intentional", "Ignore", None, "Intentional"),
-    INVARIANT: ("False Positive", "Ignore", None, "False positive (global invariant)"),
-    "false positive - heuristic misfire": ("False Positive", "Ignore", None,
-                                           "False positive (heuristic misfire)"),
-    "unresolved": (None, None, None, "Unresolved"),
+    "real": ("Bug", None, "Real defect", ("Fix", "Mitigate", "Transfer")),
+    "real, low severity": ("Bug", "Minor", "Real defect, low severity",
+                           ("Fix", "Mitigate", "Transfer", "Accept")),
+    "intentional": ("Intentional", None, "Intentional", ("None",)),
+    INVARIANT: ("False Positive", None, "False positive (global invariant)", ("None", CALIBRATE)),
+    "false positive - heuristic misfire": ("False Positive", None,
+                                           "False positive (heuristic misfire)", ("None", CALIBRATE)),
+    "unresolved": (None, None, "Unresolved", ()),
 }
+ACTIONS = ("Fix", "Mitigate", "Transfer", "Accept", "None", CALIBRATE)
 # what coverity-verify's record says about the run, carried into evidence
 VERIFY_FIELDS = ("route", "route_reason", "as_code", "stubbed")
 COMMENT_MAX = 4000
@@ -48,7 +51,7 @@ BAD_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 BYCATCH_FIELDS = ("bycatch", "by_catch", "side_findings", "side_observations")
 BYCATCH_WORDS = re.compile(r"by-?catch|side observation|aside, not part of this finding"
                            r"|present but unreported|worth its own check", re.I)
-TEXT_FIELDS = ("reason", "invariant", "enforced_at", "breaks_if")
+TEXT_FIELDS = ("reason", "invariant", "enforced_at", "breaks_if", "action_reason")
 
 
 def read_json(path, errors, what):
@@ -76,6 +79,8 @@ def comment_for(label, v, lane, assigner, method, date, against):
     if v["verdict"] == INVARIANT:
         body += ("\nInvariant: " + v["invariant"].strip() + "\nEnforced at: "
                  + v["enforced_at"].strip() + "\nBreaks if: " + v["breaks_if"].strip())
+    if (v.get("action_reason") or "").strip():
+        tail = "\nRecommended action: " + v["action"] + ": " + v["action_reason"].strip() + tail
     head = label + ": "
     room = COMMENT_MAX - len(head) - len(tail)
     if len(body) > room:
@@ -270,6 +275,17 @@ def assemble(args):
             if v.get("executed") and not method.startswith("Execution"):
                 errors.append(where + ": executed is true but the method is " + method)
                 continue
+            allowed = MAPPING[v["verdict"]][3]
+            v = dict(v, action=v.get("action") or (allowed[0] if allowed else None))
+            if v["action"] not in allowed and not (v["action"] is None and not allowed):
+                errors.append(where + ": action " + repr(v["action"]) + " is not one "
+                              + v["verdict"] + " allows (" + (", ".join(allowed) or "none")
+                              + "; references/reading.md, The recommended action)")
+                continue
+            if allowed and v["action"] != allowed[0] and not (v.get("action_reason") or "").strip():
+                errors.append(where + ": action " + v["action"] + " needs action_reason (only "
+                              + allowed[0] + ", the default, goes without one)")
+                continue
             verdict_of[mk] = (v, f.name)
             model_of[mk] = doc.get("model")
 
@@ -307,8 +323,8 @@ def assemble(args):
         if route_for(mk):
             evidence["route_preference"] = route_for(mk)
         if v is not None:
-            cls, act, sev, label = MAPPING[v["verdict"]]
-            state.update(classification=cls, action=act, severity=sev,
+            cls, sev, label, _ = MAPPING[v["verdict"]]
+            state.update(classification=cls, action=v["action"], severity=sev,
                          comment=comment_for(label, v, lane, a["assigned_by"], method, date,
                                              against))
             if BAD_CHARS.search(state["comment"]):
@@ -317,12 +333,24 @@ def assemble(args):
                               "refuses the write")
                 continue
             evidence.update({k: v.get(k) for k in ("reason", "invariant", "enforced_at",
-                                                    "breaks_if", "sites_read") + VERIFY_FIELDS
-                             if v.get(k) is not None})
+                                                    "breaks_if", "sites_read", "action_reason")
+                             + VERIFY_FIELDS if v.get(k) is not None})
             evidence["executed"] = bool(v.get("executed"))
             evidence["model"] = model_of.get(mk)
         elif lane == POLICY:
             evidence["status"] = "not triaged: Policy"
+        elif lane == OTHER and a.get("action"):
+            if against is None:
+                errors.append(b["bundle"] + " (" + mk + "): its comment must end with what was "
+                              "triaged, and index.json does not say (bundle.py --name and "
+                              "--version-date)")
+                continue
+            state.update(action=a["action"], comment=(
+                "Recommended action: " + a["action"] + ": " + a["reason"].strip()
+                + ".\n[coverity-triage " + date + "] Lane: Other (assigned by "
+                + a["assigned_by"] + "). Method: None; action from the checker table.\n"
+                + against))
+            evidence["status"] = "not triaged: Other, action from the checker table"
         elif method == "Human":
             evidence["status"] = "awaiting a person's verdict"
         rec = {"mergeKey": mk, "checker": b.get("checker"),
@@ -380,7 +408,7 @@ def assemble(args):
 
 def header_record(b, a, judged_as, date, against):
     """A finding in a compiler header: Intentional by rule, with no method."""
-    cls, act, sev, label = MAPPING["intentional"]
+    cls, sev, label, (act,) = MAPPING["intentional"]
     comment = (label + ": the main site is in a compiler header (" + b["compiler_header"]
                + "), outside the analyzed code: a residual false positive.\n[coverity-triage "
                + date + "] Lane: Other (" + HEADER + "). Method: None; classified by rule.\n"
@@ -455,17 +483,24 @@ def check(doc):
             p.append(w + "Other takes method None and no verdict, unless an override says why")
         if ct != {"Defect Category": lane, "Triage Method": method}:
             p.append(w + "customTriage must carry exactly Defect Category and Triage Method")
-        if verdict is None:
+        by_rule = verdict is None and lane == OTHER and st.get("action") is not None
+        if verdict is None and not by_rule:
             if any(st.get(k) is not None for k in ("classification", "action", "severity",
                                                    "comment")):
                 p.append(w + "no verdict, so only the custom attributes may be set")
             continue
-        if verdict not in MAPPING:
+        if by_rule:
+            if st.get("action") not in ACTIONS or st.get("classification") or st.get("severity"):
+                p.append(w + "an Other finding may carry only an action from the checker table")
+        elif verdict not in MAPPING:
             p.append(w + "verdict " + repr(verdict) + " not in the verdict set")
             continue
-        cls, act, sev, _ = MAPPING[verdict]
-        if (st.get("classification"), st.get("action"), st.get("severity")) != (cls, act, sev):
-            p.append(w + "triage state does not follow the mapping for " + repr(verdict))
+        else:
+            cls, sev, _, allowed = MAPPING[verdict]
+            if ((st.get("classification"), st.get("severity")) != (cls, sev)
+                    or (st.get("action") not in allowed
+                        and not (st.get("action") is None and not allowed))):
+                p.append(w + "triage state does not follow the mapping for " + repr(verdict))
         c = st.get("comment") or ""
         if not c or len(c) > COMMENT_MAX:
             p.append(w + "comment missing or longer than " + str(COMMENT_MAX))
@@ -513,9 +548,20 @@ def render_report(doc):
         L += ["", "No verdict: " + ", ".join(k + " " + str(n) for k, n in sorted(untriaged.items()))
               + " (Policy is never triaged; Other has no method; Human awaits a person; "
               "None was the plan's choice)."]
+    acts = collections.Counter(r["triageState"].get("action") for r in recs
+                               if r["triageState"].get("action"))
+    if acts:
+        L += ["", "## By recommended action", "", "| action | findings | why, when not the default |",
+              "|---|---|---|"]
+        for act in ACTIONS:
+            why = [r["evidence"].get("action_reason") for r in recs
+                   if r["triageState"].get("action") == act and r["evidence"].get("action_reason")]
+            if acts.get(act):
+                L.append("| " + act + " | " + str(acts[act]) + " | "
+                         + "; ".join(w.replace("|", "\\|") for w in why) + " |")
     L += ["", "## Findings", "",
-          "| bundle | checker | site | lane | assigned by | method | verdict | lane reason |",
-          "|---|---|---|---|---|---|---|---|"]
+          "| bundle | checker | site | lane | assigned by | method | verdict | action | lane reason |",
+          "|---|---|---|---|---|---|---|---|---|"]
     for r in recs:
         s = (r["judged"]["sites"] or [{}])[0]
         if r.get("lane_assigned_by") == HEADER:
@@ -531,6 +577,7 @@ def render_report(doc):
         L.append("| " + r["evidence"]["bundle"] + " | " + str(r["checker"]) + " | `"
                  + str(s.get("file")) + ":" + str(s.get("line")) + "` | " + r["lane"] + " | "
                  + str(r.get("lane_assigned_by")) + " | " + r["method"] + " | " + shown
+                 + " | " + str(r["triageState"].get("action") or "-")
                  + " | " + r["lane_reason"].replace("|", "\\|") + " |")
     L += ["", "A sample's counts describe the sample, not the run's false-positive rate (rule 26).", ""]
     return "\n".join(L)

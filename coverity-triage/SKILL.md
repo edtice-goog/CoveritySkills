@@ -396,17 +396,23 @@ check fails, and it checks every finding it was given:
   bundled finding. Assemble collects them into `bycatch/bycatch.json`, and
   prints `by-catch: N item(s) in <path>` (or `by-catch: none`).
 
-The verdict maps onto Connect's fields as below. The comment carries the
-argument, the lane and who assigned it, and the method.
+The verdict maps onto Connect's fields as below. The Action is the
+reader's recommendation, among those the verdict allows, default first
+(`references/reading.md`, *The recommended action*). The comment carries
+the argument, the reason for an action that is not the default, the lane
+and who assigned it, and the method.
 
 | verdict | Classification | Action | Severity |
 |---|---|---|---|
-| `real` | Bug | Fix Required | |
-| `real, low severity` | Bug | Fix Required | Minor |
-| `intentional` | Intentional | Ignore | |
-| `false positive - global invariant` | False Positive | Ignore | |
-| `false positive - heuristic misfire` | False Positive | Ignore | |
+| `real` | Bug | Fix, Mitigate, Transfer | |
+| `real, low severity` | Bug | Fix, Mitigate, Transfer, Accept | Minor |
+| `intentional` | Intentional | None | |
+| `false positive - global invariant` | False Positive | None, Analysis calibration | |
+| `false positive - heuristic misfire` | False Positive | None, Analysis calibration | |
 | `unresolved`, Policy, Other, method not run or awaiting a person | not set | not set | |
+
+PARSE_ERROR is the exception among Other findings: its table row gives it
+Analysis calibration.
 
 A blank cell means the record leaves that field alone. Every record sets
 the two custom attributes.
@@ -467,6 +473,9 @@ field the new record leaves null keeps its old value, so a move to
 - `Defect Category` and `Triage Method` are pick lists. They must exist on
   the instance, with a value for everything the records set
   (one `Triage Method` value per model), before anything can set them.
+- **Action needs the skill's six values too**, even with `--standard-only`.
+  Connect's built-in Action has its own (Fix Required, Ignore, ...), and
+  setup adds the six beside them.
 - `tools/connect_attributes.py` creates them over REST:
 
   ```
@@ -481,9 +490,9 @@ field the new record leaves null keeps its old value, so a move to
     per instance, and again when a records file uses a new model.
   - **What it never does:** delete or rename an attribute or a value, or
     change an attribute's type.
-  - **The two attributes are instance-global.** They appear in every
-    project's triage pane, so only whoever owns the instance runs `setup
-    --yes`. Interactive, ask them first; unattended, report the `check`
+  - **The attributes are instance-global.** They and the new Action values
+    appear in every project's triage pane, so only whoever owns the
+    instance runs `setup --yes`. Interactive, ask them first; unattended, report the `check`
     output and stop (rule 38).
   - **Credentials and target:** an auth key file, by default
     `~/.coverity/ak-<host>-<port>` (the `coverity` skill's `connect_auth.py`
@@ -601,7 +610,7 @@ coverity-triage/
 │   ├── bundle.py                # select + bundle: trace and source from git at the tag (or the idir); --plan
 │   ├── lanes.py                 # lanes from the checker table; what is left for inference; check-table
 │   ├── records.py               # assemble + validate the records; check-lanes; TRIAGE-REPORT.md
-│   ├── connect_attributes.py    # check / create Defect Category and Triage Method on a Connect (REST)
+│   ├── connect_attributes.py    # check / create Defect Category and Triage Method, add the Action values (REST)
 │   └── connect_apply.py         # apply triage.json to a Connect stream: plan, --yes, read back (REST)
 └── evals/
     ├── evals.json

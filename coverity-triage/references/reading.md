@@ -203,6 +203,22 @@ switch fallthrough carrying shared tail work. Not a false positive, since
 the detection is accurate. Where the language offers an annotation
 (`/* FALLTHRU */`, an explicit default), that is the real fix.
 
+### The recommended action
+
+Every verdict but `unresolved` carries an action, which a person may
+change. The verdict limits the choice; the first is the default, and any
+other needs a one-line `action_reason`, which ends up in the comment.
+
+| verdict | actions | when |
+|---|---|---|
+| real | **Fix** | the change belongs in this code |
+| | **Mitigate** | the code cannot reasonably change where it is, and a guard elsewhere reduces the risk; say where |
+| | **Transfer** | the code belongs to someone else (vendored, third-party, generated); the fix belongs upstream |
+| real, low severity | the three above, or **Accept** | Accept only with a reason the owner can weigh |
+| intentional | **None** | |
+| either false positive | **None**, or **Analysis calibration** | Analysis calibration when the cause is in the analysis: a missing model, a checker option, a capture problem (`coverity-missing-models`, `coverity`) |
+| unresolved | no action | |
+
 ### The burden is symmetric
 
 An unverified confirmation is as unsound as an unverified dismissal.
@@ -225,8 +241,9 @@ location.
 One verdict file per reader, in the format in `records.md`: the lane, the
 method (`LLM: <model>`), the model it ran on, and per finding the merge
 key, the verdict, the argument (`reason`, with `file:line` for every claim
-it makes about the code), the code it read (`sites_read`), and for a
-global invariant the three parts. The reason is what a person reads in
+it makes about the code), the code it read (`sites_read`), for a global
+invariant the three parts, and the `action` with its `action_reason` when
+it is not the verdict's default. The reason is what a person reads in
 Connect's Comment field: a paragraph, not an essay.
 
 **A defect you notice outside the finding you were given is by-catch.**

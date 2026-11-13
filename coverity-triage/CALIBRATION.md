@@ -19,16 +19,16 @@ what is reasoned rather than measured.
       `--tag`.
   - **`lanes.py`:**
     - The skill's checker table validates.
-    - Eleven malformed rows are refused: lane and candidates together, or
+    - Thirteen malformed rows are refused: lane and candidates together, or
       neither; an unknown lane; one candidate; Policy as a candidate;
       candidates without `decide`; a fixed lane without `why`; a method on a
       Policy row; `None` as a row method; a route without verify; an unknown
-      route.
+      route; an action on a row that is not Other; an unknown action.
     - `assign` fixes the table's lanes, including Intent, Policy and Other;
       leaves a candidate checker pending with its candidates; marks a checker
       no table has as unplaced; and, with a producer's table, places that
       checker with its own method and route.
-  - **`records.py`:** one good assembly, and twenty-eight refusals, each
+  - **`records.py`:** one good assembly, and thirty-two refusals, each
     writing nothing:
     - a global invariant with no location;
     - a word outside the verdict set;
@@ -57,7 +57,21 @@ what is reasoned rather than measured.
     - a by-catch item with no claim;
     - a by-catch item naming a finding that was not bundled;
     - a by-catch file with no method that noticed it;
-    - by-catch files in a `bycatch/` folder the run does not read.
+    - by-catch files in a `bycatch/` folder the run does not read;
+    - an action the verdict does not allow; an action not in the set; an
+      action other than the default with no `action_reason`; any action on
+      `unresolved`.
+
+    The recommended action, shown working: the verdict's default when the
+    reader gives none; Transfer and Analysis calibration with their reasons
+    in the comment; PARSE_ERROR's Analysis calibration from its table row,
+    with no verdict; the report's count of findings per action, with the
+    reasons.
+  - **`connect_attributes.py` and Action**, on the fake Connect, which
+    holds Connect's built-in Action as a 2026.9.0 server returned it
+    (Undecided, Fix Required, Fix Submitted, Modeling Required, Ignore).
+    Setup adds the six actions, keeps the existing values and their ids,
+    and leaves Action built in. An instance with no Action is refused.
   - **Compiler headers, what was triaged, and a later release**, on a
     fixture of its own, in 18 cases:
     - A finding in libstdc++ (`/usr/include/c++/13/...`) and one in MSVC's
@@ -330,6 +344,14 @@ what is reasoned rather than measured.
     fields were left untouched.
   - A write of Classification, Action, Severity or Comment has not been
     sent to a real server yet. Lanes-only records carry none.
+  - **The six actions on a real Connect.** A read-only GET on a 2026.9.0
+    server returned Action as a built-in pick list with ids on its five
+    values. Whether a PUT may add values to a built-in attribute was not
+    tried: it changes every project's triage pane.
+- **The recommended action.** Which actions a verdict allows, and when each
+  applies (`references/reading.md`), is reasoned, not measured. No reader
+  has chosen Mitigate, Transfer, Accept or Analysis calibration on a real
+  finding yet.
 - **Other Connect versions.** The REST path and the request bodies were
   measured on one 2026.9.0 server only. An older Connect may serve
   `/api/v2/attributes` instead, or neither.
