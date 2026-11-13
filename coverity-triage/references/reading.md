@@ -213,7 +213,7 @@ other needs a one-line `action_reason`, which ends up in the comment.
 |---|---|---|
 | real | **Fix** | the change belongs in this code |
 | | **Mitigate** | the code cannot reasonably change where it is, and a guard elsewhere reduces the risk; say where |
-| | **Transfer** | the code belongs to someone else (vendored, third-party, generated); the fix belongs upstream |
+| | **Transfer** | the code belongs to someone else, kept as its upstream ships it (vendored unchanged, generated); the fix belongs upstream. A fork the project has changed and maintains is its own code: Fix |
 | real, low severity | the three above, or **Accept** | Accept only with a reason the owner can weigh |
 | intentional | **None** | |
 | either false positive | **None**, or **Analysis calibration** | Analysis calibration when the cause is in the analysis: a missing model, a checker option, a capture problem (`coverity-missing-models`, `coverity`). A dismissal that rests on what a callee really does (it never returns, it never reads a field the analyzer's built-in model reads) is Analysis calibration: a model would teach the analyzer and stop the finding recurring. None is for an invariant no model can carry, such as an environment invariant |

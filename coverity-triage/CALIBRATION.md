@@ -369,7 +369,8 @@ what is reasoned rather than measured.
     vendored file Transfer while another gave its neighbour Fix, and host-tool
     leaks went to Accept or to Fix. Two dismissals resting on a callee's real
     behaviour got None, where the table meant Analysis calibration. That
-    row now says so.
+    row now says so, and the Transfer row now says a fork the project has
+    changed and maintains is its own code (Fix).
   - No reader found code that could not change where it was, so Mitigate
     has not been chosen yet.
 - **Other Connect versions.** The REST path and the request bodies were
