@@ -356,9 +356,22 @@ what is reasoned rather than measured.
     values. Whether a PUT may add values to a built-in attribute was not
     tried: it changes every project's triage pane.
 - **The recommended action.** Which actions a verdict allows, and when each
-  applies (`references/reading.md`), is reasoned, not measured. No reader
-  has chosen Mitigate, Transfer, Accept or Analysis calibration on a real
-  finding yet.
+  applies (`references/reading.md`), is reasoned. One run has used it: an
+  embedded C project with many ported and vendored libraries, 134 records
+  read by LLM readers (most on one model, some on a larger one).
+  - Actions chosen: None 67, Fix 49, Accept 3, Transfer 3, Analysis
+    calibration 2, Mitigate 0, and no action 10 (unresolved or not read).
+  - Transfer went to vendored code kept identical to a live upstream.
+    Accept went to leaks in host tools whose process exits right after.
+    Analysis calibration went to dismissals resting on functions that never
+    return.
+  - Readers disagreed where the table was silent or weak. One reader gave a
+    vendored file Transfer while another gave its neighbour Fix, and host-tool
+    leaks went to Accept or to Fix. Two dismissals resting on a callee's real
+    behaviour got None, where the table meant Analysis calibration. That
+    row now says so.
+  - No reader found code that could not change where it was, so Mitigate
+    has not been chosen yet.
 - **Other Connect versions.** The REST path and the request bodies were
   measured on one 2026.9.0 server only. An older Connect may serve
   `/api/v2/attributes` instead, or neither.

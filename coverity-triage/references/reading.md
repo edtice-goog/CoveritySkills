@@ -216,7 +216,7 @@ other needs a one-line `action_reason`, which ends up in the comment.
 | | **Transfer** | the code belongs to someone else (vendored, third-party, generated); the fix belongs upstream |
 | real, low severity | the three above, or **Accept** | Accept only with a reason the owner can weigh |
 | intentional | **None** | |
-| either false positive | **None**, or **Analysis calibration** | Analysis calibration when the cause is in the analysis: a missing model, a checker option, a capture problem (`coverity-missing-models`, `coverity`) |
+| either false positive | **None**, or **Analysis calibration** | Analysis calibration when the cause is in the analysis: a missing model, a checker option, a capture problem (`coverity-missing-models`, `coverity`). A dismissal that rests on what a callee really does (it never returns, it never reads a field the analyzer's built-in model reads) is Analysis calibration: a model would teach the analyzer and stop the finding recurring. None is for an invariant no model can carry, such as an environment invariant |
 | unresolved | no action | |
 
 ### The burden is symmetric
@@ -244,7 +244,9 @@ key, the verdict, the argument (`reason`, with `file:line` for every claim
 it makes about the code), the code it read (`sites_read`), for a global
 invariant the three parts, and the `action` with its `action_reason` when
 it is not the verdict's default. The reason is what a person reads in
-Connect's Comment field: a paragraph, not an essay.
+Connect's Comment field: a paragraph, not an essay. Write C's `'\0'` as
+those characters, never as the JSON escape `\u0000`: a NUL in the comment
+makes Connect refuse the whole write, so the records tool refuses it first.
 
 **A defect you notice outside the finding you were given is by-catch.**
 Write it to the by-catch folder you were given, with its site and the
