@@ -252,6 +252,14 @@ read a half-written emit and fail (or worse, succeed against a partial one).
 Have the capture loop record each version as it finishes and have the analysis
 loop consume that record.
 
+**One `cov-analyze` at a time per machine.** `cov-analyze` is already parallel
+and takes the machine's cores and memory for itself. Running analyses for
+several versions at once to get through a corpus faster does not speed it
+up. It starves every run of memory, and can take the machine down with them.
+A corpus is analyzed one version after another. That is slow, and the slowness
+is the cost of the dataset, not a problem to engineer away. The same goes for
+any other heavy step you might be tempted to fan out across versions.
+
 **Keep every idir after Phase 3, not just until it.** Analyzed idirs are the
 other half of the reset point (Step 0): with them in hand, recovering from a
 bad commit sweep is a restore plus a re-run of `commit_sweep.py`. Without them
