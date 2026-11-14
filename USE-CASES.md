@@ -23,6 +23,7 @@ flowchart TB
     end
     subgraph verdicts["Verdicts on findings"]
         TR["coverity-triage"]
+        TS["coverity-triage-server"]
         VE["coverity-verify"]
     end
     subgraph history["History and upgrades"]
@@ -44,6 +45,7 @@ flowchart TB
     TR -->|"false positives:<br/>a function's behaviour"| MM
     DM -.->|"a published dataset,<br/>triaged separately"| TR
     TR -->|"execution method"| VE
+    TS -.->|"same lanes, table<br/>and reading rules"| TR
     VE -->|"slice set, TU manifest"| FS
     BF -->|"build held constant"| IT
     RE -->|"old code, new analyzer"| IT
@@ -127,13 +129,17 @@ flowchart LR
   runs: from rows its producer ships, from the built-in checker it stands in
   for, or from its description. You see the proposed rows, and they go into a
   table file you keep, so the next run asks nothing.
-- Each lane has a preferred method: a reading by a model you name, execution
-  through `coverity-verify`, or a person. Different lanes can use different
-  models. A checker built for one method keeps it whatever its lane, and your
-  choice for a single finding overrides both. No lane rules a method out:
-  Intent findings are well-defined code with nothing to crash, so a reading
-  suits them, but nothing forbids another method. Policy takes no method,
-  ever; Other takes none unless you give one to a finding, with the reason.
+- Each lane has a recommended method, kept in the skill: a reading for
+  Construction, Contract and Intent (a stronger model for Intent), and
+  execution through `coverity-verify` for Value or path. Where execution is
+  not available or not wanted, a stronger reading in lieu of execution is
+  recorded as just that. The plan stays your choice: a checker built for one
+  method keeps it whatever its lane, and your choice for a single finding
+  overrides both. No lane rules a method out. Policy takes no method, ever;
+  Other takes none unless you give one to a finding, with the reason.
+- On request, readers are also given Coverity's derived models of the
+  callees the events name, taken from the intermediate directory, so a
+  reading can check what a callee does without its body.
 - Nothing runs until you have chosen which findings and which methods, because
   every method costs time per finding. Run unattended, it assigns what the
   table can, then reports the plan it needs and stops.
@@ -147,6 +153,44 @@ flowchart LR
 - A defect a reader notices while judging a different finding (a by-catch)
   goes to a `bycatch/` folder of its own, never into the records or the
   report, so nothing that travels with the verdicts carries it.
+
+## Triage from inside a service that holds the findings
+
+**You want:** a service that keeps a stream's findings to interpret one when
+someone asks, by the same lanes, methods and reading rules as
+`coverity-triage`, though the service has no source tree, no build and no way
+to run the code.
+
+```mermaid
+flowchart LR
+    REQ["a request to interpret<br/>a finding, or a selection"] --> L["lane<br/>from the same checker table"]
+    L --> M{"method"}
+    M -->|"execution"| STOP["record the lane and the method;<br/>no verdict"]
+    M -->|"a reading"| RD["read the events with<br/>the stored source and<br/>the callees' derived models"]
+    M -->|"none: Policy, Other"| LANE["the lane, and any<br/>action set by rule"]
+    RD --> V{"rests on code<br/>the service holds?"}
+    V -->|"yes"| VER["verdict, action and comment,<br/>in coverity-triage's field names"]
+    V -->|"no"| UN["unresolved,<br/>naming the code it needs"]
+```
+
+- `coverity-triage-server` does this. Its evidence is the finding, the source
+  the service stores, and Coverity's derived models of the callees. It names
+  no particular service: any backend that holds that evidence can run it.
+- It triages by the same lanes, checker table and reading rules as
+  `coverity-triage`, which it reads from that skill's folder, so it needs
+  `coverity-triage` beside it. The lane and method are the same; the verdict
+  can differ, because the service reads on less evidence, and where
+  `coverity-triage` would settle a finding the service may come out
+  unresolved. The two answers mean the same thing.
+- When the method is execution, it records the lane and the method and stops;
+  the claim is settled by running the code elsewhere. It reads instead only
+  when the person asking chooses a reading in lieu of execution, and says so.
+- A verdict that would rest on code the service does not hold, such as a
+  guard in the callers, comes out unresolved and names that code.
+- Each reading costs model time: a request for one finding is the decision to
+  spend it, and a request over many gives the count first.
+- How the answer is stored, and whom it is credited to, is the service's
+  business.
 
 ## Settle one finding by running it
 
@@ -420,7 +464,8 @@ and which came from a CWE with no mapping.
 | `coverity-pathout` | which functions reached the path bound and which checker; the shape catalogue there; the cost of raising the bound; restructuring; a priced pilot before a large run | judging its candidates; analyzing an idir from a version that is not installed (it stops and asks) | `coverity-function-slice` for bodies; `coverity-triage` for candidates, through its own shape table (method: execution through `coverity-verify`, extraction route); anything that lands elsewhere goes to the user |
 | `coverity-function-slice` | one function from the AST; a standalone file that compiles and analyzes; an obfuscated twin with proof; a manifest of a whole translation unit for the harness route | deciding whether a finding is real | `coverity-pathout`, `coverity-verify` (its callers) |
 | `coverity-verify` | an execution verdict on one finding, on the caller's preferred route (harness by default, or extraction), with its tier, the route and the evidence; the fix check | injection, resource and concurrency claims (it suggests external verification); switching route on its own; triaging a batch by reading | `coverity-function-slice` for the slice set and the translation-unit manifest |
-| `coverity-triage` | a lane per finding (construction, intent, contract, value or path, policy, other), from a checker table where the checker decides it; a custom checker placed once, in a table you keep; a method and model per lane, which a checker's own method overrides; records in Connect's fields plus Defect Category (the lane) and Triage Method; policy findings recorded, not triaged | choosing the findings; writing verdicts to Connect (it creates its two attribute definitions only, on request); severity beyond "low"; exploitability; Connect's AI-Assisted Triage; demo-worthiness | `coverity-verify` for the execution method |
+| `coverity-triage` | triage you start, with the tree and execution at hand: a lane per finding (construction, intent, contract, value or path, policy, other), from a checker table where the checker decides it; a custom checker placed once, in a table you keep; a recommended method per lane, which a checker's own method overrides; readers given the callees' derived models on request; records in Connect's fields plus Defect Category (the lane) and Triage Method; policy findings recorded, not triaged | choosing the findings; writing verdicts to Connect (it creates its two attribute definitions only, on request); severity beyond "low"; exploitability; Connect's AI-Assisted Triage; demo-worthiness | `coverity-verify` for the execution method |
+| `coverity-triage-server` | triage from inside a service that holds the findings, the stored source and the derived models: the same lane and method as `coverity-triage`, and a reading when the method is one; unresolved, naming the missing code, when a verdict would rest on code the service does not hold | running the code (an execution method stops after the lane and method); reading code it was not given; bundles, release chains, records files, applying to Connect; naming or assuming a particular service | `coverity-triage` (the lanes, table and reading rules it uses, beside it) |
 | `coverity-issue-transition-inference` | the control run; per-finding code-vs-analyzer attribution; annotation, after asking how | comparing raw merge keys (Connect lines findings up); vendor-level cause as the headline | `coverity-build-fidelity`, `coverity-recreate-from-emit` for the control |
 | `coverity-recreate-from-emit` | an analyzable idir without the original build; fast-forward and local-update reuse, behind gates | reuse when a gate fails; the default path when the build can run | `coverity-issue-transition-inference` (its consumer) |
 | `coverity-cvss-report` | the report per the documentation; an audit of which scores were judged; the CVSS_Audited attribute | writing a security profile; judging exploitability | `coverity-verify` for whether a finding is real and reachable |
