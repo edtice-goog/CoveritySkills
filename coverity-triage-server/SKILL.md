@@ -59,11 +59,16 @@ row's `decide`. A checker with no row is placed by the tests in
 ## Step 2: The method
 
 The checker's own method from its row, else the method the service's plan
-gives the lane. Policy and Other take none.
+gives the lane. A plan starts from the recommendation per lane,
+`coverity-triage/references/lane-methods.json`, in which Value or path
+takes execution. Policy and Other take none.
 
 **If the method is `Execution: coverity-verify`, record the lane and the
 method, and stop.** No verdict, no action, no comment: the claim is settled
-by running the code, which happens elsewhere.
+by running the code, which happens elsewhere. Only when the person asking
+chooses a reading in lieu of execution does a reading run, and the answer
+says it was read in lieu of execution, with their reason
+(`coverity-triage/references/lanes.md`).
 
 ## Step 3: The reading
 

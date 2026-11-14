@@ -261,6 +261,36 @@ def main():
         recs = {r["mergeKey"]: r for r in json.loads((d / "triage.json").read_text())["records"]}
         assert recs["k7"]["evidence"]["route_preference"] == "extraction"
 
+        # Read in lieu of execution: an LLM reading of findings whose recommended method
+        # (Value or path) or own method (k7's row) is execution. It needs a reason, and the
+        # record and comment say it was read in lieu of execution.
+        vp_read = {"lane": "Value or path", "method": "LLM: Opus 5.5", "model": "test-model",
+                   "verdicts": [{"mergeKey": mk, "verdict": "unresolved",
+                                 "reason": "the callers were not read"} for mk in ("k2", "k5")]}
+        lieu = dict(runj, lanes=dict(runj["lanes"], **{"Value or path": "LLM: Opus 5.5"}))
+        attempt("in-lieu-no-reason", lanes, lieu, [verdicts, intent, executed_k7, vp_read], False)
+        d = attempt("in-lieu", lanes, dict(lieu, in_lieu_reason="no build of this release"),
+                    [verdicts, intent, executed_k7, vp_read], True)
+        run(TOOLS / "records.py", "validate", d / "triage.json")
+        recs = {r["mergeKey"]: r for r in json.loads((d / "triage.json").read_text())["records"]}
+        assert recs["k2"]["in_lieu_of"] == "Execution: coverity-verify", recs["k2"]
+        assert recs["k2"]["method_reason"] == "read in lieu of execution: no build of this release"
+        assert "Method: LLM: Opus 5.5, read in lieu of execution, not executed." in \
+            recs["k2"]["triageState"]["comment"]
+        assert "in_lieu_of" not in recs["k7"] and recs["k7"]["method"] == "Execution: coverity-verify"
+        k7_read = {"lane": "Value or path", "method": "LLM: Opus 5.5", "model": "test-model",
+                   "verdicts": [{"mergeKey": "k7", "verdict": "real", "reason": "q is NULL at src/a.c:10"}]}
+        d = attempt("in-lieu-override", lanes, dict(runj, overrides=[
+            {"mergeKey": "k7", "method": "LLM: Opus 5.5", "reason": "execution is too costly here"}]),
+            [verdicts, intent, k7_read], True)
+        k7 = next(r for r in json.loads((d / "triage.json").read_text())["records"] if r["mergeKey"] == "k7")
+        assert k7["in_lieu_of"] == "Execution: coverity-verify" and "too costly" in k7["method_reason"], k7
+        tampered = json.loads((d / "triage.json").read_text())
+        for r in tampered["records"]:
+            r.pop("method_reason", None) if r["mergeKey"] == "k7" else None
+        wjson(d / "tampered.json", tampered)
+        run(TOOLS / "records.py", "validate", d / "tampered.json", ok=False)
+
         def with_v(**kw):
             v = dict(GOOD_INVARIANT, **kw)
             return [dict(verdicts, verdicts=[v, verdicts["verdicts"][1]]), intent, executed_k7]

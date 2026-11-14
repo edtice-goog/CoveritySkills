@@ -134,9 +134,21 @@ finding's method:
 2. the checker's own method (its row);
 3. the lane's method in the plan.
 
+**The recommendation per lane** is in `lane-methods.json`, for a plan to
+start from: a reading for Construction, Intent and Contract, execution for
+Value or path. It is not a default; the plan is still the user's choice.
+
 **No lane restricts methods.** A plan may run verify on Contract findings,
 or have a person read any lane. The one exception is Policy, which takes no
 method at all.
+
+**Read in lieu of execution.** Execution is costly, and a stronger model's
+reading is a sanctioned choice in its place (the lane's `in_lieu` model is
+the recommended one). When a finding whose own or recommended method is
+execution is read by an LLM, the record says so: `in_lieu_of` and a
+`method_reason`, from the override's reason or the plan's
+`in_lieu_reason`, and the comment says "read in lieu of execution". The
+records tool refuses such a reading without a reason.
 
 ## Custom checkers
 

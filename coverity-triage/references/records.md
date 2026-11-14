@@ -75,6 +75,9 @@ that was agreed is the plan on record.
 }
 ```
 
+- **`in_lieu_reason`**: required when the plan has an LLM read a lane whose
+  recommended method is execution (`lane-methods.json`); the records say
+  those findings were read in lieu of execution, and why.
 - **`lanes`** names a method for each of the four method lanes. A lane
   left out of the plan has `"None"`, written down: a missing lane is
   refused, never defaulted. Policy and Other are never listed.
@@ -330,6 +333,9 @@ shares `bycatch/` with it, and the folder's name says so.
 - **`method_reason`** appears when the method did not come from the plan's
   lane. It carries the override's reason, or "the checker's own method
   (checker table)".
+- **`in_lieu_of`** (`Execution: coverity-verify`) marks an LLM reading of a
+  finding whose own or recommended method is execution. `method_reason`
+  then starts "read in lieu of execution:".
 
 ### The mapping
 

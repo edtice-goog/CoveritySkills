@@ -366,6 +366,11 @@ what is reasoned rather than measured.
     server returned Action as a built-in pick list with ids on its five
     values. Whether a PUT may add values to a built-in attribute was not
     tried: it changes every project's triage pane.
+- **The recommended method per lane** (`references/lane-methods.json`) is
+  reasoned from what each lane's question needs, not measured. On the
+  fixture: an LLM reading of a lane whose recommendation is execution, or
+  of a finding whose row says execution, is recorded `in_lieu_of`
+  execution with its reason, and is refused without one.
 - **The recommended action.** Which actions a verdict allows, and when each
   applies (`references/reading.md`), is reasoned. One run has used it: an
   embedded C project with many ported and vendored libraries, 134 records

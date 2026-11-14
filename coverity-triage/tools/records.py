@@ -71,8 +71,21 @@ def triaged_against(judged):
             + " from " + judged["date"] + ".")
 
 
-def comment_for(label, v, lane, assigner, method, date, against):
-    executed = "executed" if v.get("executed") else "read, not executed"
+def read_lane_methods(errors):
+    """references/lane-methods.json -> {lane: {method, why, in_lieu}}: recommendations only."""
+    doc = read_json(pathlib.Path(__file__).resolve().parent.parent / "references"
+                    / "lane-methods.json", errors, "lane methods")
+    if doc is None:
+        return {}
+    if doc.get("format") != "coverity-triage-lane-methods" or doc.get("schema") != 1:
+        errors.append("lane-methods.json: format/schema must be coverity-triage-lane-methods / 1")
+        return {}
+    return doc.get("lanes") or {}
+
+
+def comment_for(label, v, lane, assigner, method, date, against, in_lieu=False):
+    executed = ("executed" if v.get("executed") else
+                "read in lieu of execution, not executed" if in_lieu else "read, not executed")
     tail = ("\n[coverity-triage " + date + "] Lane: " + lane + " (assigned by "
             + assigner + "). Method: " + method + ", " + executed + ".\n" + against)
     body = v["reason"].strip()
@@ -200,6 +213,23 @@ def assemble(args):
             return "None"
         return a.get("method") or plan.get(a["lane"], "None")
 
+    recommended = read_lane_methods(errors)
+
+    def in_lieu(mk):
+        """The reason an LLM reads a finding whose own or recommended method is execution;
+        None when the reading is not in lieu of execution, "" when no reason was given."""
+        m, a = method_for(mk), lane_of.get(mk, {})
+        wanted = a.get("method") or recommended.get(a.get("lane"), {}).get("method")
+        if not m.startswith("LLM: ") or wanted != EXECUTION:
+            return None
+        return (overrides[mk][1] if mk in overrides else run.get("in_lieu_reason") or "").strip()
+
+    missing_why = sorted({lane_of[mk]["lane"] for mk in lane_of if in_lieu(mk) == ""})
+    if missing_why:
+        errors.append("run.json: " + ", ".join(missing_why) + " findings are read by an LLM in "
+                      "lieu of execution, their recommended method "
+                      "(references/lane-methods.json); say why in in_lieu_reason")
+
     def route_for(mk):
         """For verify: the user's choice for the finding, then for the plan, then the row's."""
         if method_for(mk) != EXECUTION:
@@ -326,7 +356,7 @@ def assemble(args):
             cls, sev, label, _ = MAPPING[v["verdict"]]
             state.update(classification=cls, action=v["action"], severity=sev,
                          comment=comment_for(label, v, lane, a["assigned_by"], method, date,
-                                             against))
+                                             against, in_lieu(mk) is not None))
             if BAD_CHARS.search(state["comment"]):
                 errors.append(b["bundle"] + " (" + mk + "): the comment carries a control "
                               "character (a NUL from a C '\\0' is the usual one); Connect "
@@ -359,7 +389,10 @@ def assemble(args):
                "lane_assigned_by": a["assigned_by"],
                "method": method, "verdict": v["verdict"] if v else None,
                "triageState": state, "evidence": evidence}
-        if mk in overrides:
+        if in_lieu(mk):
+            rec["in_lieu_of"] = EXECUTION
+            rec["method_reason"] = "read in lieu of execution: " + in_lieu(mk)
+        elif mk in overrides:
             rec["method_reason"] = overrides[mk][1]
         elif a.get("method") and method == a["method"]:
             rec["method_reason"] = "the checker's own method (checker table)"
@@ -481,6 +514,9 @@ def check(doc):
         elif (lane == OTHER and (method != "None" or verdict is not None)
                 and not r.get("method_reason")):
             p.append(w + "Other takes method None and no verdict, unless an override says why")
+        if r.get("in_lieu_of") and not (str(method).startswith("LLM: ")
+                                        and (r.get("method_reason") or "").strip()):
+            p.append(w + "a reading in lieu of execution names an LLM method and says why")
         if ct != {"Defect Category": lane, "Triage Method": method}:
             p.append(w + "customTriage must carry exactly Defect Category and Triage Method")
         by_rule = verdict is None and lane == OTHER and st.get("action") is not None

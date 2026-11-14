@@ -22,11 +22,13 @@ chooses among that checker's candidate lanes. A custom checker is placed
 once, with a row of its own, and a producer can ship the rows for its
 checkers.
 
-**Each lane has a preferred method:** an LLM reading with the lane's
-questions and **its own model**, execution through
-[coverity-verify](../coverity-verify/README.md), or a person. A checker
-built for a particular method takes that one, and a user can give any
-single finding any method.
+**Each lane has a recommended method**, in `references/lane-methods.json`:
+an LLM reading with the lane's questions and **its own model**, or
+execution through [coverity-verify](../coverity-verify/README.md) for
+Value or path. It is a recommendation, and the plan stays the user's. A
+checker built for a particular method takes that one, a user can give any
+single finding any method, and a stronger model's reading **in lieu of
+execution** is recorded as such.
 
 The verdict lands where verdicts already go: Classification, Action,
 Severity and Comment. Two custom attributes, `Defect Category` (the lane)
@@ -115,6 +117,7 @@ coverity-triage/
 ├── references/
 │   ├── lanes.md                 # the six lanes, the tests, the table, custom checkers, methods
 │   ├── checker-lanes.json       # the checker table: a lane, or candidates, per checker
+│   ├── lane-methods.json        # the recommended method per lane, and the reading in lieu of execution
 │   ├── reading.md               # each lane's questions, the verdict set and its discipline
 │   └── records.md               # the table format, run.json, lanes.json, verdict files, triage.json
 ├── tools/

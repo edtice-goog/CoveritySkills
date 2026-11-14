@@ -56,10 +56,13 @@ So triage runs in lanes:
 - **Policy findings are never triaged.** A match against MISRA, a don't-call
   list or a threshold is the rule authors' decision.
 - **Other** is for what fits no lane, and nothing further is done.
-- **Each lane has a preferred method:** an LLM reading with the lane's
-  questions and its own model, an execution tool such as `coverity-verify`,
-  or a person. **A checker's own method overrides it**, and the user's
-  choice for a single finding overrides both. No lane restricts methods.
+- **Each lane has a recommended method**, in `references/lane-methods.json`:
+  a reading for Construction, Intent and Contract, each with its model,
+  and execution through `coverity-verify` for Value or path. It is what a
+  plan starts from, not a default. **A checker's own method overrides it**,
+  and the user's choice for a single finding overrides both. No lane
+  restricts methods. A stronger model's reading **in lieu of execution** is
+  a sanctioned choice, and the record says it was read, not executed.
 - **The method returns a verdict,** and the verdict goes where verdicts
   already go: Classification, Action, Severity and the triage Comment.
 - **Two attributes record what happened:** `Defect Category` (the lane) and
@@ -141,8 +144,9 @@ any is missing, the next step depends on whether someone is there to
 answer (rule 38):
 
 - **Interactive:** ask once, with the counts, and say what each answer
-  costs. A question that names the numbers is cheap; a triage nobody chose
-  is not.
+  costs. Offer the recommended method per lane (`references/lane-methods.json`)
+  as the first answer. A question that names the numbers is cheap; a
+  triage nobody chose is not.
 - **Not interactive, or unsure which:** do the free steps (bundles, lanes
   from the table), report what is needed, and stop. The report gives:
   - what is done (the bundles, and `lanes.json` with the table's lanes);
@@ -617,6 +621,7 @@ coverity-triage/
 ├── references/
 │   ├── lanes.md                 # the six lanes, the tests, the table, custom checkers, methods
 │   ├── checker-lanes.json       # the checker table: every checker Coverity 2026.9.0 lists
+│   ├── lane-methods.json        # the recommended method per lane; the reading in lieu of execution
 │   ├── reading.md               # the reading method: each lane's questions, the verdict set
 │   └── records.md               # the table format, run.json, lanes.json, verdict files, triage.json
 ├── tools/
