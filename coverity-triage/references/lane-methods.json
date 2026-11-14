@@ -1,11 +1,13 @@
 {
  "format": "coverity-triage-lane-methods",
  "schema": 1,
- "about": "The recommended method for each method lane, for triage in bulk. A recommendation, not a default: the plan in run.json is still the user's choice, and a checker's own method (its row) and a per-finding override come first. 'in_lieu' is the reading to use when the recommended method is execution and execution is not available or not wanted; a finding read that way is recorded as read in lieu of execution. Rules: references/lanes.md, A checker's own method.",
+ "about": "The recommended method for each lane, for triage in bulk; Policy and Other take none, and that is a rule, not a recommendation. A recommendation, not a default: the plan in run.json is still the user's choice, and a checker's own method (its row) and a per-finding override come first. 'in_lieu' is the reading to use when the recommended method is execution and execution is not available or not wanted; a finding read that way is recorded as read in lieu of execution. Rules: references/lanes.md, A checker's own method.",
  "lanes": {
   "Construction": {"method": "LLM: Sonnet 5.5", "why": "the question is whether the construct is there, which the code shows"},
   "Intent": {"method": "LLM: Opus 5.5", "why": "what the author meant is a judgment from the code, its comments and its neighbours"},
   "Contract": {"method": "LLM: Sonnet 5.5", "why": "the callee's contract is in its code or its derived model"},
-  "Value or path": {"method": "Execution: coverity-verify", "in_lieu": "LLM: Opus 5.5", "why": "whether the path is feasible and the value reaches the point is what running the code settles"}
+  "Value or path": {"method": "Execution: coverity-verify", "in_lieu": "LLM: Opus 5.5", "why": "whether the path is feasible and the value reaches the point is what running the code settles"},
+  "Policy": {"method": "None", "why": "never triaged: a match against a rule set, a don't-call list or a threshold is the rule authors' decision, and no plan or override changes that"},
+  "Other": {"method": "None", "why": "not a claim about the code, or none that fits a lane: no method and no verdict"}
  }
 }

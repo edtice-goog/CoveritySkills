@@ -137,6 +137,8 @@ finding's method:
 **The recommendation per lane** is in `lane-methods.json`, for a plan to
 start from: a reading for Construction, Intent and Contract, execution for
 Value or path. It is not a default; the plan is still the user's choice.
+Policy and Other are listed with `None`, and for them it is a rule: Policy
+is never triaged.
 
 **No lane restricts methods.** A plan may run verify on Contract findings,
 or have a person read any lane. The one exception is Policy, which takes no
