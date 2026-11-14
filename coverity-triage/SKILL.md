@@ -622,6 +622,7 @@ coverity-triage/
 │   ├── lanes.md                 # the six lanes, the tests, the table, custom checkers, methods
 │   ├── checker-lanes.json       # the checker table: every checker Coverity 2026.9.0 lists
 │   ├── lane-methods.json        # the recommended method per lane; the reading in lieu of execution
+│   ├── cwe-alternatives.json    # per CWE Coverity assigns, the close cousins a reader may correct it to
 │   ├── reading.md               # the reading method: each lane's questions, the verdict set
 │   └── records.md               # the table format, run.json, lanes.json, verdict files, triage.json
 ├── tools/

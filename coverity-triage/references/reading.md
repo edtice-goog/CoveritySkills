@@ -239,6 +239,17 @@ other needs a one-line `action_reason`, which ends up in the comment.
 | either false positive | **None**, or **Analysis calibration** | Analysis calibration when the cause is in the analysis: a missing model, a checker option, a capture problem (`coverity-missing-models`, `coverity`). A dismissal that rests on what a callee really does (it never returns, it never reads a field the analyzer's built-in model reads) is Analysis calibration: a model would teach the analyzer and stop the finding recurring. None is for an invariant no model can carry, such as an environment invariant |
 | unresolved | no action | |
 
+### A corrected CWE
+
+A real finding carries the CWE Coverity assigned, and Coverity sometimes
+picks a close cousin of the exact one: CWE-79 where the code shows CWE-80,
+CWE-119 where it is a write past the end (CWE-787). With a verdict of
+`real` or `real, low severity`, and only when the claim as read clearly
+differs from Coverity's CWE, the reader may give a corrected `cwe` and a
+one-line `cwe_reason`. The corrected CWE must be one
+`references/cwe-alternatives.json` lists for Coverity's; an empty list
+means Coverity's stands. Whatever stores the triage refuses any other.
+
 ### The burden is symmetric
 
 An unverified confirmation is as unsound as an unverified dismissal.

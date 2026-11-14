@@ -366,6 +366,18 @@ what is reasoned rather than measured.
     server returned Action as a built-in pick list with ids on its five
     values. Whether a PUT may add values to a built-in attribute was not
     tried: it changes every project's triage pane.
+- **The CWE alternatives** (`references/cwe-alternatives.json`): the 211
+  CWEs come from the CWE Type column of the 2026.9.0 checker-coverage page,
+  whose own "Related CWE Types" column was too broad to use (whole
+  neighbourhoods, categories and views) and missed real cousins such as
+  476 to 690. The cousins were chosen once by an LLM reading, then every
+  one was checked to exist in MITRE's CWE catalogue (4.20, and 5.0 for the
+  three ids new there) as a current weakness, not a category, view or
+  deprecated entry. 161 CWEs have alternatives, 447 in all. Which cousins
+  a reader actually reaches for is not measured. Coverity's CWE is
+  sometimes not a cousin of the exact one at all (CWE-89 on some
+  mass-assignment issue types, where CWE-915 is exact); the table cannot
+  correct those.
 - **The recommended method per lane** (`references/lane-methods.json`) is
   reasoned from what each lane's question needs, not measured. On the
   fixture: an LLM reading of a lane whose recommendation is execution, or

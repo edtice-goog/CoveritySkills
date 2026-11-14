@@ -132,6 +132,17 @@ def main():
         fn = (b / k2["bundle"]).read_text()
         assert "Reported at 2 sites" in fn and ">>    11  int h" in fn, fn
 
+        # The CWE alternatives table: one row per CWE Coverity assigns, close cousins only.
+        cw = json.loads((HERE.parent / "references" / "cwe-alternatives.json").read_text(encoding="utf-8"))
+        assert cw["format"] == "coverity-triage-cwe-alternatives" and cw["schema"] == 1
+        assert len(cw["source"]["assigned_sha256"]) == 64
+        for k, row in cw["cwes"].items():
+            alts = row["alternatives"]
+            assert k.isdigit() and all(isinstance(a, int) for a in alts), (k, row)
+            assert int(k) not in alts and len(set(alts)) == len(alts), (k, row)
+            assert row["why"].strip(), k
+        assert 787 in cw["cwes"]["119"]["alternatives"] and 80 in cw["cwes"]["79"]["alternatives"]
+
         # --- Step 2: lanes from the checker table --------------------------------
         run(TOOLS / "lanes.py", "check-table", HERE.parent / "references" / "checker-lanes.json")
         ct = work / "custom-table.json"
