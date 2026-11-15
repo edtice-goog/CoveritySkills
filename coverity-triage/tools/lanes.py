@@ -10,7 +10,9 @@ later row replacing an earlier one for the same checker (an organization's
 table, or a producer's rows for its own checkers). A finding whose checker
 has a fixed lane takes it here, with no model. A finding whose checker
 lists candidate lanes is left pending, for inference to choose among them.
-A finding whose checker has no row is unplaced: the skill determines a row
+A finding whose checker has no row is placed by the first of the tables'
+anchored name patterns it matches (the coding standards' rule names, which
+are always Policy); with neither, it is unplaced: the skill determines a row
 for that checker once, adds it to a table file, and runs assign again.
 A finding bundle.py marked as in a compiler header takes Other before any
 table is read: it is never triaged, and records.py records it Intentional.
@@ -79,9 +81,24 @@ def row_problems(name, row):
     return p
 
 
+def pattern_problems(p):
+    """What is wrong with one 'patterns' entry; [] when it is sound."""
+    where = "pattern " + repr(p.get("pattern"))
+    try:
+        re.compile(str(p.get("pattern")))
+    except re.error as e:
+        return [where + ": not a regular expression (" + str(e) + ")"]
+    if not str(p.get("pattern")).startswith("^"):
+        return [where + ": a pattern is anchored at the start of the name (^)"]
+    if "lanes" in p:
+        return [where + ": a pattern fixes one lane; candidates need a row per checker"]
+    return row_problems(where, p)
+
+
 def load_tables(extra, errors):
-    """The skill's table, then each extra one; later rows replace earlier ones."""
-    rows, sources = {}, []
+    """The skill's table, then each extra one; later rows replace earlier ones. Patterns
+    place names that have no row; a later table's patterns are tried first."""
+    rows, patterns, sources = {}, [], []
     for path in [DEFAULT_TABLE] + [pathlib.Path(t) for t in extra]:
         doc = read_json(path, errors, "table")
         if doc is None:
@@ -95,22 +112,37 @@ def load_tables(extra, errors):
                 errors.extend(str(path) + ": " + b for b in bad)
             else:
                 rows[name] = row
+        mine = []
+        for p in doc.get("patterns") or []:
+            bad = pattern_problems(p)
+            if bad:
+                errors.extend(str(path) + ": " + b for b in bad)
+            else:
+                mine.append(p)
+        patterns = mine + patterns
         sources.append(str(path) if path != DEFAULT_TABLE else "references/checker-lanes.json")
-    return rows, sources
+    return rows, patterns, sources
+
+
+def row_for(checker, rows, patterns):
+    """The checker's row, else the first pattern that matches its name, else None."""
+    if checker in rows:
+        return rows[checker]
+    return next((p for p in patterns if re.match(p["pattern"], str(checker))), None)
 
 
 def assign(args):
     errors = []
     bdir = pathlib.Path(args.bundles)
     index = read_json(bdir / "index.json", errors, "index")
-    rows, sources = load_tables(args.table, errors)
+    rows, patterns, sources = load_tables(args.table, errors)
     if errors:
         return fail(errors)
     fixed, pending, unplaced = [], [], collections.defaultdict(list)
     n_hdr = 0
     for b in index.get("bundles", []):
         mk, checker = b["mergeKey"], b.get("checker")
-        row = rows.get(checker)
+        row = row_for(checker, rows, patterns)
         if b.get("compiler_header"):
             fixed.append({"mergeKey": mk, "checker": checker, "lane": OTHER,
                           "reason": "the main site is in a compiler header ("
@@ -170,6 +202,8 @@ def check_table(args):
             continue
         for name, row in (doc.get("checkers") or {}).items():
             errors.extend(t + ": " + b for b in row_problems(name, row))
+        for p in doc.get("patterns") or []:
+            errors.extend(t + ": " + b for b in pattern_problems(p))
     if errors:
         return fail(errors)
     print("valid: " + ", ".join(args.tables))

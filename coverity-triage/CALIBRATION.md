@@ -277,8 +277,24 @@ what is reasoned rather than measured.
   run tested the mechanics.
 - **The checker table.** Its 284 rows are exactly the checkers Coverity
   2026.9.0 lists (`cov-analyze --list-checkers`), in every language.
-  Coding-standard rules (MISRA, AUTOSAR, CERT) are not in that list, and
-  have no rows.
+  Coding-standard rules (MISRA, AUTOSAR, CERT) are not in that list. They
+  are placed in Policy by five anchored name patterns instead.
+  - **Measured:** in a real 2026.9.0 export of a MISRA C-2025 analysis,
+    306,022 of 307,641 findings carried 148 rule names of two forms,
+    `MISRA C-2025 Rule <n>` and `MISRA C-2025 Directive <n>`, and the
+    pattern matches them all.
+  - **From the compliance guide:** the forms `MISRA C++-2008 Rule 3-1-1`,
+    `AUTOSAR C++14 A27-0-4`, `CERT CON30-C` and `CERT FIO51-CPP`. The
+    MISRA C++-2023, CERT Java and ISO TS 17961 forms follow the issue
+    types' origins (`MISRA C++-2023`, `ISO TS 17961`) and are not yet
+    seen in an export.
+  - **Not covered yet:** the Hyundai coding standards, whose rule names
+    were not found in any export or guide. Their findings are unplaced
+    until one is seen.
+  - On the fixture, regular checkers whose names contain a standard's
+    name (`BAD_CERT_VERIFICATION`, `MISRA_CAST`) keep their rows, and a
+    pattern that is unanchored, not a regular expression, or lists
+    candidates is refused.
   - Its 96 C rows were placed from each checker's description in the
     2025.9.0 checker reference, not from findings. Only 13 of them have met
     real findings, all on proftpd.

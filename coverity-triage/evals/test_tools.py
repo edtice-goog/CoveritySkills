@@ -143,6 +143,26 @@ def main():
             assert row["why"].strip(), k
         assert 787 in cw["cwes"]["119"]["alternatives"] and 80 in cw["cwes"]["79"]["alternatives"]
 
+        # Coding-standard rule names are Policy by pattern; a row always wins, and a
+        # checker whose name merely contains a standard's name keeps its row.
+        sys.path.insert(0, str(TOOLS))
+        import lanes as lanes_tool
+        trows, tpats, _ = lanes_tool.load_tables([], [])
+        for name in ("MISRA C-2025 Rule 17.7", "MISRA C-2025 Directive 4.6", "MISRA C-2012 Rule 79",
+                     "MISRA C++-2008 Rule 3-1-1", "MISRA C++-2023 Rule 8.2.5",
+                     "AUTOSAR C++14 A27-0-4", "CERT CON30-C", "CERT FIO51-CPP", "CERT IDS00-J"):
+            assert lanes_tool.row_for(name, trows, tpats)["lane"] == "Policy", name
+        assert lanes_tool.row_for("BAD_CERT_VERIFICATION", trows, tpats)["lane"] == "Construction"
+        assert lanes_tool.row_for("MISRA_CAST", trows, tpats) is trows["MISRA_CAST"]
+        assert lanes_tool.row_for("ACME_MISRA C-2025 Rule 1.1", trows, tpats) is None
+        for name, p in [("unanchored", {"pattern": "MISRA", "lane": "Policy", "why": "x"}),
+                        ("bad-regex", {"pattern": "^MISRA (", "lane": "Policy", "why": "x"}),
+                        ("candidates", {"pattern": "^X ", "lanes": ["Intent", "Contract"], "decide": "x"})]:
+            bad = work / ("bad-pattern-" + name + ".json")
+            wjson(bad, {"format": "coverity-triage-checker-lanes", "schema": 1, "checkers": {},
+                        "patterns": [p]})
+            run(TOOLS / "lanes.py", "check-table", bad, ok=False)
+
         # --- Step 2: lanes from the checker table --------------------------------
         run(TOOLS / "lanes.py", "check-table", HERE.parent / "references" / "checker-lanes.json")
         ct = work / "custom-table.json"

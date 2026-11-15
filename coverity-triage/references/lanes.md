@@ -57,6 +57,17 @@ table, then writes `lanes.json`:
    checker (*Custom checkers*), adds it to a table file, and runs `assign`
    again with that file. A checker is placed once, not once per finding.
 
+**Coding standards are Policy.** A coding standard is, by definition, a
+policy. Its findings carry a rule name rather than a checker name (`MISRA
+C-2025 Rule 17.7`, `AUTOSAR C++14 A27-0-4`, `CERT CON30-C`), thousands of
+them, and none is in `--list-checkers`. The table's `patterns` places them
+all in Policy, so no model is spent choosing a constant. A pattern matches
+from the start of the name and only where no table has a row, so a row
+always wins, and a checker whose name merely contains a standard's name
+(`BAD_CERT_VERIFICATION`, `MISRA_CAST`) keeps its own. A standard whose
+names no pattern covers yet is unplaced the first time, and gets its
+pattern then.
+
 `records.py assemble` refuses a `lanes.json` with anything still pending.
 
 Format of the table and of `lanes.json`: `records.md`.

@@ -47,6 +47,23 @@ validates a table.
 | `route` | optional, only beside `Execution: coverity-verify`: `harness` or `extraction`, the route verify should prefer |
 | `action` | optional, only on an Other row: the action its findings take with no verdict (PARSE_ERROR: `Analysis calibration`) |
 
+**`patterns`**, optional, beside `checkers`: a list of
+`{"pattern", "lane", "why"}` (plus `method`, `route` or `action` by the
+same rules as a row). They place checker names that no table has a row
+for, such as the coding standards' rule names. A pattern is a regular
+expression anchored with `^` and matched from the start of the name, in
+the common syntax (`^`, `$`, `[0-9]`, `[A-Z]`, `{n}`, `+`, `?`, `|`,
+groups, `\\+` for a literal plus). It fixes one lane; it never lists
+candidates. A row in any table wins over every pattern, and a later
+table's patterns are tried before an earlier one's.
+
+```json
+ "patterns": [
+  {"pattern": "^MISRA C-[0-9]{4} (Rule|Directive) [0-9.]+$", "lane": "Policy",
+   "why": "a MISRA C rule or directive, any edition: a coding standard, so a policy"}
+ ]
+```
+
 ## `run.json`: the plan
 
 Written when the plan is fixed, before any lane method runs, so the plan

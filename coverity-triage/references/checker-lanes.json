@@ -1,7 +1,14 @@
 {
  "format": "coverity-triage-checker-lanes",
  "schema": 1,
- "about": "Lane per checker for every checker Coverity 2026.9.0 lists (cov-analyze --list-checkers), in every language; descriptions from doc/en/cov_checker_ref.html. A checker met later gets its row then. A row with 'lane' is fixed: its findings take that lane with no inference. A row with 'lanes' lists the candidates: inference chooses among them per finding, by 'decide'. Rules and format: references/lanes.md and references/records.md.",
+ "about": "Lane per checker for every checker Coverity 2026.9.0 lists (cov-analyze --list-checkers), in every language; descriptions from doc/en/cov_checker_ref.html. A checker met later gets its row then. 'patterns' places the rule names of coding standards, which are always Policy: a name with no row is matched against them from the start of the name, and a row always wins over a pattern. A row with 'lane' is fixed: its findings take that lane with no inference. A row with 'lanes' lists the candidates: inference chooses among them per finding, by 'decide'. Rules and format: references/lanes.md and references/records.md.",
+ "patterns": [
+  {"pattern": "^MISRA C-[0-9]{4} (Rule|Directive) [0-9.]+$", "lane": "Policy", "why": "a MISRA C rule or directive, any edition: a coding standard, so a policy"},
+  {"pattern": "^MISRA C\\+\\+-[0-9]{4} (Rule|Directive) [0-9.-]+$", "lane": "Policy", "why": "a MISRA C++ rule or directive, any edition: a coding standard, so a policy"},
+  {"pattern": "^AUTOSAR C\\+\\+14 [A-Z][0-9]+-[0-9]+-[0-9]+$", "lane": "Policy", "why": "an AUTOSAR C++14 rule: a coding standard, so a policy"},
+  {"pattern": "^CERT [A-Z]{3}[0-9]{2}-(C|CPP|J)$", "lane": "Policy", "why": "a CERT C, C++ or Java rule or recommendation: a coding standard, so a policy"},
+  {"pattern": "^ISO TS ?17961 ", "lane": "Policy", "why": "an ISO/IEC TS 17961 rule: a coding standard, so a policy"}
+ ],
  "checkers": {
   "ALLOC_FREE_MISMATCH": {"lane": "Value or path", "why": "a resource reaches a freeing function that does not match its allocator"},
   "ANDROID_CAPABILITY_LEAK": {"lane": "Construction", "why": "an exposed component uses a capability without checking the caller's permission"},
