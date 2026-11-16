@@ -199,7 +199,7 @@ documented and covers most of what Method A2 currently takes from
 
 | Needed | Undocumented source now used | Documented alternative |
 |---|---|---|
-| Is this TU analyzable? | `had-abstract-syntax-trees` | **`list-json` -> `hasASTs`**, documented with an example. Also `cov-manage-emit list`, which suffixes such a TU with ` (no ASTs)` -- the literal is present in the 2026.6.0 binary; the marker itself has not been triggered in a live run (queue item 4) and the `list` documentation mentions only ID and filename |
+| Is this TU analyzable? | `had-abstract-syntax-trees` | **`list-json` -> `hasASTs`**, documented with an example. Also `cov-manage-emit list`, which suffixes such a TU with ` (no ASTs)`, observed live as ` (no ASTs) (failure)` (queue item 4); the `list` documentation mentions only ID and filename |
 | Did this TU parse completely? | `capture-percentage`, `astFidelityPercent` | `coverity list` capture status **`Incomplete`** -- categorical rather than a percentage, but it is the actionable distinction |
 | Did this TU fail? | `had-failures`, `isFailure` | `coverity list` status **`Failed`** and the `FAILED` count |
 | Recoverable errors | `had-recoverable-errors` (per TU) | `cov-manage-emit --tu-pattern 'had_recoverable_errors("true")' list` -- documented per TU, with an example, in the 2026.3.0 and 2026.6.0 references |

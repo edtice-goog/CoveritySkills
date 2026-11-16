@@ -401,10 +401,11 @@ Source: mixed. **Documented** — `cov-emit-cs`, `cov-emit-java`, and
 files "present in the Intermediate Directory and whose timestamps has not
 changed", so timestamps demonstrably drive re-emit decisions. **Observed** —
 `coverity capture` runs an action named *Update uncaptured file timestamps for
-project*. **Reported from the field, not reproduced here** — the commit-side
-refusal: `cov-commit-defects` performs its server handshake before any local
-staleness complaint, so it cannot be probed without a Coverity Connect
-instance. See `CALIBRATION.md`.
+project*. **Measured** — the commit-side refusal, on a live Coverity Connect:
+an idir whose emit is newer than its analysis results is refused with exit 2
+and `Emit appears more recent than analysis results`. The check is relative,
+so a copy that rewrites every timestamp to the same moment passes it while
+the ordering it certifies means nothing. See `CALIBRATION.md`.
 
 ### 34. Capture is not all-or-nothing — a captured file can be missing functions
 
@@ -602,9 +603,8 @@ document, so prefer `hasASTs` over the neighbouring `astFidelityPercent` and
 `isFailure` when the documented answer is enough.
 
 Source: verified against 2026.6.0 (`format_version: 4`); fallback set
-documented, and the ` (no ASTs)` marker confirmed as a literal in the shipped
-`cov-manage-emit` binary but not yet triggered in a live run —
-`CALIBRATION.md`.
+documented, and the ` (no ASTs) (failure)` marker observed on a compilation
+that failed outright — `CALIBRATION.md`.
 
 ### 14. An empty `unconfigured-compilers` is a pass; a missing `scan-transparency/` is not
 
