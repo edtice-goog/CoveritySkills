@@ -320,18 +320,7 @@ config set, so no `--config` or `cfg/` is involved),
 it named the uncaptured source on the incomplete run), `strip-path`,
 `capture-platform`, `config-hash`; and `output/strip-paths.json`.
 
-### Still open
-
-`cov-analyze.exe` and `cov-build.exe` both contain strings for
-`successfully-captured-files`, `partially-captured-files`, `uncaptured-files`,
-`ignored-files`, `analysis-ignored-duplicate-files`, and
-`analysis-ignored-filtered-files`. None appeared on any of the three runs --
-`cov-build`, an incomplete CLI capture, or a clean CLI capture. String
-presence proves nothing about the writer: these symbols sit in a library
-linked into nearly every binary in `bin/`. Remaining candidates are `coverity
-scan`, duplicate or filtered translation units, and a genuine partial parse.
-Until pinned, **the absence of these files is uninformative** and must not be
-reported as evidence that nothing was ignored, duplicated, or filtered.
+### Measured on later runs
 
 - **Rule 14 -- the unconfigured-compiler true positive, beside the phantom.**
   Two include-free C sources; `cov-configure --gcc` only; `gmake` compiling
@@ -598,9 +587,8 @@ What remains reasoned rather than measured is narrower and worth stating
 plainly when a reader is betting on it: the mechanism behind the
 `unconfigured-compilers` phantom and behind the `cov-build` outside-project
 bucketing (both are consistent inferences from `strip-path`, not confirmed
-internals), whether the commit-side staleness check runs before or after the
-connection, and the conditions under which `successfully-captured-files` and
-its siblings are ever written. New rows belong here as they are found.
+internals), and whether the commit-side staleness check runs before or after the
+connection. New rows belong here as they are found.
 
 **Deliberately not queued:** why an analysis is noisy. Rule 26 has the user
 *detect* noise and re-check capture; diagnosing the rest is a methodology of

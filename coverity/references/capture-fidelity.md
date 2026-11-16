@@ -518,14 +518,9 @@ before it means anything, exactly like `IGNORED` in Method A.
 not `scan-transparency/`. See A4 above; it is the best provenance record in
 the whole intermediate directory.
 
-The binaries also carry strings for `successfully-captured-files`,
-`partially-captured-files`, `uncaptured-files`, `ignored-files`,
-`analysis-ignored-duplicate-files`, and `analysis-ignored-filtered-files`.
-None of these appeared on any path tried -- `cov-build`, a CLI capture with a
-real hole, or a clean CLI capture. They are presumably conditional on
-something not reproduced yet: `coverity scan`, duplicate or filtered TUs, or a
-genuine partial parse. **Treat their absence as uninformative** rather than as
-evidence that nothing was ignored, duplicated, or filtered.
+Other files appear in `scan-transparency/` on some captures. Read whatever
+is there; each says what it reports. **A file that is not there is not
+evidence** that nothing was ignored, duplicated, or filtered.
 
 ### The other transparency data
 
