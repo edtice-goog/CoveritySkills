@@ -212,7 +212,8 @@ def main():
         runj = {"date": "2026-10-28", "selection": "per-checker sample of 1",
                 "assigner": "LLM: Sonnet 5.5", "who": "test", "connect_ai_triage": False,
                 "lanes": {"Construction": "None", "Intent": "LLM: Sonnet 5.5",
-                          "Contract": "LLM: Sonnet 5.5", "Value or path": "Human"}}
+                          "Contract": "LLM: Sonnet 5.5", "Value or path": "Human",
+                          "Audit": "None"}}
         verdicts = {"lane": "Contract", "method": "LLM: Sonnet 5.5", "model": "test-model",
                     "verdicts": [GOOD_INVARIANT,
                                  {"mergeKey": "k3", "verdict": "real, low severity",
@@ -566,7 +567,7 @@ def test_releases_and_headers(work, repo):
     runj = {"date": "2026-10-29", "selection": "all", "assigner": "None", "who": "test",
             "connect_ai_triage": False,
             "lanes": {"Construction": "None", "Intent": "None", "Contract": "LLM: Sonnet 5.5",
-                      "Value or path": "None"}}
+                      "Value or path": "None", "Audit": "None"}}
     contract = {"lane": "Contract", "method": "LLM: Sonnet 5.5", "model": "test-model",
                 "verdicts": [{"mergeKey": "a1", "verdict": "real", "reason": "unchecked at src/a.c:6"}]}
 
@@ -826,7 +827,7 @@ def test_connect_attributes(work):
         dc, tm = fake.attrs["Defect Category"], fake.attrs["Triage Method"]
         assert dc["defaultValueName"] == "Unassigned" and dc["attributeType"] == "LIST_OF_VALUES"
         assert [v["name"] for v in dc["attributeValues"]] == [
-            "Unassigned", "Construction", "Intent", "Contract", "Value or path", "Policy", "Other"]
+            "Unassigned", "Construction", "Intent", "Contract", "Value or path", "Audit", "Policy", "Other"]
         assert tm["defaultValueName"] == "None"
         assert [v["name"] for v in tm["attributeValues"]] == [
             "None", "Execution: coverity-verify", "Human", "LLM: Sonnet 5.5"]

@@ -19,7 +19,7 @@ import pathlib
 import re
 import sys
 
-METHOD_LANES = ("Construction", "Intent", "Contract", "Value or path")
+METHOD_LANES = ("Construction", "Intent", "Contract", "Value or path", "Audit")
 POLICY, OTHER = "Policy", "Other"
 ALL_LANES = METHOD_LANES + (POLICY, OTHER)
 METHOD = re.compile(r"^(LLM: \S.*|Execution: coverity-verify|Human|None)$")

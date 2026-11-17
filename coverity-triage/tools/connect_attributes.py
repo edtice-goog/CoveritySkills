@@ -44,7 +44,7 @@ import urllib.parse
 import urllib.request
 
 API = "/api/v2/triageAttributes"
-LANES = ("Construction", "Intent", "Contract", "Value or path", "Policy", "Other")
+LANES = ("Construction", "Intent", "Contract", "Value or path", "Audit", "Policy", "Other")
 LANE_DEFAULT = "Unassigned"
 METHOD_BASE = ("None", "Execution: coverity-verify", "Human")
 METHOD_DEFAULT = "None"

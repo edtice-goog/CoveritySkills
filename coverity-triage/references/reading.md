@@ -130,6 +130,21 @@ the located invariant. The detection is accurate and the code is
 deliberate (a null check after a dereference, kept as a defensive guard
 that no caller can make fail) → `intentional`.
 
+### Audit
+
+The claim is only that this is a place to look. The checker flags code
+where something dangerous could happen, and does not say that it does.
+
+1. **What is the checker asking about?** The danger its reference names:
+   distrusted data deserialized, a file other applications can read.
+2. **Does this code do it?** Follow the flagged value or setting as far as
+   the answer needs: where the data comes from, what the setting exposes.
+
+Verdicts: it does → `real` (`real, low severity` when little is exposed).
+It cannot, here → `false positive - global invariant`, with what rules it
+out as the invariant. It does, and that is the design (a file meant to be
+shared) → `intentional`.
+
 ### Policy
 
 Not read. A Policy finding is a match against a rule set, a list or a

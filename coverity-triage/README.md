@@ -11,6 +11,7 @@ question triage has to answer depends on the kind of claim:
 | **Intent** | well-defined code that a pattern suggests the author may not have meant | what did the author mean, and does the code do it? |
 | **Contract** | a call ignores a failure its callee can report, or uses a result that can be invalid | what is the callee's contract, can it fail for this call, does the caller rely on success? |
 | **Value or path** | a value or state reaches a point, along a path, that does not handle it | is the path feasible, and is the value handled at the point? |
+| **Audit** | a place to look: the checker claims nothing about the code it flags | does the flagged code do the dangerous thing? (only when the plan asks) |
 | **Policy** | a match against a rule set, a don't-call list or a threshold | none: never triaged, the rule decides |
 | **Other** | not a claim about the code, or nothing fits | none: no method, no verdict |
 
@@ -42,7 +43,7 @@ flowchart LR
     T -->|"candidates"| A["Inference chooses"]
     T --> L["Lane"]
     A --> L
-    L --> M["Construction, Intent, Contract,<br/>Value or path: a method each"]
+    L --> M["Construction, Intent, Contract,<br/>Value or path, Audit: a method each"]
     L --> P["Policy, Other<br/>no method"]
     M --> V["Verdict"]
     V --> R[("triage.json<br/>tools/records.py")]
@@ -115,7 +116,7 @@ coverity-triage/
 ├── SKILL.md                     # select → bundle → assign a lane → lane methods → records → report
 ├── CALIBRATION.md               # what was run, on what, and what was not
 ├── references/
-│   ├── lanes.md                 # the six lanes, the tests, the table, custom checkers, methods
+│   ├── lanes.md                 # the seven lanes, the tests, the table, custom checkers, methods
 │   ├── checker-lanes.json       # the checker table: a lane, or candidates, per checker
 │   ├── lane-methods.json        # the recommended method per lane, and the reading in lieu of execution
 │   ├── cwe-alternatives.json    # per CWE Coverity assigns, the close cousins a reader may correct it to

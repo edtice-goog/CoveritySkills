@@ -2,7 +2,7 @@
 name: coverity-triage
 description: >
   Triage Coverity findings in lanes. Each finding gets a lane by the kind of
-  claim it makes: Construction, Intent, Contract or Value or path; Policy
+  claim it makes: Construction, Intent, Contract, Value or path or Audit; Policy
   for rule matches, which are never triaged; Other when nothing fits. A
   checker table fixes the lane for most checkers, and inference runs only
   where a checker's findings vary. Each lane runs a method chosen per lane
@@ -55,11 +55,15 @@ So triage runs in lanes:
   claim, and only among that checker's candidate lanes.
 - **Policy findings are never triaged.** A match against MISRA, a don't-call
   list or a threshold is the rule authors' decision.
+- **Audit findings are triaged only when the plan says so.** An audit
+  checker asks for a review and claims nothing, so its recommended method
+  is `None`.
 - **Other** is for what fits no lane, and nothing further is done.
 - **Each lane has a recommended method**, in `references/lane-methods.json`:
   a reading for Construction, Intent and Contract, each with its model,
-  and execution through `coverity-verify` for Value or path. It is what a
-  plan starts from, not a default. **A checker's own method overrides it**,
+  execution through `coverity-verify` for Value or path, and `None` for
+  Audit. It is what a plan starts from, not a default. **A checker's own
+  method overrides it**,
   and the user's choice for a single finding overrides both. No lane
   restricts methods. A stronger model's reading **in lieu of execution** is
   a sanctioned choice, and the record says it was read, not executed.
@@ -84,9 +88,10 @@ flowchart LR
     L --> M2["Intent"]
     L --> M3["Contract"]
     L --> M4["Value or path"]
+    L --> M5["Audit"]
     L --> PO["Policy<br/>never triaged"]
     L --> O["Other<br/>no method"]
-    M1 & M2 & M3 & M4 --> V["Verdict<br/>(override, else the checker's<br/>own method, else the lane's)"]
+    M1 & M2 & M3 & M4 & M5 --> V["Verdict<br/>(override, else the checker's<br/>own method, else the lane's)"]
     V --> R[("Records file<br/>Classification, Action,<br/>Severity, Comment<br/>+ Defect Category, Triage Method")]
     PO --> R
     O --> R
@@ -135,7 +140,7 @@ Every lane method spends model time, or build and fuzz time, per finding.
 So three things are fixed before any method runs:
 
 1. **The selection**: which findings, and how many.
-2. **The plan**: a method for each of the four method lanes (`None` when a
+2. **The plan**: a method for each of the five method lanes (`None` when a
    lane is left out), its model, and the model for inference.
 3. **The rows for any checker the table does not have** (*Step 2*).
 
@@ -331,7 +336,7 @@ it.
 | **A person** | `Human` | the bundles are the hand-off; the record carries the lane and method, and waits for the person's verdict |
 | **Not run** | `None` | the plan left the lane out; its findings keep their lane and get no verdict |
 
-**Any method may be planned for any of the four method lanes**, and a
+**Any method may be planned for any of the five method lanes**, and a
 user's override may give any finding any method: a closer look at single
 defects is always on offer. A finding's method is the first that applies:
 
@@ -619,7 +624,7 @@ coverity-triage/
 ├── README.md
 ├── CALIBRATION.md               # what was run, on what, and what was not
 ├── references/
-│   ├── lanes.md                 # the six lanes, the tests, the table, custom checkers, methods
+│   ├── lanes.md                 # the seven lanes, the tests, the table, custom checkers, methods
 │   ├── checker-lanes.json       # the checker table: every checker Coverity 2026.9.0 lists
 │   ├── lane-methods.json        # the recommended method per lane; the reading in lieu of execution
 │   ├── cwe-alternatives.json    # per CWE Coverity assigns, the close cousins a reader may correct it to

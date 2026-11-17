@@ -41,7 +41,7 @@ validates a table.
 |---|---|
 | `lane` | a fixed lane, one of the six. Give `lane` or `lanes`, never both |
 | `why` | required with `lane`: what the checker claims, in a phrase. It becomes the finding's lane reason |
-| `lanes` | two or more candidate lanes, all from Construction, Intent, Contract and Value or path. Inference chooses among them per finding |
+| `lanes` | two or more candidate lanes, all from Construction, Intent, Contract, Value or path and Audit. Inference chooses among them per finding |
 | `decide` | required with `lanes`: what tells the candidates apart |
 | `method` | optional: the method the checker was built for (`LLM: <model>`, `Execution: coverity-verify` or `Human`). It overrides the lane's method in the plan. Never on a Policy or Other row; a checker that is never triaged is Policy |
 | `route` | optional, only beside `Execution: coverity-verify`: `harness` or `extraction`, the route verify should prefer |
@@ -77,7 +77,8 @@ that was agreed is the plan on record.
  "lanes": {"Construction": "LLM: Sonnet 5.5",
            "Intent": "LLM: Sonnet 5.5",
            "Contract": "LLM: Opus 5.5",
-           "Value or path": "Execution: coverity-verify"},
+           "Value or path": "Execution: coverity-verify",
+           "Audit": "None"},
  "verify_route": "extraction",
  "who": "4 local subagents in Claude Code",
  "connect_ai_triage": false,
@@ -95,12 +96,12 @@ that was agreed is the plan on record.
 - **`in_lieu_reason`**: required when the plan has an LLM read a lane whose
   recommended method is execution (`lane-methods.json`); the records say
   those findings were read in lieu of execution, and why.
-- **`lanes`** names a method for each of the four method lanes. A lane
+- **`lanes`** names a method for each of the five method lanes. A lane
   left out of the plan has `"None"`, written down: a missing lane is
   refused, never defaulted. Policy and Other are never listed.
 - **A method** is one of `LLM: <model>`, `Execution: coverity-verify`,
   `Human` or `None`. `<model>` is the model's display name (`Opus 5.5`,
-  `Sonnet 5.5`, `Haiku 5.5`). Any method may be planned for any of the four
+  `Sonnet 5.5`, `Haiku 5.5`). Any method may be planned for any of the five
   lanes.
 - **`assigner`** is the method for inference on findings left pending. It
   is `"None"` when the table settles every lane.
@@ -148,7 +149,7 @@ unplaced checker gets a row in a table file, and `assign` runs again. Before
 
 | field | rule |
 |---|---|
-| `lane` | one of `Construction`, `Intent`, `Contract`, `Value or path`, `Policy`, `Other` |
+| `lane` | one of `Construction`, `Intent`, `Contract`, `Value or path`, `Audit`, `Policy`, `Other` |
 | `reason` | required: the row's `why`, or the sentence inference wrote naming the events |
 | `assigned_by` | `checker table`, the plan's `assigner` (with `candidates`, and a lane among them), `Human` (a person moving a finding, with the reason), or `compiler header` (always lane `Other`, and only for a finding `index.json` marks with `compiler_header`) |
 | `method`, `route` | copied from the checker's row, when it has them |
@@ -424,7 +425,7 @@ with `<Label>` one of *Real defect*, *Real defect, low severity*,
 
 | attribute | Connect type | default | values |
 |---|---|---|---|
-| `Defect Category` | pick list | `Unassigned` | `Unassigned`, `Construction`, `Intent`, `Contract`, `Value or path`, `Policy`, `Other` |
+| `Defect Category` | pick list | `Unassigned` | `Unassigned`, `Construction`, `Intent`, `Contract`, `Value or path`, `Audit`, `Policy`, `Other` |
 | `Triage Method` | pick list | `None` | `None`, `Execution: coverity-verify`, `Human`, `LLM: <model>` (one value per model used) |
 
 Connect gives every pick list a default, which is what a finding nobody has

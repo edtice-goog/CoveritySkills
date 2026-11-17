@@ -12,7 +12,7 @@ a **checker table**, with no model involved. Inference is spent only where a
 checker's findings can make more than one kind of claim, and it chooses
 among that checker's candidate lanes.
 
-## The six lanes
+## The seven lanes
 
 | lane | the claim | the question a reader answers |
 |---|---|---|
@@ -20,6 +20,7 @@ among that checker's candidate lanes.
 | **Intent** | the code is well-defined, but a pattern suggests it may not be what its author meant, and the checker cannot know what was meant | what did the author mean, and does the code do it? |
 | **Contract** | a call ignores a failure its callee can report, or uses a result that can be invalid | what does the callee promise, and does the caller rely on more? |
 | **Value or path** | a value or state found along a path, or data from an untrusted source, reaches a point that does not handle it | is the path feasible, and is the value handled at the point? |
+| **Audit** | a place to look: the checker flags code where something dangerous could happen, and does not claim that it does | does the flagged code do the dangerous thing? |
 | **Policy** | a match against a rule set (MISRA), a don't-call list or a configured threshold, with no claim that the code misbehaves | none. Policy is never triaged: the rule's authors decided, and a reader would only be second-guessing them |
 | **Other** | not a claim about the code (PARSE_ERROR is a capture problem), or a claim no lane fits | none: no method, no verdict |
 
@@ -33,8 +34,13 @@ exception is code whose algorithm defines the wrap or the truncation (a
 hash, a checksum, some cryptography). That code is `intentional`, with the
 place that says so.
 
+**Audit is a method lane with no method recommended.** An audit checker
+asks for a review and claims nothing, so the plan decides whether to spend
+one, and with which method.
+
 **Policy and Other both take no method.** The difference matters in the
-report: Policy is decided, Other is unplaced.
+report: Policy is decided, Other is unplaced, and an Audit finding with no
+verdict is a review that was asked for and not done.
 
 ## Assigning: the checker table first
 
@@ -101,7 +107,15 @@ and for choosing among a row's candidates. Take the first that answers yes.
 1. **Is it a claim about the code at all?** If not, **Other**. PARSE_ERROR
    reports that the compiler front end could not parse a file, which is a
    capture question for the `coverity` skill.
-2. **Is the report only a match against a rule, a list or a threshold, with
+2. **Does the checker only ask for a review, claiming nothing about the code
+   it flags?** **Audit.** An audit checker reports every place where
+   something dangerous could happen (any distrusted data passed to a
+   deserializer, any call on a list of calls to review), and its reference
+   says a person decides. A don't-call list is not Audit: it forbids the
+   call. Nor is a checker that asserts the danger (that the value is a
+   credential), whatever its name: CONFIG.HARDCODED_CREDENTIALS_AUDIT is
+   Construction.
+3. **Is the report only a match against a rule, a list or a threshold, with
    no claim that the code misbehaves?** That is **Policy**. The test: if the
    checker asserts anything that could turn out untrue (that a value is a
    secret, that a path reaches a sink), it gets triage, and it is not
@@ -109,20 +123,20 @@ and for choosing among a row's candidates. Take the first that answers yes.
    parameter passed by value) is Policy even when its premise could be
    checked: the code is correct either way, so triage has no question to
    answer.
-3. **Is the behaviour wrong or undefined for some input the code can
+4. **Is the behaviour wrong or undefined for some input the code can
    receive, judged from types, declared sizes or the shape of a call, with
    no particular value needed?** **Construction.** This includes a construct
    that is wrong under some thread schedule (locks taken in different
    orders) and a security construct wrong under some attacker input (a
    chroot jail with no chdir).
-4. **Is the behaviour well-defined, so the only question is whether the
+5. **Is the behaviour well-defined, so the only question is whether the
    author meant it?** **Intent.** A switch case that falls through, two
    adjacent checks that look copied, a branch no value can reach, a value
    stored and never used: if the intent were known, the question would be
    settled.
-5. **Is the claim about a callee's failure or invalid result, which the
+6. **Is the claim about a callee's failure or invalid result, which the
    caller ignores or uses?** **Contract.**
-6. **Does the claim rest on a value or a range found along a path, or on
+7. **Does the claim rest on a value or a range found along a path, or on
    data from an untrusted source?** **Value or path.**
 
 **Candidate lanes: the events decide.** A checker gets candidates only when
@@ -147,7 +161,8 @@ finding's method:
 
 **The recommendation per lane** is in `lane-methods.json`, for a plan to
 start from: a reading for Construction, Intent and Contract, execution for
-Value or path. It is not a default; the plan is still the user's choice.
+Value or path, `None` for Audit. It is not a default; the plan is still the
+user's choice.
 Policy and Other are listed with `None`, and for them it is a rule: Policy
 is never triaged.
 
