@@ -314,6 +314,10 @@ what is reasoned rather than measured.
     went to Policy (its reference calls it an audit checker that claims no
     vulnerability), and CONFIG.ENABLED_DEBUG_MODE to Construction (like
     CONFIG.ENABLED_TRACE_MODE). None of the 177 has met a real finding.
+    With the Audit lane (2026-11), DISTRUSTED_DATA_DESERIALIZATION and five
+    other checkers whose 2026.9.0 reference asks a person to review and
+    decide moved from Policy to Audit: the same reading of the checker, but
+    a review is the person's to spend, which Policy never allows.
   - Which checkers vary enough to need candidates, and which candidates
     they get, is reasoned from those descriptions.
   - A checker that is not in the table (one from a later release, a

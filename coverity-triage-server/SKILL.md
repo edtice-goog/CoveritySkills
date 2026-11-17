@@ -61,7 +61,8 @@ row's `decide`. A checker with no row is placed by the tests in
 The checker's own method from its row, else the method the service's plan
 gives the lane. A plan starts from the recommendation per lane,
 `coverity-triage/references/lane-methods.json`, in which Value or path
-takes execution. Policy and Other take none.
+takes execution. Policy and Other take none. A lane whose method is `None`
+(Audit, by default) gets its lane only, with no reading.
 
 **If the method is `Execution: coverity-verify`, record the lane and the
 method, and stop.** No verdict, no action, no comment: the claim is settled
