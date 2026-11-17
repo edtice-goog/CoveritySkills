@@ -39,7 +39,7 @@ validates a table.
 
 | field | rule |
 |---|---|
-| `lane` | a fixed lane, one of the six. Give `lane` or `lanes`, never both |
+| `lane` | a fixed lane, one of the seven. Give `lane` or `lanes`, never both |
 | `why` | required with `lane`: what the checker claims, in a phrase. It becomes the finding's lane reason |
 | `lanes` | two or more candidate lanes, all from Construction, Intent, Contract, Value or path and Audit. Inference chooses among them per finding |
 | `decide` | required with `lanes`: what tells the candidates apart |
